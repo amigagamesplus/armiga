@@ -22,3 +22,4 @@ board/armiga/linux/linux-*/
 board/armiga/linux/modules_out/
 board/armiga/linux/*.tar.xz
 board/armiga/linux/*.tar.gz
+board/armiga/linux/build_kernel.log
