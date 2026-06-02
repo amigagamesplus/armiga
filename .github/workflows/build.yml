@@ -25,6 +25,9 @@ on:
 
 env:
   BR_VERSION: ${{ github.event.inputs.buildroot_version || '2026.02.2' }}
+  BR_EXTERNAL: ${{ github.workspace }}
+  BR_DL_DIR: ${{ github.workspace }}/dl
+  BR_OUTPUT: ${{ github.workspace }}/output
 
 jobs:
   build:
@@ -44,7 +47,7 @@ jobs:
             build-essential wget cpio unzip rsync bc \
             python3 python3-pip libssl-dev \
             file gawk texinfo bison flex \
-            exfat-utils exfatprogs \
+            exfatprogs \
             libncurses-dev \
             dosfstools mtools genimage \
             gdisk
@@ -58,7 +61,7 @@ jobs:
           restore-keys: |
             ccache-${{ env.BR_VERSION }}-
 
-      # --- Cache de descarga de paquetes ---
+      # --- Cache de descargas ---
       - name: Cache Buildroot downloads
         uses: actions/cache@v4
         with:
@@ -77,24 +80,27 @@ jobs:
       # --- Configurar ---
       - name: Configure Buildroot
         run: |
-          make BR2_EXTERNAL=${{ github.workspace }} \
+          make BR2_EXTERNAL="${BR_EXTERNAL}" \
                -C buildroot \
-               O=${{ github.workspace }}/output \
+               O="${BR_OUTPUT}" \
                armiga_defconfig
 
       # --- Build ---
       - name: Build
         run: |
-          make -C output -j$(nproc)
+          make BR2_EXTERNAL="${BR_EXTERNAL}" \
+               BR2_DL_DIR="${BR_DL_DIR}" \
+               -C "${BR_OUTPUT}" \
+               -j$(nproc)
 
       # --- Listar resultados ---
       - name: List images
         run: |
           echo "=== Imágenes generadas ==="
-          ls -lh output/images/
+          ls -lh "${BR_OUTPUT}/images/"
           echo ""
           echo "=== Tamaño sdcard.img ==="
-          du -h output/images/sdcard.img || echo "sdcard.img no encontrado"
+          du -h "${BR_OUTPUT}/images/sdcard.img" || echo "sdcard.img no encontrado"
 
       # --- Upload artifact ---
       - name: Upload SD image
@@ -116,7 +122,7 @@ jobs:
             ## Armiga Build #${{ github.run_number }}
 
             - Buildroot: ${{ env.BR_VERSION }}
-            - Kernel: Rocknix 7.0.10 (prebuilt)
+            - Kernel: 7.0.2-armiga
             - Commit: ${{ github.sha }}
 
             ### Flash
