@@ -1,0 +1,29 @@
+#!/bin/sh
+# =============================================================================
+# S99shell — Fase 1: login shell con info del sistema
+# En fases posteriores se reemplazará por S99amiberry
+# =============================================================================
+
+case "$1" in
+    start)
+        # Mostrar info al arrancar por serial
+        echo ""
+        echo "============================================"
+        echo "  Armiga — Fase 1 — Base System"
+        echo "============================================"
+        echo ""
+        # fastfetch si está disponible
+        if command -v fastfetch >/dev/null 2>&1; then
+            fastfetch
+        fi
+        echo ""
+        echo "  SSH:  root@$(hostname) (puerto 22)"
+        echo "  Pass: armiga"
+        echo ""
+        echo "============================================"
+        ;;
+    stop)
+        ;;
+    *)
+        ;;
+esac

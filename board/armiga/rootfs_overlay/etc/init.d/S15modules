@@ -1,0 +1,40 @@
+#!/bin/sh
+# =============================================================================
+# S15modules — Carga de módulos del kernel necesarios
+# RTL8821CS WiFi + BT
+# =============================================================================
+
+case "$1" in
+    start)
+        printf "Loading kernel modules: "
+
+        # Cargar módulos WiFi/BT si existen
+        for mod in cfg80211 mac80211 rtw88_core rtw88_sdio rtw88_8821c rtw88_8821cs; do
+            if modprobe "$mod" 2>/dev/null; then
+                echo -n "$mod "
+            fi
+        done
+
+        # Bluetooth
+        for mod in bluetooth btrtl hci_uart; do
+            if modprobe "$mod" 2>/dev/null; then
+                echo -n "$mod "
+            fi
+        done
+
+        echo "OK"
+        ;;
+    stop)
+        printf "Unloading kernel modules: "
+        # No descargamos — puede causar problemas
+        echo "OK"
+        ;;
+    restart)
+        "$0" stop
+        "$0" start
+        ;;
+    *)
+        echo "Usage: $0 {start|stop|restart}"
+        exit 1
+        ;;
+esac

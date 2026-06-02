@@ -1,0 +1,8 @@
+# =============================================================================
+# 90-wlan-powersave.rules
+# Deshabilita power management en wlan para RTL8821CS
+# Fuente: Rocknix (commit reciente para H700)
+# =============================================================================
+
+ACTION=="add", SUBSYSTEM=="net", KERNEL=="wlan*", \
+    RUN+="/sbin/iw dev %k set power_save off"

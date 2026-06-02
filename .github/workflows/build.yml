@@ -1,0 +1,130 @@
+# =============================================================================
+# Armiga — GitHub Actions Build Workflow
+# Compila Buildroot completo para Anbernic RG40XX H (Allwinner H700)
+# Trigger: manual (workflow_dispatch)
+# =============================================================================
+
+name: Build Armiga
+
+on:
+  workflow_dispatch:
+    inputs:
+      release:
+        description: 'Crear release con la imagen'
+        required: false
+        default: 'false'
+        type: choice
+        options:
+          - 'false'
+          - 'true'
+      buildroot_version:
+        description: 'Versión de Buildroot'
+        required: false
+        default: '2026.02.2'
+        type: string
+
+env:
+  BR_VERSION: ${{ github.event.inputs.buildroot_version || '2026.02.2' }}
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 180
+
+    steps:
+      # --- Checkout del repo ---
+      - name: Checkout Armiga
+        uses: actions/checkout@v4
+
+      # --- Instalar dependencias de host ---
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential wget cpio unzip rsync bc \
+            python3 python3-pip libssl-dev \
+            file gawk texinfo bison flex \
+            exfat-utils exfatprogs \
+            libncurses-dev \
+            dosfstools mtools genimage \
+            gdisk
+
+      # --- Cache de ccache ---
+      - name: Cache ccache
+        uses: actions/cache@v4
+        with:
+          path: .buildroot-ccache
+          key: ccache-${{ env.BR_VERSION }}-${{ github.sha }}
+          restore-keys: |
+            ccache-${{ env.BR_VERSION }}-
+
+      # --- Cache de descarga de paquetes ---
+      - name: Cache Buildroot downloads
+        uses: actions/cache@v4
+        with:
+          path: dl
+          key: dl-${{ env.BR_VERSION }}-${{ hashFiles('configs/armiga_defconfig') }}
+          restore-keys: |
+            dl-${{ env.BR_VERSION }}-
+
+      # --- Descargar Buildroot ---
+      - name: Download Buildroot
+        run: |
+          wget -q "https://buildroot.org/downloads/buildroot-${BR_VERSION}.tar.xz"
+          tar xf "buildroot-${BR_VERSION}.tar.xz"
+          mv "buildroot-${BR_VERSION}" buildroot
+
+      # --- Configurar ---
+      - name: Configure Buildroot
+        run: |
+          make BR2_EXTERNAL=${{ github.workspace }} \
+               -C buildroot \
+               O=${{ github.workspace }}/output \
+               armiga_defconfig
+
+      # --- Build ---
+      - name: Build
+        run: |
+          make -C output -j$(nproc)
+
+      # --- Listar resultados ---
+      - name: List images
+        run: |
+          echo "=== Imágenes generadas ==="
+          ls -lh output/images/
+          echo ""
+          echo "=== Tamaño sdcard.img ==="
+          du -h output/images/sdcard.img || echo "sdcard.img no encontrado"
+
+      # --- Upload artifact ---
+      - name: Upload SD image
+        uses: actions/upload-artifact@v4
+        with:
+          name: armiga-sdcard-${{ github.run_number }}
+          path: output/images/sdcard.img
+          compression-level: 9
+          retention-days: 30
+
+      # --- Release (opcional) ---
+      - name: Create Release
+        if: github.event.inputs.release == 'true'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: build-${{ github.run_number }}
+          name: "Armiga Build #${{ github.run_number }}"
+          body: |
+            ## Armiga Build #${{ github.run_number }}
+
+            - Buildroot: ${{ env.BR_VERSION }}
+            - Kernel: Rocknix 7.0.10 (prebuilt)
+            - Commit: ${{ github.sha }}
+
+            ### Flash
+            ```bash
+            sudo dd if=sdcard.img of=/dev/sdX bs=4M status=progress conv=fsync
+            sudo sgdisk -e /dev/sdX
+            sync
+            ```
+          files: output/images/sdcard.img
+          draft: false
+          prerelease: true

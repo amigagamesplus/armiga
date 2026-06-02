@@ -1,0 +1,24 @@
+# Build artifacts
+/output/
+/buildroot/
+/dl/
+
+# Editor
+*.swp
+*.swo
+*~
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Kernel binary is tracked intentionally
+# board/armiga/bootloader/Image
+
+# Kernel build (local only)
+board/armiga/linux/linux-*/
+board/armiga/linux/modules_out/
+board/armiga/linux/*.tar.xz
+board/armiga/linux/*.tar.gz

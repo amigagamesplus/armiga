@@ -1,0 +1,1 @@
+source "$BR2_EXTERNAL_ARMIGA_PATH/package/fastfetch/Config.in"

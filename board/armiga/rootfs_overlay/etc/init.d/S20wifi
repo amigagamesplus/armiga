@@ -1,0 +1,81 @@
+#!/bin/sh
+# =============================================================================
+# S20wifi — Arranque de WiFi (wpa_supplicant + udhcpc)
+# Chip: RTL8821CS vía SDIO
+# =============================================================================
+
+INTERFACE="wlan0"
+WPA_CONF="/etc/wpa_supplicant.conf"
+PID_WPA="/var/run/wpa_supplicant.pid"
+PID_DHCP="/var/run/udhcpc.wlan0.pid"
+
+wait_for_interface() {
+    local tries=0
+    while [ $tries -lt 30 ]; do
+        if [ -e "/sys/class/net/$INTERFACE" ]; then
+            return 0
+        fi
+        tries=$((tries + 1))
+        sleep 1
+    done
+    return 1
+}
+
+case "$1" in
+    start)
+        printf "Starting WiFi ($INTERFACE): "
+
+        # Desbloquear WiFi por si acaso
+        rfkill unblock wifi 2>/dev/null || true
+
+        # Esperar a que el interface aparezca (el módulo puede tardar)
+        if ! wait_for_interface; then
+            echo "FAIL (interface $INTERFACE not found after 30s)"
+            exit 1
+        fi
+
+        # Subir interface
+        ip link set "$INTERFACE" up
+
+        # Arrancar wpa_supplicant
+        if [ -f "$WPA_CONF" ]; then
+            wpa_supplicant -B -i "$INTERFACE" -c "$WPA_CONF" -P "$PID_WPA" \
+                -D nl80211,wext
+            echo -n "wpa "
+        else
+            echo "SKIP (no $WPA_CONF)"
+            exit 0
+        fi
+
+        # Arrancar DHCP client
+        udhcpc -i "$INTERFACE" -p "$PID_DHCP" -b -S -R 2>/dev/null &
+        echo "OK"
+        ;;
+    stop)
+        printf "Stopping WiFi ($INTERFACE): "
+
+        # Parar DHCP
+        if [ -f "$PID_DHCP" ]; then
+            kill "$(cat "$PID_DHCP")" 2>/dev/null
+            rm -f "$PID_DHCP"
+        fi
+
+        # Parar wpa_supplicant
+        if [ -f "$PID_WPA" ]; then
+            kill "$(cat "$PID_WPA")" 2>/dev/null
+            rm -f "$PID_WPA"
+        fi
+
+        ip link set "$INTERFACE" down 2>/dev/null
+        echo "OK"
+        ;;
+    restart)
+        "$0" stop
+        sleep 1
+        "$0" start
+        ;;
+    *)
+        echo "Usage: $0 {start|stop|restart}"
+        exit 1
+        ;;
+esac

@@ -1,0 +1,30 @@
+#!/bin/sh
+# =============================================================================
+# S10udevd — Arranque de eudev
+# Carga reglas udev, firmware, y crea nodos de dispositivo dinámicos
+# =============================================================================
+
+case "$1" in
+    start)
+        printf "Starting eudev: "
+        mkdir -p /run/udev
+        /sbin/udevd --daemon
+        /sbin/udevadm trigger --type=subsystems --action=add
+        /sbin/udevadm trigger --type=devices --action=add
+        /sbin/udevadm settle --timeout=30
+        echo "OK"
+        ;;
+    stop)
+        printf "Stopping eudev: "
+        killall udevd 2>/dev/null
+        echo "OK"
+        ;;
+    restart)
+        "$0" stop
+        "$0" start
+        ;;
+    *)
+        echo "Usage: $0 {start|stop|restart}"
+        exit 1
+        ;;
+esac

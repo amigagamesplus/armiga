@@ -1,0 +1,11 @@
+# /etc/fstab — Armiga
+# Las particiones de datos (kickstarts, roms) se montan desde S40partitions
+# ya que requieren autoexpansión en primer arranque
+
+# <device>      <mount>  <type>  <options>              <dump> <fsck>
+/dev/mmcblk0p1  /boot    vfat    defaults,ro            0      2
+proc            /proc    proc    defaults               0      0
+sysfs           /sys     sysfs   defaults               0      0
+tmpfs           /tmp     tmpfs   defaults,nosuid,nodev  0      0
+tmpfs           /run     tmpfs   defaults,nosuid,nodev  0      0
+devpts          /dev/pts devpts  defaults,gid=5,mode=620 0     0

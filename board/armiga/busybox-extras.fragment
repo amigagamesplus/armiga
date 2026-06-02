@@ -1,0 +1,11 @@
+# BusyBox extras for Armiga Fase 1
+# Enable udhcpc (DHCP client)
+CONFIG_UDHCPC=y
+CONFIG_FEATURE_UDHCPC_ARPING=y
+CONFIG_UDHCPC_DEFAULT_SCRIPT="/usr/share/udhcpc/default.script"
+
+# Enable rfkill (for WiFi/BT control)
+CONFIG_RFKILL=y
+
+# Enable loadkmap (for keyboard layout)
+CONFIG_LOADKMAP=y

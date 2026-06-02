@@ -1,0 +1,52 @@
+#!/bin/sh
+# =============================================================================
+# S21bluetooth — Arranque de Bluetooth
+# Chip: RTL8821CS BT vía UART (protocolo H5)
+# =============================================================================
+
+BT_UART="/dev/ttyS1"
+BT_SPEED="1500000"
+
+case "$1" in
+    start)
+        printf "Starting Bluetooth: "
+
+        # Desbloquear BT
+        rfkill unblock bluetooth 2>/dev/null || true
+
+        # Attach RTL BT chip al HCI vía UART
+        # rtk_hciattach es específico de Realtek — si no existe, usar hciattach genérico
+        if command -v rtk_hciattach >/dev/null 2>&1; then
+            rtk_hciattach -n -s "$BT_SPEED" "$BT_UART" rtk_h5 &
+        else
+            hciattach "$BT_UART" rtk_h5 "$BT_SPEED" flow nosleep &
+        fi
+
+        sleep 2
+
+        # Arrancar bluetoothd
+        if command -v bluetoothd >/dev/null 2>&1; then
+            bluetoothd &
+            echo -n "bluetoothd "
+        fi
+
+        echo "OK"
+        ;;
+    stop)
+        printf "Stopping Bluetooth: "
+        killall bluetoothd 2>/dev/null || true
+        killall rtk_hciattach 2>/dev/null || true
+        killall hciattach 2>/dev/null || true
+        rfkill block bluetooth 2>/dev/null || true
+        echo "OK"
+        ;;
+    restart)
+        "$0" stop
+        sleep 1
+        "$0" start
+        ;;
+    *)
+        echo "Usage: $0 {start|stop|restart}"
+        exit 1
+        ;;
+esac

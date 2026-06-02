@@ -1,0 +1,9 @@
+config BR2_PACKAGE_FASTFETCH
+	bool "fastfetch"
+	depends on BR2_TOOLCHAIN_HAS_THREADS
+	depends on BR2_INSTALL_LIBSTDCPP
+	help
+	  Fastfetch is a neofetch-like tool for fetching system
+	  information and displaying them in a pretty way.
+
+	  https://github.com/fastfetch-cli/fastfetch
