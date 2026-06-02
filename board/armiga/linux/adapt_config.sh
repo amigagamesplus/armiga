@@ -29,4 +29,11 @@ sed -i 's/CONFIG_INITRAMFS_SOURCE="@INITRAMFS_SOURCE@"/CONFIG_INITRAMFS_SOURCE="
 sed -i 's/CONFIG_EXTRA_FIRMWARE=.*/CONFIG_EXTRA_FIRMWARE=""/' "$CONF"
 sed -i 's/CONFIG_EXTRA_FIRMWARE_DIR=.*/CONFIG_EXTRA_FIRMWARE_DIR=""/' "$CONF"
 
+# 4. Nombre personalizado del kernel
+if grep -q "^CONFIG_LOCALVERSION=" "$CONF"; then
+    sed -i 's/^CONFIG_LOCALVERSION=.*/CONFIG_LOCALVERSION="-armiga"/' "$CONF"
+else
+    echo 'CONFIG_LOCALVERSION="-armiga"' >> "$CONF"
+fi
+
 echo "¡Adaptación completada! El archivo $CONF ya está listo para compilar localmente sin dependencias de Rocknix."
