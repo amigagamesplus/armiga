@@ -25,3 +25,5 @@ board/armiga/linux/*.tar.gz
 board/armiga/linux/build_kernel.log
 board/armiga/linux/linux-*.tar.xz
 board/armiga/linux/linux-*.tar.gz
+board/armiga/linux/linux-*.tar.xz
+board/armiga/linux/linux-*.tar.gz
