@@ -49,8 +49,19 @@ jobs:
             file gawk texinfo bison flex \
             exfatprogs \
             libncurses-dev \
-            dosfstools mtools genimage \
-            gdisk
+            dosfstools mtools \
+            gdisk \
+            libconfuse-dev
+
+          # genimage no está en Ubuntu 22.04 — compilar desde fuente
+          wget -q https://github.com/pengutronix/genimage/releases/download/v17/genimage-17.tar.xz
+          tar xf genimage-17.tar.xz
+          cd genimage-17
+          ./configure
+          make -j$(nproc)
+          sudo make install
+          cd ..
+          rm -rf genimage-17 genimage-17.tar.xz
 
       # --- Cache de ccache ---
       - name: Cache ccache
