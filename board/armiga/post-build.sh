@@ -27,7 +27,6 @@ fi
 mkdir -p "$TARGET_DIR/usr/share/keymaps"
 
 # --- Dropbear SSH dirs -------------------------------------------------------
-mkdir -p "$TARGET_DIR/etc/dropbear"
 
 # --- WiFi firmware dirs (RTL8821CS) ------------------------------------------
 mkdir -p "$TARGET_DIR/lib/firmware/rtl_bt"
