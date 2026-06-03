@@ -9,7 +9,7 @@
 set -euo pipefail
 
 IMAGES_DIR="${BINARIES_DIR}"
-BR2_EXTERNAL="${1:-}"
+BR2_EXTERNAL="${BR2_EXTERNAL_armiga_PATH}"
 BOARD_DIR="$BR2_EXTERNAL/board/armiga"
 
 echo ">>> Armiga post-image.sh: IMAGES_DIR=$IMAGES_DIR"
