@@ -1,10 +1,7 @@
 #!/bin/sh
 # =============================================================================
 # S40partitions — Montaje de particiones kickstarts y roms
-# Monta p3 (kickstarts) y p4 (roms) como exFAT
-# En primer arranque, expande p4 al resto de la SD
 # =============================================================================
-
 KICKSTARTS_DEV="/dev/mmcblk0p3"
 ROMS_DEV="/dev/mmcblk0p4"
 KICKSTARTS_MNT="/media/kickstarts"
@@ -12,14 +9,12 @@ ROMS_MNT="/media/roms"
 EXPAND_FLAG="/var/lib/armiga/.expanded"
 
 do_expand() {
-    # Solo expandir si no se ha hecho antes
     if [ -f "$EXPAND_FLAG" ]; then
         return 0
     fi
 
     echo -n "Expanding roms partition... "
 
-    # Obtener el sector de inicio de p4
     local start_sector
     start_sector=$(cat /sys/block/mmcblk0/mmcblk0p4/start 2>/dev/null)
     if [ -z "$start_sector" ]; then
@@ -27,28 +22,14 @@ do_expand() {
         return 1
     fi
 
-    # Obtener el tamaño total del disco en sectores
-    local total_sectors
-    total_sectors=$(cat /sys/block/mmcblk0/size 2>/dev/null)
-    if [ -z "$total_sectors" ]; then
-        echo "SKIP (cannot read disk size)"
-        return 1
-    fi
+    echo "${start_sector}," | sfdisk --no-reread -N 4 /dev/mmcblk0 >/dev/null 2>&1
 
-    # Dejar 34 sectores al final para GPT backup
-    local end_sector
-    end_sector=$((total_sectors - 34))
+    partprobe /dev/mmcblk0 2>/dev/null || partx -u /dev/mmcblk0 >/dev/null 2>&1
+    sleep 1
 
-    # Redimensionar p4 con sfdisk
-    echo "${start_sector},${end_sector}" | sfdisk --no-reread -N 4 /dev/mmcblk0 2>/dev/null
+    mkfs.exfat -n "roms" "$ROMS_DEV" >/dev/null 2>&1
+    mkfs.exfat -n "kickstarts" "$KICKSTARTS_DEV" >/dev/null 2>&1
 
-    # Re-leer la tabla de particiones
-    partprobe /dev/mmcblk0 2>/dev/null || partx -u /dev/mmcblk0 2>/dev/null
-
-    # Formatear como exFAT
-    mkfs.exfat -n "ROMS" "$ROMS_DEV" 2>/dev/null
-
-    # Marcar como expandido
     mkdir -p "$(dirname "$EXPAND_FLAG")"
     touch "$EXPAND_FLAG"
 
@@ -58,23 +39,14 @@ do_expand() {
 case "$1" in
     start)
         printf "Mounting data partitions: "
-
-        # Crear puntos de montaje
         mkdir -p "$KICKSTARTS_MNT" "$ROMS_MNT"
-
-        # Expandir roms en primer arranque
         do_expand
-
-        # Montar kickstarts
         if [ -b "$KICKSTARTS_DEV" ]; then
             mount -t exfat "$KICKSTARTS_DEV" "$KICKSTARTS_MNT" 2>/dev/null && echo -n "kickstarts "
         fi
-
-        # Montar roms
         if [ -b "$ROMS_DEV" ]; then
             mount -t exfat "$ROMS_DEV" "$ROMS_MNT" 2>/dev/null && echo -n "roms "
         fi
-
         echo "OK"
         ;;
     stop)
