@@ -1,6 +1,8 @@
 #!/bin/sh
 # =============================================================================
 # S40partitions — Montaje de particiones kickstarts y roms
+# Monta p3 (kickstarts) y p4 (roms) como exFAT
+# En primer arranque, expande p4 al resto de la SD
 # =============================================================================
 KICKSTARTS_DEV="/dev/mmcblk0p3"
 ROMS_DEV="/dev/mmcblk0p4"
@@ -15,18 +17,14 @@ do_expand() {
 
     echo -n "Expanding roms partition... "
 
-    local start_sector
-    start_sector=$(cat /sys/block/mmcblk0/mmcblk0p4/start 2>/dev/null)
-    if [ -z "$start_sector" ]; then
-        echo "SKIP (cannot read start sector)"
-        return 1
-    fi
+    # Expandir p4 usando todo el espacio disponible
+    parted -s /dev/mmcblk0 resizepart 4 100% >/dev/null 2>&1
 
-    echo "${start_sector}," | sfdisk --no-reread -N 4 /dev/mmcblk0 >/dev/null 2>&1
-
+    # Re-leer la tabla de particiones
     partprobe /dev/mmcblk0 2>/dev/null || partx -u /dev/mmcblk0 >/dev/null 2>&1
     sleep 1
 
+    # Formatear ambas particiones como exFAT
     mkfs.exfat -n "roms" "$ROMS_DEV" >/dev/null 2>&1
     mkfs.exfat -n "kickstarts" "$KICKSTARTS_DEV" >/dev/null 2>&1
 
