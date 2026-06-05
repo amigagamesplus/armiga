@@ -22,12 +22,11 @@ sed -i 's/CONFIG_DEFAULT_HOSTNAME="@DEVICENAME@"/CONFIG_DEFAULT_HOSTNAME="armiga
 # están integrados (built-in) en el kernel de Rocknix.
 sed -i 's/CONFIG_INITRAMFS_SOURCE="@INITRAMFS_SOURCE@"/CONFIG_INITRAMFS_SOURCE=""/' "$CONF"
 
-# 3. Eliminar la dependencia de firmwares embebidos
-# Quitamos las rutas a firmwares extraños en tiempo de compilación.
-# Ahora el kernel buscará el firmware del panel en el rootfs (/lib/firmware/...)
-# una vez que haya arrancado.
-sed -i 's/CONFIG_EXTRA_FIRMWARE=.*/CONFIG_EXTRA_FIRMWARE=""/' "$CONF"
-sed -i 's/CONFIG_EXTRA_FIRMWARE_DIR=.*/CONFIG_EXTRA_FIRMWARE_DIR=""/' "$CONF"
+# 3. Firmware del panel embebido en el kernel
+# El driver panel-mipi-dpi-spi lo necesita antes de que el rootfs esté montado
+FIRMWARE_DIR="$(dirname "$0")/../rootfs_overlay/lib/firmware"
+sed -i "s|CONFIG_EXTRA_FIRMWARE=.*|CONFIG_EXTRA_FIRMWARE=\"panels/anbernic,rg40xx-panel.panel\"|" "$CONF"
+sed -i "s|CONFIG_EXTRA_FIRMWARE_DIR=.*|CONFIG_EXTRA_FIRMWARE_DIR=\"${FIRMWARE_DIR}\"|" "$CONF"
 
 # 4. Nombre personalizado del kernel
 if grep -q "^CONFIG_LOCALVERSION=" "$CONF"; then
