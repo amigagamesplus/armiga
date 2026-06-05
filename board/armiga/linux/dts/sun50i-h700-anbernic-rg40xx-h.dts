@@ -2,15 +2,12 @@
 /*
  * Copyright (C) 2024 Philippe Simons <simons.philippe@gmail.com>.
  */
-
 #include "sun50i-h700-anbernic-rg35xx-plus.dts"
-
 / {
 	model = "Anbernic RG40XX H";
 	compatible = "anbernic,rg40xx-h", "allwinner,sun50i-h700";
 	rocknix-dt-id = "sun50i-h700-anbernic-rg40xx-h";
 };
-
 &joypad {
 	invert-absrx;
 	invert-absry;
@@ -18,21 +15,38 @@
 	pwms = <&pwm 3 1000000 0>;
 	pinctrl-0 = <&joy_mux_pin>, <&pwm3_pin>;
 };
-
 &uart5 {
 	pinctrl-names = "default";
 	pinctrl-0 = <&uart5_ph_pins>;
-	status = "okay";	
+	status = "okay";
 };
-
 &leds {
 	led-rgb {
 		function = LED_FUNCTION_KBD_BACKLIGHT;
 		color = <LED_COLOR_ID_RGB>;
 		gpios = <&pio 8 7 GPIO_ACTIVE_HIGH>; /* PI7 */
-	};	
+	};
 };
-
 &panel {
 	compatible = "anbernic,rg40xx-panel", "panel-mipi-dpi-spi";
+};
+
+/* En el RG40XX H el WiFi está en mmc2, no en mmc1 */
+&mmc1 {
+	status = "disabled";
+};
+
+&mmc2 {
+	vmmc-supply = <&reg_cldo4>;
+	vqmmc-supply = <&reg_aldo4>;
+	mmc-pwrseq = <&wifi_pwrseq>;
+	bus-width = <4>;
+	non-removable;
+	status = "okay";
+	wifi@1 {
+		reg = <1>;
+		interrupt-parent = <&pio>;
+		interrupts = <6 15 IRQ_TYPE_LEVEL_LOW>; /* PG15 */
+		interrupt-names = "host-wake";
+	};
 };

@@ -75,3 +75,23 @@ fi
 ln -sf /usr/share/zoneinfo/Europe/Madrid "$TARGET_DIR/etc/localtime"
 
 echo ">>> Armiga post-build.sh: done"
+
+# --- Módulos WiFi RTL8821CS --------------------------------------------------
+LINUX_DIR="$(dirname "$0")/linux/linux-7.0.2"
+KVER="7.0.2-armiga"
+RTW88_SRC="$LINUX_DIR/drivers/net/wireless/realtek/rtw88"
+RTW88_DST="$TARGET_DIR/lib/modules/$KVER/kernel/drivers/net/wireless/realtek/rtw88"
+
+if [ -d "$RTW88_SRC" ]; then
+    mkdir -p "$RTW88_DST"
+    for mod in rtw88_core rtw88_sdio rtw88_8821c rtw88_8821cs; do
+        if [ -f "$RTW88_SRC/${mod}.ko" ]; then
+            cp "$RTW88_SRC/${mod}.ko" "$RTW88_DST/"
+            echo ">>> Copied ${mod}.ko"
+        fi
+    done
+    # Generar modules.dep
+    depmod -a -b "$TARGET_DIR" "$KVER" || true
+else
+    echo ">>> WARNING: rtw88 source dir not found, skipping modules"
+fi
