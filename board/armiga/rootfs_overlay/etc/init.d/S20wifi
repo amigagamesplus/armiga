@@ -47,8 +47,17 @@ case "$1" in
             exit 0
         fi
 
-        # Arrancar DHCP client
+        # Arrancar DHCP client y esperar IP
         udhcpc -i "$INTERFACE" -p "$PID_DHCP" -b -S -R 2>/dev/null &
+        # Esperar hasta 20s a que haya IP
+        tries=0
+        while [ $tries -lt 20 ]; do
+            if ip addr show "$INTERFACE" | grep -q "inet "; then
+                break
+            fi
+            tries=$((tries + 1))
+            sleep 1
+        done
         echo "OK"
         ;;
     stop)
