@@ -1,0 +1,15 @@
+#!/bin/sh
+case "$1" in
+    start)
+        loadkeys es 2>/dev/null || true
+        ;;
+    stop)
+        ;;
+    restart)
+        "$0" start
+        ;;
+    *)
+        echo "Usage: $0 {start|stop|restart}"
+        exit 1
+        ;;
+esac
