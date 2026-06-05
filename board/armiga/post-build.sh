@@ -17,9 +17,12 @@ echo ">>> Armiga post-build.sh: TARGET_DIR=$TARGET_DIR"
 echo "armiga" > "$TARGET_DIR/etc/hostname"
 
 # --- Console serial ----------------------------------------------------------
-# Asegurar que getty en ttyS0 está habilitado
+# Asegurar que getty en ttyS0 y tty0 están habilitados
 if ! grep -q "^ttyS0::" "$TARGET_DIR/etc/inittab" 2>/dev/null; then
     echo "ttyS0::respawn:/sbin/getty -L ttyS0 115200 vt100" >> "$TARGET_DIR/etc/inittab"
+fi
+if ! grep -q "^tty0::" "$TARGET_DIR/etc/inittab" 2>/dev/null; then
+    echo "tty0::respawn:/sbin/getty -L tty0 115200 vt100" >> "$TARGET_DIR/etc/inittab"
 fi
 
 # --- Teclado español ---------------------------------------------------------
