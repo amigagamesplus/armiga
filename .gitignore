@@ -27,3 +27,5 @@ board/armiga/linux/linux-*.tar.xz
 board/armiga/linux/linux-*.tar.gz
 board/armiga/linux/linux-*.tar.xz
 board/armiga/linux/linux-*.tar.gz
+sdcard.img
+flash.sh
