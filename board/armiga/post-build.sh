@@ -45,6 +45,7 @@ esac
 UDHCPC_EOF
     chmod +x "$TARGET_DIR/usr/share/udhcpc/default.script"
 fi
+mkdir -p "$TARGET_DIR/etc/dropbear"
 ln -sf /usr/share/zoneinfo/Europe/Madrid "$TARGET_DIR/etc/localtime"
 KVER="7.0.2-armiga"
 depmod -a -b "$TARGET_DIR" "$KVER" || true
