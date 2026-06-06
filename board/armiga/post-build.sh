@@ -58,3 +58,11 @@ ID=armiga
 VERSION_ID=1.0
 PRETTY_NAME="armiga 1.0"
 OS_EOF
+
+# --- SSH authorized keys -----------------------------------------------------
+mkdir -p "$TARGET_DIR/root/.ssh"
+chmod 700 "$TARGET_DIR/root/.ssh"
+if [ -f "$(dirname "$0")/../rootfs_overlay/root/.ssh/authorized_keys" ]; then
+    cp "$(dirname "$0")/../rootfs_overlay/root/.ssh/authorized_keys" "$TARGET_DIR/root/.ssh/authorized_keys"
+    chmod 600 "$TARGET_DIR/root/.ssh/authorized_keys"
+fi
