@@ -30,13 +30,8 @@
 &panel {
 	compatible = "anbernic,rg40xx-panel", "panel-mipi-dpi-spi";
 };
-
-/* En el RG40XX H el WiFi está en mmc2, no en mmc1 */
+/* En el RG40XX H el WiFi está en mmc1 (4021000) */
 &mmc1 {
-	status = "disabled";
-};
-
-&mmc2 {
 	vmmc-supply = <&reg_cldo4>;
 	vqmmc-supply = <&reg_aldo4>;
 	mmc-pwrseq = <&wifi_pwrseq>;

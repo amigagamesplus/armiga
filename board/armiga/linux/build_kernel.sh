@@ -94,3 +94,13 @@ else
 fi
 
 echo "¡Hecho!"
+
+echo "=== Verificando configuración crítica ==="
+for opt in CONFIG_RTW88_CORE CONFIG_RTW88_SDIO CONFIG_RTW88_8821C CONFIG_RTW88_8821CS; do
+    val=$(grep "^${opt}=" .config 2>/dev/null | cut -d= -f2)
+    if [ "$val" != "m" ]; then
+        echo "ERROR: $opt debe ser =m pero es '=$val'"
+        exit 1
+    fi
+done
+echo "Configuración crítica OK"
