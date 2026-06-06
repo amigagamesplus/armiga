@@ -50,11 +50,11 @@ depmod -a -b "$TARGET_DIR" "$KVER" || true
 echo ">>> Armiga post-build.sh: done"
 
 # --- OS name -----------------------------------------------------------------
-cat > "$TARGET_DIR/etc/os-release" << 'OS_EOF'
+mkdir -p "$TARGET_DIR/usr/lib"
+cat > "$TARGET_DIR/usr/lib/os-release" << 'OS_EOF'
 NAME="armiga"
 VERSION="1.0"
 ID=armiga
 VERSION_ID=1.0
 PRETTY_NAME="armiga 1.0"
 OS_EOF
-ln -sf ../etc/os-release "$TARGET_DIR/usr/lib/os-release" 2>/dev/null || true
