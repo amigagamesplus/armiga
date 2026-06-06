@@ -1,0 +1,20 @@
+#!/bin/sh
+# S06cpufreq — Establecer CPU governor en performance
+case "$1" in
+    start)
+        printf "Setting CPU governor to performance: "
+        for cpu in /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor; do
+            echo performance > "$cpu" 2>/dev/null
+        done
+        echo "OK"
+        ;;
+    stop)
+        ;;
+    restart)
+        "$0" start
+        ;;
+    *)
+        echo "Usage: $0 {start|stop|restart}"
+        exit 1
+        ;;
+esac
