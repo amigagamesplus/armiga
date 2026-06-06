@@ -24,7 +24,7 @@ sed -i 's/CONFIG_INITRAMFS_SOURCE="@INITRAMFS_SOURCE@"/CONFIG_INITRAMFS_SOURCE="
 
 # 3. Firmware del panel embebido en el kernel
 # El driver panel-mipi-dpi-spi lo necesita antes de que el rootfs esté montado
-FIRMWARE_DIR="$(dirname "$0")/../rootfs_overlay/lib/firmware"
+FIRMWARE_DIR="$(cd "$(dirname "$0")" && pwd)/../rootfs_overlay/lib/firmware"
 sed -i "s|CONFIG_EXTRA_FIRMWARE=.*|CONFIG_EXTRA_FIRMWARE=\"panels/anbernic,rg40xx-panel.panel\"|" "$CONF"
 sed -i "s|CONFIG_EXTRA_FIRMWARE_DIR=.*|CONFIG_EXTRA_FIRMWARE_DIR=\"${FIRMWARE_DIR}\"|" "$CONF"
 
