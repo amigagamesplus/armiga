@@ -28,7 +28,7 @@ cat > "$IMAGES_DIR/extlinux.conf" << 'EOF'
 LABEL Armiga
   LINUX /Image
   FDT /dtb.img
-  APPEND root=/dev/mmcblk0p2 rootfstype=ext4 rootwait rw console=ttyS0,115200 console=tty0 net.ifnames=0
+  APPEND root=/dev/mmcblk0p2 rootfstype=ext4 rootwait rw console=ttyS0,115200 console=tty0 net.ifnames=0 loglevel=3
 EOF
 
 # --- Generar imagen SD con genimage ------------------------------------------
