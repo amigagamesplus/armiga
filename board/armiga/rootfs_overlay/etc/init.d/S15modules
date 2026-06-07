@@ -11,6 +11,7 @@ case "$1" in
         for mod in bluetooth btrtl hci_uart; do
             modprobe "$mod" 2>/dev/null && echo -n "$mod "
         done
+        insmod /lib/modules/7.0.2-armiga/rocknix-singleadc-joypad.ko && echo -n "rocknix-joypad "
         echo "OK"
         ;;
     stop)
