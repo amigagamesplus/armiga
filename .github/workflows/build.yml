@@ -147,11 +147,11 @@ jobs:
             - Commit: ${{ github.sha }}
 
             ### Flash
-```bash
+            ```bash
             sudo dd if=sdcard.img of=/dev/sdX bs=4M status=progress conv=fsync
             sudo sgdisk -e /dev/sdX
             sync
-```
+            ```
           files: output/images/sdcard.img
           draft: false
           prerelease: true
