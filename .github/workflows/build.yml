@@ -1,7 +1,5 @@
 # =============================================================================
 # Armiga — GitHub Actions Build Workflow
-# Compila Buildroot completo para Anbernic RG40XX H (Allwinner H700)
-# Trigger: manual (workflow_dispatch)
 # =============================================================================
 
 name: Build Armiga
@@ -88,6 +86,18 @@ jobs:
           tar xf "buildroot-${BR_VERSION}.tar.xz"
           mv "buildroot-${BR_VERSION}" buildroot
 
+      # --- Parchear Mesa3D para eliminar dependencia de LLVM ---
+      - name: Patch Mesa3D remove LLVM dependency
+        run: |
+          sed -i '/^\tdepends on BR2_PACKAGE_MESA3D_LLVM$/d' \
+            buildroot/package/mesa3d/Config.in
+          sed -i '/^comment ".*needs llvm"$/,/^\tdepends on !BR2_PACKAGE_MESA3D_LLVM$/d' \
+            buildroot/package/mesa3d/Config.in
+          sed -i '/^\tspirv-tools \\/d' \
+            buildroot/package/mesa3d/mesa3d.mk
+          sed -i '/^\tspirv-llvm-translator \\/d' \
+            buildroot/package/mesa3d/mesa3d.mk
+
       # --- Configurar ---
       - name: Configure Buildroot
         run: |
@@ -137,11 +147,11 @@ jobs:
             - Commit: ${{ github.sha }}
 
             ### Flash
-            ```bash
+```bash
             sudo dd if=sdcard.img of=/dev/sdX bs=4M status=progress conv=fsync
             sudo sgdisk -e /dev/sdX
             sync
-            ```
+```
           files: output/images/sdcard.img
           draft: false
           prerelease: true
