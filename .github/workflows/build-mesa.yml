@@ -29,7 +29,7 @@ jobs:
             sudo tee /etc/apt/sources.list.d/llvm21.list
           sudo apt-get update
           sudo apt-get install -y llvm-21 llvm-21-dev libclang-rt-21-dev \
-            libclc-21-dev spirv-tools llvm-spirv-21 libllvmspirvlib-21-dev
+            libclc-21-dev spirv-tools
           sudo update-alternatives --install /usr/bin/llvm-config llvm-config \
             /usr/bin/llvm-config-21 100
           llvm-config --version
@@ -43,6 +43,12 @@ jobs:
         run: |
           sudo pip3 install meson==1.5.0
           meson --version
+
+      - name: Install SPIRV-LLVM-Translator
+        run: |
+          apt-cache search spirv | grep llvm
+          sudo apt-get install -y $(apt-cache search 'libllvmspirvlib.*dev' | awk '{print $1}' | tail -1)
+          sudo apt-get install -y $(apt-cache search 'llvm-spirv-[0-9]' | awk '{print $1}' | tail -1)
 
       - name: Build host mesa_clc
         run: |
