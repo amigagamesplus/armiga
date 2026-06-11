@@ -39,6 +39,11 @@ jobs:
           wget -q https://archive.mesa3d.org/mesa-26.0.1.tar.xz
           tar xf mesa-26.0.1.tar.xz
 
+      - name: Install latest Meson
+        run: |
+          sudo pip3 install meson==1.5.0
+          meson --version
+
       - name: Build host mesa_clc
         run: |
           mkdir -p mesa-26.0.1/build-host
