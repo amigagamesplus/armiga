@@ -29,8 +29,7 @@ jobs:
             sudo tee /etc/apt/sources.list.d/llvm21.list
           sudo apt-get update
           sudo apt-get install -y llvm-21 llvm-21-dev libclang-rt-21-dev \
-            libclc-dev spirv-tools libspirv-cross-c-shared-dev \
-            llvm-spirv-21 libllvmspirvlib-21-dev
+            libclc-dev spirv-tools libspirvlib-21-dev
           sudo update-alternatives --install /usr/bin/llvm-config llvm-config \
             /usr/bin/llvm-config-21 100
           llvm-config --version
