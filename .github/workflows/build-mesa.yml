@@ -44,11 +44,13 @@ jobs:
           sudo pip3 install meson==1.5.0
           meson --version
 
-      - name: Install SPIRV-LLVM-Translator
+      - name: Build SPIRV-LLVM-Translator 21
         run: |
-          apt-cache search spirv | grep llvm
-          sudo apt-get install -y $(apt-cache search 'libllvmspirvlib.*dev' | awk '{print $1}' | tail -1)
-          sudo apt-get install -y $(apt-cache search 'llvm-spirv-[0-9]' | awk '{print $1}' | tail -1)
+          git clone --depth=1 -b llvm_release_210             https://github.com/KhronosGroup/SPIRV-LLVM-Translator.git
+          cmake -S SPIRV-LLVM-Translator -B SPIRV-LLVM-Translator/build             -DCMAKE_BUILD_TYPE=Release             -DLLVM_DIR=/usr/lib/llvm-21/lib/cmake/llvm             -DCMAKE_INSTALL_PREFIX=/usr
+          make -C SPIRV-LLVM-Translator/build -j$(nproc)
+          sudo make -C SPIRV-LLVM-Translator/build install
+          pkg-config --modversion LLVMSPIRVLib || true
 
       - name: Build host mesa_clc
         run: |
