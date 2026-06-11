@@ -44,6 +44,15 @@ jobs:
           sudo pip3 install meson==1.5.0
           meson --version
 
+      - name: Build SPIRV-Tools 2024.1
+        run: |
+          git clone --depth=1 -b v2024.1             https://github.com/KhronosGroup/SPIRV-Tools.git
+          git clone --depth=1             https://github.com/KhronosGroup/SPIRV-Headers.git             SPIRV-Tools/external/spirv-headers
+          cmake -S SPIRV-Tools -B SPIRV-Tools/build             -DCMAKE_BUILD_TYPE=Release             -DCMAKE_INSTALL_PREFIX=/usr             -DSPIRV_SKIP_TESTS=ON
+          make -C SPIRV-Tools/build -j$(nproc)
+          sudo make -C SPIRV-Tools/build install
+          pkg-config --modversion SPIRV-Tools || true
+
       - name: Build SPIRV-LLVM-Translator 21
         run: |
           git clone --depth=1 -b llvm_release_210             https://github.com/KhronosGroup/SPIRV-LLVM-Translator.git
