@@ -16,10 +16,15 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y \
-            meson ninja-build python3-mako python3-yaml \
+            ninja-build python3-mako python3-yaml \
             gcc-aarch64-linux-gnu g++-aarch64-linux-gnu \
             libdrm-dev libexpat-dev zlib1g-dev \
-            pkg-config bison flex libffi-dev
+            pkg-config bison flex libffi-dev cmake
+
+      - name: Install Meson
+        run: |
+          sudo pip3 install meson==1.5.0
+          meson --version
 
       - name: Install LLVM 21
         run: |
@@ -28,38 +33,42 @@ jobs:
           echo "deb http://apt.llvm.org/jammy/ llvm-toolchain-jammy-21 main" | \
             sudo tee /etc/apt/sources.list.d/llvm21.list
           sudo apt-get update
-          sudo apt-get install -y llvm-21 llvm-21-dev libclang-rt-21-dev libclang-21-dev \
-            libclang-cpp21-dev libclc-21-dev spirv-tools
+          sudo apt-get install -y \
+            llvm-21 llvm-21-dev \
+            libclang-rt-21-dev libclang-21-dev libclang-cpp21-dev \
+            libclc-21-dev
           sudo update-alternatives --install /usr/bin/llvm-config llvm-config \
             /usr/bin/llvm-config-21 100
           llvm-config --version
+
+      - name: Build SPIRV-Tools from main
+        run: |
+          git clone --depth=1 https://github.com/KhronosGroup/SPIRV-Tools.git
+          cd SPIRV-Tools && python3 utils/git-sync-deps && cd ..
+          cmake -S SPIRV-Tools -B SPIRV-Tools/build \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_INSTALL_PREFIX=/usr \
+            -DSPIRV_SKIP_TESTS=ON
+          make -C SPIRV-Tools/build -j$(nproc)
+          sudo make -C SPIRV-Tools/build install
+          pkg-config --modversion SPIRV-Tools
+
+      - name: Build SPIRV-LLVM-Translator 21
+        run: |
+          git clone --depth=1 -b llvm_release_210 \
+            https://github.com/KhronosGroup/SPIRV-LLVM-Translator.git
+          cmake -S SPIRV-LLVM-Translator -B SPIRV-LLVM-Translator/build \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DLLVM_DIR=/usr/lib/llvm-21/lib/cmake/llvm \
+            -DCMAKE_INSTALL_PREFIX=/usr
+          make -C SPIRV-LLVM-Translator/build -j$(nproc)
+          sudo make -C SPIRV-LLVM-Translator/build install
+          pkg-config --modversion LLVMSPIRVLib
 
       - name: Download Mesa
         run: |
           wget -q https://archive.mesa3d.org/mesa-26.0.1.tar.xz
           tar xf mesa-26.0.1.tar.xz
-
-      - name: Install latest Meson
-        run: |
-          sudo pip3 install meson==1.5.0
-          meson --version
-
-      - name: Build SPIRV-Tools 2024.3
-        run: |
-          git clone -b v2024.3 https://github.com/KhronosGroup/SPIRV-Tools.git
-          cd SPIRV-Tools && python3 utils/git-sync-deps && cd ..
-          cmake -S SPIRV-Tools -B SPIRV-Tools/build -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/usr -DSPIRV_SKIP_TESTS=ON
-          make -C SPIRV-Tools/build -j$(nproc)
-          sudo make -C SPIRV-Tools/build install
-          pkg-config --modversion SPIRV-Tools || true
-
-      - name: Build SPIRV-LLVM-Translator 21
-        run: |
-          git clone --depth=1 -b llvm_release_210             https://github.com/KhronosGroup/SPIRV-LLVM-Translator.git
-          cmake -S SPIRV-LLVM-Translator -B SPIRV-LLVM-Translator/build             -DCMAKE_BUILD_TYPE=Release             -DLLVM_DIR=/usr/lib/llvm-21/lib/cmake/llvm             -DCMAKE_INSTALL_PREFIX=/usr
-          make -C SPIRV-LLVM-Translator/build -j$(nproc)
-          sudo make -C SPIRV-LLVM-Translator/build install
-          pkg-config --modversion LLVMSPIRVLib || true
 
       - name: Build host mesa_clc
         run: |
@@ -91,7 +100,6 @@ jobs:
 
       - name: Setup aarch64 cross-compilation
         run: |
-          # Instalar libdrm para aarch64
           sudo dpkg --add-architecture arm64
           sudo sed -i 's/^deb /deb [arch=amd64] /g' /etc/apt/sources.list
           echo "deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports jammy main universe" | \
