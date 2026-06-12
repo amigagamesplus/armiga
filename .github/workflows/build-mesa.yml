@@ -28,8 +28,8 @@ jobs:
           echo "deb http://apt.llvm.org/jammy/ llvm-toolchain-jammy-21 main" | \
             sudo tee /etc/apt/sources.list.d/llvm21.list
           sudo apt-get update
-          sudo apt-get install -y llvm-21 llvm-21-dev libclang-rt-21-dev \
-            libclc-21-dev spirv-tools
+          sudo apt-get install -y llvm-21 llvm-21-dev libclang-rt-21-dev libclang-21-dev \
+            libclang-cpp21-dev libclc-21-dev spirv-tools
           sudo update-alternatives --install /usr/bin/llvm-config llvm-config \
             /usr/bin/llvm-config-21 100
           llvm-config --version
