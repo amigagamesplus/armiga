@@ -155,10 +155,7 @@ jobs:
             -Dzstd=disabled \
             -Dgallium-va=disabled \
             -Dopengl=true
-          ninja -C mesa-26.0.1/build-target \
-            src/gbm/libgbm.so.1.0.0 \
-            src/gallium/targets/dri/panfrost_dri.so \
-            src/gbm/backends/dri/dri_gbm.so
+          ninja -C mesa-26.0.1/build-target
 
       - name: Collect artifacts
         run: |
