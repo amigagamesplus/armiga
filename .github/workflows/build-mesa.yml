@@ -129,8 +129,9 @@ jobs:
           CROSSEOF
 
           mkdir -p mesa-26.0.1/build-target
-          PKG_CONFIG_PATH=/usr/lib/aarch64-linux-gnu/pkgconfig \
-          PKG_CONFIG_LIBDIR=/usr/lib/aarch64-linux-gnu/pkgconfig \
+          PKG_CONFIG_PATH=/sysroot-aarch64/usr/lib/aarch64-linux-gnu/pkgconfig \
+          PKG_CONFIG_LIBDIR=/sysroot-aarch64/usr/lib/aarch64-linux-gnu/pkgconfig \
+          PKG_CONFIG_SYSROOT_DIR=/sysroot-aarch64 \
           meson setup mesa-26.0.1/build-target mesa-26.0.1 \
             --cross-file mesa-cross-aarch64.ini \
             -Dprefix=/usr \
