@@ -47,7 +47,7 @@ jobs:
       - name: Build SPIRV-Tools 2024.3
         run: |
           git clone --depth=1 -b v2024.3 https://github.com/KhronosGroup/SPIRV-Tools.git
-          git clone --depth=1 -b v1.3.280.0 https://github.com/KhronosGroup/SPIRV-Headers.git SPIRV-Tools/external/spirv-headers
+          git clone --depth=1 https://github.com/KhronosGroup/SPIRV-Headers.git SPIRV-Tools/external/spirv-headers
           cmake -S SPIRV-Tools -B SPIRV-Tools/build -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/usr -DSPIRV_SKIP_TESTS=ON
           make -C SPIRV-Tools/build -j$(nproc)
           sudo make -C SPIRV-Tools/build install
