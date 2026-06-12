@@ -96,7 +96,6 @@ jobs:
             -Dlibunwind=disabled
           ninja -C mesa-26.0.1/build-host src/compiler/clc/mesa_clc
           sudo install -m755 mesa-26.0.1/build-host/src/compiler/clc/mesa_clc /usr/local/bin/
-          sudo install -m755 mesa-26.0.1/build-host/src/compiler/spirv/vtn_bindgen2 /usr/local/bin/
           mesa_clc --version || true
 
       - name: Setup aarch64 cross-compilation
