@@ -33,11 +33,9 @@ jobs:
     timeout-minutes: 180
 
     steps:
-      # --- Checkout del repo ---
       - name: Checkout Armiga
         uses: actions/checkout@v4
 
-      # --- Instalar dependencias de host ---
       - name: Install build dependencies
         run: |
           sudo apt-get update
@@ -50,8 +48,6 @@ jobs:
             dosfstools mtools \
             gdisk \
             libconfuse-dev
-
-          # genimage no está en Ubuntu 22.04 — compilar desde fuente
           wget -q https://github.com/pengutronix/genimage/releases/download/v17/genimage-17.tar.xz
           tar xf genimage-17.tar.xz
           cd genimage-17
@@ -61,7 +57,6 @@ jobs:
           cd ..
           rm -rf genimage-17 genimage-17.tar.xz
 
-      # --- Cache de ccache ---
       - name: Cache ccache
         uses: actions/cache@v4
         with:
@@ -70,7 +65,6 @@ jobs:
           restore-keys: |
             ccache-${{ env.BR_VERSION }}-
 
-      # --- Cache de descargas ---
       - name: Cache Buildroot downloads
         uses: actions/cache@v4
         with:
@@ -79,26 +73,24 @@ jobs:
           restore-keys: |
             dl-${{ env.BR_VERSION }}-
 
-      # --- Descargar Buildroot ---
+      - name: Cache Buildroot toolchain
+        uses: actions/cache@v4
+        with:
+          path: output/host
+          key: toolchain-${{ env.BR_VERSION }}-mesa-panfrost-v1-${{ hashFiles('configs/armiga_defconfig') }}
+          restore-keys: |
+            toolchain-${{ env.BR_VERSION }}-
+
       - name: Download Buildroot
         run: |
           wget -q "https://buildroot.org/downloads/buildroot-${BR_VERSION}.tar.xz"
           tar xf "buildroot-${BR_VERSION}.tar.xz"
           mv "buildroot-${BR_VERSION}" buildroot
 
-      # --- Parchear Mesa3D para eliminar dependencia de LLVM ---
-      - name: Patch Mesa3D remove LLVM dependency
-        run: |
-          sed -i '/^\tdepends on BR2_PACKAGE_MESA3D_LLVM$/d' \
-            buildroot/package/mesa3d/Config.in
-          sed -i '/^comment ".*needs llvm"$/,/^\tdepends on !BR2_PACKAGE_MESA3D_LLVM$/d' \
-            buildroot/package/mesa3d/Config.in
-          sed -i '/^\tspirv-tools \\/d' \
-            buildroot/package/mesa3d/mesa3d.mk
-          sed -i '/^\tspirv-llvm-translator \\/d' \
-            buildroot/package/mesa3d/mesa3d.mk
 
-      # --- Configurar ---
+
+
+
       - name: Configure Buildroot
         run: |
           make BR2_EXTERNAL="${BR_EXTERNAL}" \
@@ -106,7 +98,21 @@ jobs:
                O="${BR_OUTPUT}" \
                armiga_defconfig
 
-      # --- Build ---
+
+
+      - name: Inject Mesa GBM into staging
+        run: |
+          SYSROOT="${{ github.workspace }}/output/host/aarch64-buildroot-linux-gnu/sysroot"
+          OVERLAY="${{ github.workspace }}/board/armiga/rootfs_overlay"
+          cp "$OVERLAY/usr/lib/libgbm.so.1.0.0" "$SYSROOT/usr/lib/"
+          ln -sf libgbm.so.1.0.0 "$SYSROOT/usr/lib/libgbm.so"
+          ln -sf libgbm.so.1.0.0 "$SYSROOT/usr/lib/libgbm.so.1"
+          sudo apt-get install -y libgbm-dev
+          cp /usr/include/gbm.h "$SYSROOT/usr/include/"
+          mkdir -p "$SYSROOT/usr/lib/pkgconfig"
+          printf 'prefix=/usr\nlibdir=${prefix}/lib\nincludedir=${prefix}/include\nName: gbm\nDescription: Mesa GBM library\nVersion: 26.1.2\nLibs: -L${libdir} -lgbm\nCflags: -I${includedir}\n' > "$SYSROOT/usr/lib/pkgconfig/gbm.pc"
+          echo "GBM staging inject OK"
+
       - name: Build
         run: |
           make BR2_EXTERNAL="${BR_EXTERNAL}" \
@@ -114,7 +120,6 @@ jobs:
                -C "${BR_OUTPUT}" \
                -j$(nproc)
 
-      # --- Listar resultados ---
       - name: List images
         run: |
           echo "=== Imágenes generadas ==="
@@ -123,7 +128,6 @@ jobs:
           echo "=== Tamaño sdcard.img ==="
           du -h "${BR_OUTPUT}/images/sdcard.img" || echo "sdcard.img no encontrado"
 
-      # --- Upload artifact ---
       - name: Upload SD image
         uses: actions/upload-artifact@v4
         with:
@@ -132,7 +136,6 @@ jobs:
           compression-level: 9
           retention-days: 30
 
-      # --- Release (opcional) ---
       - name: Create Release
         if: github.event.inputs.release == 'true'
         uses: softprops/action-gh-release@v2
@@ -147,11 +150,9 @@ jobs:
             - Commit: ${{ github.sha }}
 
             ### Flash
-            ```bash
             sudo dd if=sdcard.img of=/dev/sdX bs=4M status=progress conv=fsync
             sudo sgdisk -e /dev/sdX
             sync
-            ```
           files: output/images/sdcard.img
           draft: false
           prerelease: true

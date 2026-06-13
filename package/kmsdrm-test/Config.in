@@ -1,0 +1,5 @@
+config BR2_PACKAGE_KMSDRM_TEST
+	bool "kmsdrm-test"
+	depends on BR2_PACKAGE_SDL3
+	help
+	  Minimal SDL3 KMS/DRM test (red/green rectangle).

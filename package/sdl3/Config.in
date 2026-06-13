@@ -1,0 +1,12 @@
+config BR2_PACKAGE_SDL3
+	bool "SDL3"
+	depends on BR2_TOOLCHAIN_HAS_THREADS
+	depends on !BR2_STATIC_LIBS
+	select BR2_PACKAGE_ALSA_LIB
+	select BR2_PACKAGE_LIBDRM
+	help
+	  Simple DirectMedia Layer 3 - cross-platform multimedia library.
+
+	  Compiled with KMS/DRM backend for embedded systems.
+
+	  https://www.libsdl.org/
