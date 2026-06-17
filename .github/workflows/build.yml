@@ -47,7 +47,9 @@ jobs:
             libncurses-dev \
             dosfstools mtools \
             gdisk \
-            libconfuse-dev
+            libconfuse-dev \
+            nlohmann-json3-dev \
+            cmake
           wget -q https://github.com/pengutronix/genimage/releases/download/v17/genimage-17.tar.xz
           tar xf genimage-17.tar.xz
           cd genimage-17
@@ -104,6 +106,7 @@ jobs:
         run: |
           SYSROOT="${{ github.workspace }}/output/host/aarch64-buildroot-linux-gnu/sysroot"
           OVERLAY="${{ github.workspace }}/board/armiga/rootfs_overlay"
+          mkdir -p "$SYSROOT/usr/lib/pkgconfig" "$SYSROOT/usr/include"
           cp "$OVERLAY/usr/lib/libgbm.so.1.0.0" "$SYSROOT/usr/lib/"
           ln -sf libgbm.so.1.0.0 "$SYSROOT/usr/lib/libgbm.so"
           ln -sf libgbm.so.1.0.0 "$SYSROOT/usr/lib/libgbm.so.1"
@@ -111,6 +114,11 @@ jobs:
           cp /usr/include/gbm.h "$SYSROOT/usr/include/"
           mkdir -p "$SYSROOT/usr/lib/pkgconfig"
           printf 'prefix=/usr\nlibdir=${prefix}/lib\nincludedir=${prefix}/include\nName: gbm\nDescription: Mesa GBM library\nVersion: 26.1.2\nLibs: -L${libdir} -lgbm\nCflags: -I${includedir}\n' > "$SYSROOT/usr/lib/pkgconfig/gbm.pc"
+          # Inject nlohmann/json headers into sysroot (descarga release completo)
+          wget -q https://github.com/nlohmann/json/releases/download/v3.11.3/json.hpp -O "$SYSROOT/usr/include/nlohmann/json.hpp" || true
+          wget -q https://github.com/nlohmann/json/archive/refs/tags/v3.11.3.tar.gz -O /tmp/nlohmann.tar.gz
+          tar xf /tmp/nlohmann.tar.gz -C /tmp
+          cp -r /tmp/json-3.11.3/include/nlohmann "$SYSROOT/usr/include/"
           echo "GBM staging inject OK"
 
       - name: Build

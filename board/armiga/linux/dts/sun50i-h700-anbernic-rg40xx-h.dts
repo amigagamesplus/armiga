@@ -29,8 +29,8 @@
 		amux-channel-mapping = <0 2 1 3>;
 		amux-a-gpios = <&pio 8 1 GPIO_ACTIVE_LOW>;
 		amux-b-gpios = <&pio 8 2 GPIO_ACTIVE_LOW>;
-		button-adc-scale = <2>;
-		button-adc-deadzone = <128>;
+		button-adc-scale = <36>;
+		button-adc-deadzone = <2304>;
 		button-adc-fuzz = <32>;
 		button-adc-flat = <32>;
 		abs_x-p-tuning = <70>;
@@ -50,21 +50,29 @@
 			gpios = <&pio 0 6 GPIO_ACTIVE_LOW>;
 			label = "GPIO DPAD-UP";
 			linux,code = <BTN_DPAD_UP>;
+			rocknix,dpad-hat = <1>;
+			gpio-active-low;
 		};
 		sw2 {
 			gpios = <&pio 4 0 GPIO_ACTIVE_LOW>;
 			label = "GPIO DPAD-DOWN";
 			linux,code = <BTN_DPAD_DOWN>;
+			rocknix,dpad-hat = <2>;
+			gpio-active-low;
 		};
 		sw3 {
 			gpios = <&pio 0 8 GPIO_ACTIVE_LOW>;
 			label = "GPIO DPAD-LEFT";
 			linux,code = <BTN_DPAD_LEFT>;
+			rocknix,dpad-hat = <3>;
+			gpio-active-low;
 		};
 		sw4 {
 			gpios = <&pio 0 9 GPIO_ACTIVE_LOW>;
 			label = "GPIO DPAD-RIGHT";
 			linux,code = <BTN_DPAD_RIGHT>;
+			rocknix,dpad-hat = <4>;
+			gpio-active-low;
 		};
 		sw5 {
 			gpios = <&pio 0 0 GPIO_ACTIVE_LOW>;
@@ -79,12 +87,12 @@
 		sw7 {
 			gpios = <&pio 0 3 GPIO_ACTIVE_LOW>;
 			label = "GPIO BTN-X";
-			linux,code = <BTN_NORTH>;
+			linux,code = <BTN_WEST>;
 		};
 		sw8 {
 			gpios = <&pio 0 2 GPIO_ACTIVE_LOW>;
 			label = "GPIO BTN-Y";
-			linux,code = <BTN_WEST>;
+			linux,code = <BTN_NORTH>;
 		};
 		sw9 {
 			gpios = <&pio 0 5 GPIO_ACTIVE_LOW>;

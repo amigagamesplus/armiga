@@ -1,0 +1,8 @@
+auto lo
+iface lo inet loopback
+
+auto wlan0
+iface wlan0 inet static
+    address 10.154.154.130
+    netmask 255.255.255.0
+    gateway 10.154.154.192

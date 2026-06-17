@@ -1,0 +1,5 @@
+config BR2_PACKAGE_SDL_JOYSTICK_INFO
+	bool "sdl-joystick-info"
+	depends on BR2_PACKAGE_SDL3
+	help
+	  SDL3 joystick GUID diagnostic tool.

@@ -1,0 +1,9 @@
+config BR2_PACKAGE_SDL3_IMAGE
+	bool "sdl3_image"
+	depends on BR2_TOOLCHAIN_HAS_THREADS
+	depends on !BR2_STATIC_LIBS
+	select BR2_PACKAGE_SDL3
+	select BR2_PACKAGE_LIBPNG
+	help
+	  Image loading library for SDL3.
+	  https://github.com/libsdl-org/SDL_image

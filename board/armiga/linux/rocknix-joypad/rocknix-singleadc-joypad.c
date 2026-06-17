@@ -78,6 +78,8 @@ struct bt_gpio {
 	bool old_value;
 	/* button press level */
 	bool active_level;
+	/* dpad hat direction: 1=UP 2=DOWN 3=LEFT 4=RIGHT, 0=normal button */
+	int dpad_hat;
 };
 
 /* Replicate the calibration and constants from the userland code. */
@@ -389,6 +391,8 @@ static void joypad_gpio_check(struct joypad *joypad)
 {
 	struct input_dev *input = joypad->input;
 	int nbtn, value;
+	int hat_x = 0, hat_y = 0;
+	bool has_hat = false;
 
 	for (nbtn = 0; nbtn < joypad->bt_gpio_count; nbtn++) {
 		struct bt_gpio *gpio = &joypad->gpios[nbtn];
@@ -398,14 +402,42 @@ static void joypad_gpio_check(struct joypad *joypad)
 			continue;
 		}
 		value = gpio_get_value_cansleep(gpio->num);
-		if (value != gpio->old_value) {
-			input_event(input,
-				gpio->report_type,
-				gpio->linux_code,
-				(value == gpio->active_level) ? 1 : 0);
-			gpio->old_value = value;
+
+		if (gpio->dpad_hat) {
+			int pressed = (value == gpio->active_level) ? 1 : 0;
+			has_hat = true;
+			pr_info_ratelimited("hat=%d gpio=%d val=%d active=%d pressed=%d\n", gpio->dpad_hat, gpio->num, value, gpio->active_level, pressed);
+			switch (gpio->dpad_hat) {
+			case 1: /* UP    -> HAT0Y = -1 */
+				if (pressed) hat_y = -1;
+				break;
+			case 2: /* DOWN  -> HAT0Y = +1 */
+				if (pressed) hat_y = 1;
+				break;
+			case 3: /* LEFT  -> HAT0X = -1 */
+				if (pressed) hat_x = -1;
+				
+				break;
+			case 4: /* RIGHT -> HAT0X = +1 */
+				if (pressed) hat_x = 1;
+				break;
+			}
+		} else {
+			if (value != gpio->old_value) {
+				input_event(input,
+					gpio->report_type,
+					gpio->linux_code,
+					(value == gpio->active_level) ? 1 : 0);
+				gpio->old_value = value;
+			}
 		}
 	}
+
+	if (has_hat) {
+		input_report_abs(input, ABS_HAT0X, hat_x);
+		input_report_abs(input, ABS_HAT0Y, hat_y);
+	}
+
 	input_sync(input);
 }
 
@@ -519,10 +551,14 @@ static int joypad_open(struct input_dev *input)
 			val = gpio->active_level ? 0 : 1;
 		gpio->old_value = val;
 
-		input_event(input, gpio->report_type,
-					gpio->linux_code,
-					(val == gpio->active_level) ? 1 : 0);
+		if (!gpio->dpad_hat)
+			input_event(input, gpio->report_type,
+						gpio->linux_code,
+						(val == gpio->active_level) ? 1 : 0);
 	}
+	/* estado inicial HAT: centrado */
+	input_report_abs(input, ABS_HAT0X, 0);
+	input_report_abs(input, ABS_HAT0Y, 0);
 	input_sync(input);
 
 	for (nbtn = 0; nbtn < joypad->amux_count; nbtn++) {
@@ -798,6 +834,10 @@ static int joypad_gpio_setup(struct device *dev, struct joypad *joypad)
 		if (of_property_read_u32(pp, "linux,input-type",
 				&gpio->report_type))
 			gpio->report_type = EV_KEY;
+
+		/* lee atributo dpad-hat si existe (0 si no está) */
+		if (of_property_read_u32(pp, "rocknix,dpad-hat", &gpio->dpad_hat))
+			gpio->dpad_hat = 0;
 	}
 	if (nbtn == 0)
 		return -EINVAL;
@@ -958,8 +998,26 @@ static int joypad_input_setup(struct device *dev, struct joypad *joypad)
 	__set_bit(EV_KEY, input->evbit);
 	for(nbtn = 0; nbtn < joypad->bt_gpio_count; nbtn++) {
 		struct bt_gpio *gpio = &joypad->gpios[nbtn];
-		input_set_capability(input, gpio->report_type,
-				gpio->linux_code);
+		if (!gpio->dpad_hat)
+			input_set_capability(input, gpio->report_type,
+					gpio->linux_code);
+	}
+
+	/* registrar ABS_HAT0X/Y si hay botones DPAD marcados como hat */
+	{
+		int i;
+		bool has_hat = false;
+		for (i = 0; i < joypad->bt_gpio_count; i++) {
+			if (joypad->gpios[i].dpad_hat) {
+				has_hat = true;
+				break;
+			}
+		}
+		if (has_hat) {
+			__set_bit(EV_ABS, input->evbit);
+			input_set_abs_params(input, ABS_HAT0X, -1, 1, 0, 0);
+			input_set_abs_params(input, ABS_HAT0Y, -1, 1, 0, 0);
+		}
 	}
 
 	if (joypad->auto_repeat)
