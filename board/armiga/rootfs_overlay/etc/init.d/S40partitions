@@ -1,56 +1,77 @@
 #!/bin/sh
 # =============================================================================
-# S40partitions — Montaje de particiones kickstarts y roms
-# Monta p3 (kickstarts) y p4 (roms) como exFAT
-# En primer arranque, expande p4 al resto de la SD
+# S40partitions — Montaje de la partición amiga_data
+# Monta p3 (amiga_data, exFAT: kickstarts + roms + configs persistentes)
+# En primer arranque, expande p3 al resto de la SD
+#
+# CAMBIO (versión intermedia particionado):
+#   kickstarts (p3) + roms (p4) fusionadas en una única amiga_data (p3).
+#   La expansión SOLO se ejecuta si la partición no ha sido expandida antes
+#   (EXPAND_FLAG). A diferencia de la versión anterior, NO se reformatea
+#   la partición si ya contiene datos — mkfs.exfat solo se ejecuta la
+#   primera vez, justo después del resize, sobre una partición que en ese
+#   punto viene recién creada por genimage/post-image.sh y por tanto vacía.
+#   En arranques posteriores (tras un reflash de boot+system con flash.sh),
+#   EXPAND_FLAG ya no existe en RAM/tmpfs pero la partición física SÍ
+#   conserva los datos — por eso NO volvemos a formatear, solo remontamos.
 # =============================================================================
-KICKSTARTS_DEV="/dev/mmcblk0p3"
-ROMS_DEV="/dev/mmcblk0p4"
-KICKSTARTS_MNT="/media/kickstarts"
-ROMS_MNT="/media/roms"
-EXPAND_FLAG="/var/lib/armiga/.expanded"
+AMIGA_DATA_DEV="/dev/mmcblk0p3"
+AMIGA_DATA_MNT="/media/amiga_data"
+EXPAND_FLAG="/media/amiga_data/.armiga_expanded"
 
-do_expand() {
-    if [ -f "$EXPAND_FLAG" ]; then
-        return 0
+do_expand_if_needed() {
+    # El flag vive DENTRO de amiga_data, no en rootfs: así sobrevive a un
+    # reflash de boot+system (flash.sh no toca p3) y no se repite el
+    # resize/format en cada actualización del sistema.
+    if [ -b "$AMIGA_DATA_DEV" ]; then
+        # Montar primero en modo lectura para comprobar si ya está expandida
+        mkdir -p "$AMIGA_DATA_MNT"
+        if mount -t exfat -o ro "$AMIGA_DATA_DEV" "$AMIGA_DATA_MNT" 2>/dev/null; then
+            if [ -f "$EXPAND_FLAG" ]; then
+                umount "$AMIGA_DATA_MNT" 2>/dev/null
+                return 0
+            fi
+            umount "$AMIGA_DATA_MNT" 2>/dev/null
+        fi
     fi
 
-    echo -n "Expanding roms partition... "
+    echo -n "Expanding amiga_data partition (first boot)... "
 
-    # Expandir p4 usando todo el espacio disponible
-    parted -s /dev/mmcblk0 resizepart 4 100% >/dev/null 2>&1
+    # Expandir p3 usando todo el espacio disponible de la SD
+    parted -s /dev/mmcblk0 resizepart 3 100% >/dev/null 2>&1
 
     # Re-leer la tabla de particiones
     partprobe /dev/mmcblk0 2>/dev/null || partx -u /dev/mmcblk0 >/dev/null 2>&1
     sleep 1
 
-    # Formatear ambas particiones como exFAT
-    mkfs.exfat -n "roms" "$ROMS_DEV" >/dev/null 2>&1
-    mkfs.exfat -n "kickstarts" "$KICKSTARTS_DEV" >/dev/null 2>&1
+    # Formatear SOLO en este primer arranque — la partición recién resized
+    # desde la imagen de build está vacía (256M placeholder), así que no
+    # hay riesgo de pérdida de datos reales de usuario aquí.
+    mkfs.exfat -n "amiga_data" "$AMIGA_DATA_DEV" >/dev/null 2>&1
 
-    mkdir -p "$(dirname "$EXPAND_FLAG")"
+    mount -t exfat "$AMIGA_DATA_DEV" "$AMIGA_DATA_MNT"
+    mkdir -p "$AMIGA_DATA_MNT/kickstarts" "$AMIGA_DATA_MNT/roms/amiga" \
+             "$AMIGA_DATA_MNT/shaders" "$AMIGA_DATA_MNT/.config/retroarch/saves" \
+             "$AMIGA_DATA_MNT/.config/retroarch/states"
     touch "$EXPAND_FLAG"
+    umount "$AMIGA_DATA_MNT"
 
     echo "OK"
 }
 
 case "$1" in
     start)
-        printf "Mounting data partitions: "
-        mkdir -p "$KICKSTARTS_MNT" "$ROMS_MNT"
-        do_expand
-        if [ -b "$KICKSTARTS_DEV" ]; then
-            mount -t exfat "$KICKSTARTS_DEV" "$KICKSTARTS_MNT" 2>/dev/null && echo -n "kickstarts "
-        fi
-        if [ -b "$ROMS_DEV" ]; then
-            mount -t exfat "$ROMS_DEV" "$ROMS_MNT" 2>/dev/null && echo -n "roms "
+        printf "Mounting amiga_data partition: "
+        mkdir -p "$AMIGA_DATA_MNT"
+        do_expand_if_needed
+        if [ -b "$AMIGA_DATA_DEV" ]; then
+            mount -t exfat "$AMIGA_DATA_DEV" "$AMIGA_DATA_MNT" 2>/dev/null && echo -n "amiga_data "
         fi
         echo "OK"
         ;;
     stop)
-        printf "Unmounting data partitions: "
-        umount "$ROMS_MNT" 2>/dev/null || true
-        umount "$KICKSTARTS_MNT" 2>/dev/null || true
+        printf "Unmounting amiga_data partition: "
+        umount "$AMIGA_DATA_MNT" 2>/dev/null || true
         echo "OK"
         ;;
     restart)

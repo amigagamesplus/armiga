@@ -28,8 +28,31 @@ cat > "$IMAGES_DIR/extlinux.conf" << 'EOF'
 LABEL Armiga
   LINUX /Image
   FDT /dtb.img
-  APPEND root=/dev/mmcblk0p2 rootfstype=ext4 rootwait rw console=ttyS0,115200 console=tty0 net.ifnames=0 loglevel=3
+  APPEND root=/dev/mmcblk0p2 rootfstype=ext4 rootwait ro console=ttyS0,115200 console=tty0 net.ifnames=0 loglevel=3
 EOF
+
+# --- Generar amiga_data.img (exFAT) ------------------------------------------
+# genimage NO soporta exFAT nativamente (a diferencia de vfat/ext2/ext4),
+# así que la generamos aquí a mano y genimage la trata como imagen
+# pre-existente en genimage.cfg (partition amiga_data, image = "amiga_data.img").
+echo ">>> Generando amiga_data.img (exFAT)..."
+
+if ! command -v mkfs.exfat >/dev/null 2>&1; then
+    echo "ERROR: mkfs.exfat no encontrado. Instalar 'exfatprogs' en el runner CI."
+    exit 1
+fi
+
+AMIGA_DATA_IMG="$IMAGES_DIR/amiga_data.img"
+AMIGA_DATA_SIZE_MB=256   # debe coincidir con el size en genimage.cfg
+
+rm -f "$AMIGA_DATA_IMG"
+# Crear fichero en blanco del tamaño deseado
+dd if=/dev/zero of="$AMIGA_DATA_IMG" bs=1M count="$AMIGA_DATA_SIZE_MB" status=none
+
+# Formatear como exFAT con etiqueta amiga_data
+mkfs.exfat -L "amiga_data" "$AMIGA_DATA_IMG"
+
+echo ">>> amiga_data.img generada (${AMIGA_DATA_SIZE_MB}M, exFAT)"
 
 # --- Generar imagen SD con genimage ------------------------------------------
 echo ">>> Ejecutando genimage..."
@@ -63,9 +86,7 @@ echo "========================================="
 echo " Imagen generada: $SDCARD_IMG"
 echo "========================================="
 echo ""
-echo " Para flashear:"
-echo "   sudo dd if=$SDCARD_IMG of=/dev/sdX bs=4M status=progress conv=fsync"
-echo "   sudo sgdisk -e /dev/sdX"
-echo "   sync"
+echo " Para flashear (preservando datos en amiga_data):"
+echo "   sudo bash flash.sh /dev/sdX"
 echo ""
 echo ">>> Armiga post-image.sh: done"

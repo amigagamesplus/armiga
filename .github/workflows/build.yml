@@ -158,9 +158,8 @@ jobs:
             - Commit: ${{ github.sha }}
 
             ### Flash
-            sudo dd if=sdcard.img of=/dev/sdX bs=4M status=progress conv=fsync
-            sudo sgdisk -e /dev/sdX
-            sync
+            sudo bash flash.sh /dev/sdX
+            (escribe solo boot+system; preserva kickstarts/roms en amiga_data)
           files: output/images/sdcard.img
           draft: false
           prerelease: true
