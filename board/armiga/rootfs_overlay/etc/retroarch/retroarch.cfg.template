@@ -4,7 +4,7 @@
 
 video_driver = "gl"
 video_fullscreen = true
-video_vsync = false
+video_vsync = true
 
 input_driver = "udev"
 input_joypad_driver = "udev"
@@ -12,7 +12,7 @@ joypad_autoconfig_dir = "/root/.config/retroarch/autoconfig"
 
 audio_driver = "null"
 
-menu_driver = "rgui"
+menu_driver = "ozone"
 rgui_show_start_screen = false
 
 # Cores y su .info (commiteados en rootfs_overlay, ro)
