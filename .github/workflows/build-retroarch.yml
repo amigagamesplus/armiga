@@ -176,7 +176,6 @@ jobs:
             --enable-screenshots \
             \
             --disable-qt \
-            --disable-python \
             --disable-discord \
             --disable-ffmpeg \
             --disable-v4l2 \
