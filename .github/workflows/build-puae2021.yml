@@ -1,0 +1,89 @@
+name: Build PUAE2021 libretro core
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install host dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            gcc-aarch64-linux-gnu g++-aarch64-linux-gnu \
+            pkg-config wget apt-file zlib1g-dev:amd64
+          sudo apt-file update
+
+      - name: Setup aarch64 sysroot
+        run: |
+          sudo mkdir -p /sysroot-aarch64
+          cd /tmp
+          sudo dpkg --add-architecture arm64
+          sudo sed -i 's/^deb /deb [arch=amd64] /g' /etc/apt/sources.list
+          echo "deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports jammy main universe" | sudo tee /etc/apt/sources.list.d/arm64.list
+          sudo apt-get update -qq
+          # PUAE/libretro-uae necesita zlib (descompresión de .adf/.adz/whdload)
+          PKGS="zlib1g:arm64 zlib1g-dev:arm64 libc6:arm64 libc6-dev:arm64 linux-libc-dev:arm64"
+          FAILED=""
+          for pkg in ${PKGS}; do
+            apt-get download "${pkg}" || FAILED="${FAILED} ${pkg}"
+          done
+          if [ -n "${FAILED}" ]; then
+            echo "AVISO: no se pudieron descargar:${FAILED}"
+          fi
+          for deb in /tmp/*.deb; do sudo dpkg-deb -x $deb /sysroot-aarch64 || true; done
+          ls /sysroot-aarch64/usr/lib/aarch64-linux-gnu/ | head -10
+
+      - name: Download libretro-uae source (puae2021)
+        run: |
+          # El target "puae2021" es el renombrado histórico del core "puae" clásico
+          # dentro del mismo repo libretro-uae (commit 6ecf1c6). El .so generado
+          # se llama puae_libretro.so independientemente del nombre del checkout.
+          git clone --depth=1 https://github.com/libretro/libretro-uae.git puae2021-src
+
+      - name: Build PUAE2021 (cross aarch64)
+        run: |
+          cd puae2021-src
+          export PKG_CONFIG_PATH=/sysroot-aarch64/usr/lib/aarch64-linux-gnu/pkgconfig
+          export PKG_CONFIG_LIBDIR=/sysroot-aarch64/usr/lib/aarch64-linux-gnu/pkgconfig
+          export PKG_CONFIG_SYSROOT_DIR=/sysroot-aarch64
+
+          TARGET_CFLAGS="--sysroot=/sysroot-aarch64 -I/sysroot-aarch64/usr/include -I/sysroot-aarch64/usr/include/aarch64-linux-gnu"
+          TARGET_CXXFLAGS="${TARGET_CFLAGS}"
+          TARGET_LDFLAGS="--sysroot=/sysroot-aarch64 -L/sysroot-aarch64/usr/lib/aarch64-linux-gnu"
+
+          CFLAGS="${TARGET_CFLAGS}" \
+          CXXFLAGS="${TARGET_CXXFLAGS}" \
+          LDFLAGS="${TARGET_LDFLAGS}" \
+          make \
+            CC=aarch64-linux-gnu-gcc \
+            CXX=aarch64-linux-gnu-g++ \
+            -f Makefile \
+            platform="unix" \
+            platflags="-DAARCH64" \
+            -j$(nproc)
+
+          ls -la *.so
+
+      - name: Collect artifacts
+        run: |
+          mkdir -p puae2021-artifacts/usr/lib/libretro
+          # El .so generado se llama puae_libretro.so (nombre histórico del core,
+          # ver commit 6ecf1c6 "Rename old version to puae2021" en libretro-uae).
+          find puae2021-src -maxdepth 1 -name "*_libretro.so" -exec cp -a {} puae2021-artifacts/usr/lib/libretro/puae2021_libretro.so \;
+          aarch64-linux-gnu-strip --strip-unneeded puae2021-artifacts/usr/lib/libretro/puae2021_libretro.so || true
+          file puae2021-artifacts/usr/lib/libretro/puae2021_libretro.so
+          ls -la puae2021-artifacts/usr/lib/libretro/
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: puae2021-aarch64
+          path: puae2021-artifacts/
+          retention-days: 30
