@@ -29,7 +29,9 @@ jobs:
           # de apt-file qué paquete arm64 contiene khrplatform.h.
           echo ">>> Buscando proveedor de KHR/khrplatform.h..."
           apt-file search KHR/khrplatform.h || true
-          KHR_PKG=$(apt-file search KHR/khrplatform.h 2>/dev/null | grep -v ':i386\|mingw' | head -1 | cut -d: -f1)
+          KHR_PKG=$(apt-file search KHR/khrplatform.h 2>/dev/null \
+            | grep -v 'emscripten\|mingw\|ogre\|i386' \
+            | head -1 | cut -d: -f1)
           echo "Paquete candidato: ${KHR_PKG:-NINGUNO}"
           echo "KHR_PKG=${KHR_PKG}" >> "$GITHUB_ENV"
 
