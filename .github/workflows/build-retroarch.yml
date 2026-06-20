@@ -33,7 +33,7 @@ jobs:
           # libegl1-mesa-dev / libgles2-mesa-dev / libgbm-dev: SOLO para los headers
           # (EGL/egl.h, GLES2/gl2.h, gbm.h, KHR/khrplatform.h). Los .so que traen
           # estos paquetes se sobrescriben después con los reales de ARMIGA (Panfrost).
-          PKGS="libdrm2:arm64 libdrm-dev:arm64 libasound2:arm64 libasound2-dev:arm64 libfreetype6:arm64 libfreetype6-dev:arm64 libudev1:arm64 libudev1-dev:arm64 zlib1g:arm64 zlib1g-dev:arm64 mesa-common-dev:arm64 libgl1-mesa-dev:arm64 libegl1-mesa-dev:arm64 libgles2-mesa-dev:arm64 libgbm-dev:arm64 libc6:arm64 libc6-dev:arm64 linux-libc-dev:arm64"
+          PKGS="libdrm2:arm64 libdrm-dev:arm64 libasound2:arm64 libasound2-dev:arm64 libfreetype6:arm64 libfreetype6-dev:arm64 libudev1:arm64 libudev1-dev:arm64 zlib1g:arm64 zlib1g-dev:arm64 mesa-common-dev:arm64 libgl1-mesa-dev:arm64 libegl1-mesa-dev:arm64 libgles2-mesa-dev:arm64 libgbm-dev:arm64 libglvnd-dev:arm64 libegl-dev:arm64 libgles-dev:arm64 libc6:arm64 libc6-dev:arm64 linux-libc-dev:arm64"
           FAILED=""
           for pkg in ${PKGS}; do
             apt-get download "${pkg}" || FAILED="${FAILED} ${pkg}"
@@ -57,6 +57,13 @@ jobs:
             echo "ERROR: faltan headers tras la descarga de paquetes -dev."
             echo "Paquetes .deb descargados en /tmp:"
             ls /tmp/*.deb 2>/dev/null || echo "(ninguno)"
+            echo ""
+            echo ">>> Contenido de paquetes mesa/egl/gles/glvnd (diagnóstico):"
+            for deb in /tmp/*mesa* /tmp/*egl* /tmp/*gles* /tmp/*glvnd*; do
+              [ -f "$deb" ] || continue
+              echo "--- $deb ---"
+              dpkg-deb -c "$deb" | grep -E "\.h$" || echo "  (sin headers .h)"
+            done
             exit 1
           fi
           echo "Headers OK."
