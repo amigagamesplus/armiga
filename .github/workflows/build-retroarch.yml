@@ -188,7 +188,6 @@ jobs:
             --enable-rewind \
             --enable-cheats \
             --enable-cheevos \
-            --enable-neon \
             --enable-libretrodb \
             --enable-overlay \
             --enable-screenshots \
