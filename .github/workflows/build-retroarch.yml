@@ -214,10 +214,28 @@ jobs:
 
       - name: Collect artifacts
         run: |
-          mkdir -p retroarch-artifacts/usr/bin
+          mkdir -p retroarch-artifacts/usr/bin retroarch-artifacts/usr/lib
           cp retroarch-src/retroarch retroarch-artifacts/usr/bin/
           file retroarch-artifacts/usr/bin/retroarch
           ls -la retroarch-artifacts/usr/bin/retroarch
+
+          # RetroArch enlaza dinámicamente contra freetype (y sus dependencias
+          # transitivas libpng/libbrotlidec). Estas .so no están en rootfs_overlay
+          # (a diferencia de Mesa), así que se recogen aquí del sysroot del runner
+          # para que build.yml las inyecte igual que hace con Mesa GBM.
+          SYSROOT_LIB="/sysroot-aarch64/usr/lib/aarch64-linux-gnu"
+          for lib in libfreetype.so.6 libpng16.so.16 libbrotlidec.so.1 libbrotlicommon.so.1; do
+            found=$(find "${SYSROOT_LIB}" -name "${lib}*" 2>/dev/null | head -1)
+            if [ -n "${found}" ]; then
+              cp -a "${found}" retroarch-artifacts/usr/lib/
+            else
+              echo "AVISO: no se encontró ${lib} en el sysroot"
+            fi
+          done
+          aarch64-linux-gnu-strip --strip-unneeded retroarch-artifacts/usr/lib/*.so* || true
+
+          echo "Artefactos recolectados:"
+          ls -la retroarch-artifacts/usr/lib/
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
