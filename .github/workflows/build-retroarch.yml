@@ -103,9 +103,9 @@ jobs:
 
       - name: Download RetroArch source
         run: |
-          wget -q "https://github.com/libretro/RetroArch/releases/download/v${{ env.RETROARCH_VERSION }}/retroarch-sourceonly-${{ env.RETROARCH_VERSION }}.tar.xz"
-          tar xf "retroarch-sourceonly-${{ env.RETROARCH_VERSION }}.tar.xz"
-          mv "RetroArch-${{ env.RETROARCH_VERSION }}" retroarch-src || mv RetroArch-* retroarch-src
+          git clone --depth=1 --branch "v${{ env.RETROARCH_VERSION }}" \
+            https://github.com/libretro/RetroArch.git retroarch-src
+          cd retroarch-src && git submodule update --init --depth=1
 
       - name: Configure RetroArch (cross aarch64)
         run: |
