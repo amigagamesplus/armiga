@@ -50,9 +50,12 @@ do_expand_if_needed() {
     mkfs.exfat -n "amiga_data" "$AMIGA_DATA_DEV" >/dev/null 2>&1
 
     mount -t exfat "$AMIGA_DATA_DEV" "$AMIGA_DATA_MNT"
-    mkdir -p "$AMIGA_DATA_MNT/kickstarts" "$AMIGA_DATA_MNT/roms/amiga" \
-             "$AMIGA_DATA_MNT/shaders" "$AMIGA_DATA_MNT/.config/retroarch/saves" \
-             "$AMIGA_DATA_MNT/.config/retroarch/states"
+    mkdir -p "$AMIGA_DATA_MNT/kickstarts" \
+             "$AMIGA_DATA_MNT/roms/adf" "$AMIGA_DATA_MNT/roms/ipf" \
+             "$AMIGA_DATA_MNT/roms/whdload" "$AMIGA_DATA_MNT/roms/hdf" \
+             "$AMIGA_DATA_MNT/shaders" \
+             "$AMIGA_DATA_MNT/retroarch/saves" "$AMIGA_DATA_MNT/retroarch/states" \
+             "$AMIGA_DATA_MNT/retroarch/screenshots" "$AMIGA_DATA_MNT/retroarch/config"
     touch "$EXPAND_FLAG"
     umount "$AMIGA_DATA_MNT"
 
