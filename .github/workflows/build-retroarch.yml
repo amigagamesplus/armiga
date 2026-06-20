@@ -20,7 +20,18 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y \
             gcc-aarch64-linux-gnu g++-aarch64-linux-gnu \
-            pkg-config wget
+            pkg-config wget apt-file
+          sudo apt-file update
+
+      - name: Locate khrplatform.h provider package
+        run: |
+          # En vez de adivinar nombres de paquete, preguntamos al índice real
+          # de apt-file qué paquete arm64 contiene khrplatform.h.
+          echo ">>> Buscando proveedor de KHR/khrplatform.h..."
+          apt-file search KHR/khrplatform.h || true
+          KHR_PKG=$(apt-file search KHR/khrplatform.h 2>/dev/null | grep -v ':i386\|mingw' | head -1 | cut -d: -f1)
+          echo "Paquete candidato: ${KHR_PKG:-NINGUNO}"
+          echo "KHR_PKG=${KHR_PKG}" >> "$GITHUB_ENV"
 
       - name: Setup aarch64 sysroot
         run: |
@@ -34,6 +45,9 @@ jobs:
           # (EGL/egl.h, GLES2/gl2.h, gbm.h, KHR/khrplatform.h). Los .so que traen
           # estos paquetes se sobrescriben después con los reales de ARMIGA (Panfrost).
           PKGS="libdrm2:arm64 libdrm-dev:arm64 libasound2:arm64 libasound2-dev:arm64 libfreetype6:arm64 libfreetype6-dev:arm64 libudev1:arm64 libudev1-dev:arm64 zlib1g:arm64 zlib1g-dev:arm64 mesa-common-dev:arm64 libgl1-mesa-dev:arm64 libegl1-mesa-dev:arm64 libgles2-mesa-dev:arm64 libgbm-dev:arm64 libglvnd-dev:arm64 libegl-dev:arm64 libgles-dev:arm64 libc6:arm64 libc6-dev:arm64 linux-libc-dev:arm64"
+          if [ -n "${KHR_PKG:-}" ]; then
+            PKGS="${PKGS} ${KHR_PKG}:arm64"
+          fi
           FAILED=""
           for pkg in ${PKGS}; do
             apt-get download "${pkg}" || FAILED="${FAILED} ${pkg}"
