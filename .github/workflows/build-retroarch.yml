@@ -35,6 +35,14 @@ jobs:
           echo "Paquete candidato: ${KHR_PKG:-NINGUNO}"
           echo "KHR_PKG=${KHR_PKG}" >> "$GITHUB_ENV"
 
+          echo ">>> Buscando proveedor de freetype2.pc..."
+          apt-file search freetype2.pc || true
+          FT_PKG=$(apt-file search freetype2.pc 2>/dev/null \
+            | grep -v 'emscripten\|mingw\|i386' \
+            | head -1 | cut -d: -f1)
+          echo "Paquete candidato: ${FT_PKG:-NINGUNO}"
+          echo "FT_PKG=${FT_PKG}" >> "$GITHUB_ENV"
+
       - name: Setup aarch64 sysroot
         run: |
           sudo mkdir -p /sysroot-aarch64
@@ -49,6 +57,9 @@ jobs:
           PKGS="libdrm2:arm64 libdrm-dev:arm64 libasound2:arm64 libasound2-dev:arm64 libfreetype6:arm64 libfreetype6-dev:arm64 libudev1:arm64 libudev-dev:arm64 zlib1g:arm64 zlib1g-dev:arm64 mesa-common-dev:arm64 libgl1-mesa-dev:arm64 libegl1-mesa-dev:arm64 libgles2-mesa-dev:arm64 libgbm-dev:arm64 libglvnd-dev:arm64 libegl-dev:arm64 libgles-dev:arm64 libc6:arm64 libc6-dev:arm64 linux-libc-dev:arm64"
           if [ -n "${KHR_PKG:-}" ]; then
             PKGS="${PKGS} ${KHR_PKG}:arm64"
+          fi
+          if [ -n "${FT_PKG:-}" ]; then
+            PKGS="${PKGS} ${FT_PKG}:arm64"
           fi
           FAILED=""
           for pkg in ${PKGS}; do
