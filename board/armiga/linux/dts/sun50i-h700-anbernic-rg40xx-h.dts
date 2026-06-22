@@ -49,28 +49,28 @@
 		sw1 {
 			gpios = <&pio 0 6 GPIO_ACTIVE_LOW>;
 			label = "GPIO DPAD-UP";
-			linux,code = <BTN_DPAD_UP>;
+			linux,code = <KEY_RESERVED>;
 			rocknix,dpad-hat = <1>;
 			gpio-active-low;
 		};
 		sw2 {
 			gpios = <&pio 4 0 GPIO_ACTIVE_LOW>;
 			label = "GPIO DPAD-DOWN";
-			linux,code = <BTN_DPAD_DOWN>;
+			linux,code = <KEY_RESERVED>;
 			rocknix,dpad-hat = <2>;
 			gpio-active-low;
 		};
 		sw3 {
 			gpios = <&pio 0 8 GPIO_ACTIVE_LOW>;
 			label = "GPIO DPAD-LEFT";
-			linux,code = <BTN_DPAD_LEFT>;
+			linux,code = <KEY_RESERVED>;
 			rocknix,dpad-hat = <3>;
 			gpio-active-low;
 		};
 		sw4 {
 			gpios = <&pio 0 9 GPIO_ACTIVE_LOW>;
 			label = "GPIO DPAD-RIGHT";
-			linux,code = <BTN_DPAD_RIGHT>;
+			linux,code = <KEY_RESERVED>;
 			rocknix,dpad-hat = <4>;
 			gpio-active-low;
 		};
