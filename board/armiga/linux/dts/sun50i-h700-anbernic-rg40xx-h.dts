@@ -78,66 +78,79 @@
 			gpios = <&pio 0 0 GPIO_ACTIVE_LOW>;
 			label = "GPIO BTN-A";
 			linux,code = <BTN_EAST>;
+			gpio-active-low;
 		};
 		sw6 {
 			gpios = <&pio 0 1 GPIO_ACTIVE_LOW>;
 			label = "GPIO BTN-B";
 			linux,code = <BTN_SOUTH>;
+			gpio-active-low;
 		};
 		sw7 {
 			gpios = <&pio 0 3 GPIO_ACTIVE_LOW>;
 			label = "GPIO BTN-X";
 			linux,code = <BTN_WEST>;
+			gpio-active-low;
 		};
 		sw8 {
 			gpios = <&pio 0 2 GPIO_ACTIVE_LOW>;
 			label = "GPIO BTN-Y";
 			linux,code = <BTN_NORTH>;
+			gpio-active-low;
 		};
 		sw9 {
 			gpios = <&pio 0 5 GPIO_ACTIVE_LOW>;
 			label = "BTN_SELECT";
 			linux,code = <BTN_SELECT>;
+			gpio-active-low;
 		};
 		sw10 {
 			gpios = <&pio 0 4 GPIO_ACTIVE_LOW>;
 			label = "BTN_START";
 			linux,code = <BTN_START>;
+			gpio-active-low;
 		};
 		sw11 {
 			gpios = <&pio 4 3 GPIO_ACTIVE_LOW>;
 			label = "GPIO BTN_F";
 			linux,code = <BTN_MODE>;
+			gpio-active-low;
 		};
 		sw12 {
 			gpios = <&pio 4 8 GPIO_ACTIVE_LOW>;
 			label = "BTN_THUMBL";
 			linux,code = <BTN_THUMBL>;
+			gpio-active-low;
 		};
 		sw13 {
 			gpios = <&pio 4 9 GPIO_ACTIVE_LOW>;
 			label = "BTN_THUMBR";
 			linux,code = <BTN_THUMBR>;
+			gpio-active-low;
 		};
 		sw14 {
 			gpios = <&pio 0 12 GPIO_ACTIVE_LOW>;
 			label = "GPIO BTN_TR";
 			linux,code = <BTN_TR>;
+			gpio-active-low;
 		};
 		sw15 {
 			gpios = <&pio 0 7 GPIO_ACTIVE_LOW>;
 			label = "GPIO BTN_TR2";
 			linux,code = <BTN_TR2>;
+			gpio-active-low;
 		};
 		sw16 {
 			gpios = <&pio 0 10 GPIO_ACTIVE_LOW>;
 			label = "GPIO BTN_TL";
 			linux,code = <BTN_TL>;
+			gpio-active-low;
 		};
 		sw17 {
 			gpios = <&pio 0 11 GPIO_ACTIVE_LOW>;
 			label = "GPIO BTN_TL2";
 			linux,code = <BTN_TL2>;
+			gpio-active-low;
 		};
 	};
 };
