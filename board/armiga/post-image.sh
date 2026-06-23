@@ -16,8 +16,8 @@ echo ">>> Armiga post-image.sh: IMAGES_DIR=$IMAGES_DIR"
 echo ">>> Armiga post-image.sh: BOARD_DIR=$BOARD_DIR"
 
 # --- Copiar bootloader binarios a images/ ------------------------------------
-echo ">>> Copiando kernel Image..."
-cp "$BOARD_DIR/bootloader/Image" "$IMAGES_DIR/Image"
+echo ">>> Copiando kernel KERNEL..."
+cp "$BOARD_DIR/bootloader/KERNEL" "$IMAGES_DIR/KERNEL"
 
 echo ">>> Copiando DTB..."
 cp "$BOARD_DIR/bootloader/dtb.img" "$IMAGES_DIR/dtb.img"
@@ -26,7 +26,7 @@ cp "$BOARD_DIR/bootloader/dtb.img" "$IMAGES_DIR/dtb.img"
 echo ">>> Generando extlinux.conf..."
 cat > "$IMAGES_DIR/extlinux.conf" << 'EOF'
 LABEL Armiga
-  LINUX /Image
+  LINUX /KERNEL
   FDT /dtb.img
   APPEND root=/dev/mmcblk0p2 rootfstype=ext4 rootwait ro console=ttyS0,115200 console=tty0 net.ifnames=0 loglevel=3
 EOF
