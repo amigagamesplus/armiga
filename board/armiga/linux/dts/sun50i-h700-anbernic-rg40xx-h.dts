@@ -26,9 +26,9 @@
 		io-channel-names = "amux_adc";
 		io-channels = <&gpadc 0>;
 		amux-count = <4>;
-		amux-channel-mapping = <0 2 1 3>;
-		amux-a-gpios = <&pio 8 1 GPIO_ACTIVE_LOW>;
-		amux-b-gpios = <&pio 8 2 GPIO_ACTIVE_LOW>;
+		amux-channel-mapping = <3 1 2 0>;
+		amux-a-gpios = <&pio 8 1 GPIO_ACTIVE_HIGH>;
+		amux-b-gpios = <&pio 8 2 GPIO_ACTIVE_HIGH>;
 		button-adc-scale = <36>;
 		button-adc-deadzone = <2304>;
 		button-adc-fuzz = <32>;
