@@ -429,10 +429,9 @@ static void joypad_gpio_check(struct joypad *joypad)
 				hat_changed = true;
 				break;
 			case 2: /* DOWN */
-				if (pressed) {
+				if (pressed)
 					hat_y = 1;
-					hat_changed = true;
-				}
+				hat_changed = true;
 				break;
 			case 3: /* LEFT */
 				if (pressed)
@@ -440,10 +439,9 @@ static void joypad_gpio_check(struct joypad *joypad)
 				hat_changed = true;
 				break;
 			case 4: /* RIGHT */
-				if (pressed) {
+				if (pressed)
 					hat_x = 1;
-					hat_changed = true;
-				}
+				hat_changed = true;
 				break;
 			}
 		}
@@ -568,7 +566,10 @@ static int joypad_open(struct input_dev *input)
 			val = gpio->active_level ? 0 : 1;
 		gpio->old_value = val;
 
-		// Immediately report the current state
+		/* Skip DPAD hat GPIOs - handled by joypad_gpio_check */
+		if (gpio->dpad_hat != 0)
+			continue;
+
 		input_event(joypad->input, gpio->report_type,
 					gpio->linux_code,
 					(val == gpio->active_level) ? 1 : 0);
@@ -829,10 +830,14 @@ static int joypad_gpio_setup(struct device *dev, struct joypad *joypad)
 			return error;
 		}
 
-		/* gpio active level(key press level) - leido de la propiedad
-		 * booleana gpio-active-low, NO del flag GPIO_ACTIVE_LOW
-		 * del descriptor gpios (ver CLAUDE.md / build #118) */
-		gpio->active_level = of_property_read_bool(pp, "gpio-active-low") ? 0 : 1;
+		/* gpio active level: el cuarto elemento del descriptor gpios
+		 * en el DTS es el flag de polaridad: 0=ACTIVE_HIGH, 1=ACTIVE_LOW.
+		 * Lo leemos directamente de la propiedad "gpios" del nodo. */
+		{
+			u32 gpio_flags = 0;
+			of_property_read_u32_index(pp, "gpios", 3, &gpio_flags);
+			gpio->active_level = (gpio_flags & 1) ? 0 : 1;
+		}
 
 		gpio->label = of_get_property(pp, "label", NULL);
 
