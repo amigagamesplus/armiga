@@ -1,4 +1,4 @@
-# ARMIGA_CFG_VERSION=1
+# ARMIGA_CFG_VERSION=2
 accessibility_enable = "false"
 accessibility_narrator_speech_speed = "5"
 ai_service_enable = "false"
@@ -15,7 +15,7 @@ aspect_ratio_index = "22"
 assets_directory = "~/.config/retroarch/assets"
 audio_block_frames = "0"
 audio_device = ""
-audio_driver = "null"
+audio_driver = "alsa"
 audio_dsp_plugin = ""
 audio_enable = "true"
 audio_enable_menu = "false"
