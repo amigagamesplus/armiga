@@ -1,4 +1,2 @@
 #!/bin/sh
-# retroarch-launch.sh — wrapper que lanza RetroArch con el cfg persistente
-# en amiga_data, en vez del default ~/.config/retroarch/retroarch.cfg
-exec /usr/bin/retroarch.real --config /media/amiga_data/retroarch/retroarch.cfg "$@"
+exec /usr/bin/retroarch.real --config /media/amiga_data/retroarch/retroarch.cfg "$@" 2>/dev/null
