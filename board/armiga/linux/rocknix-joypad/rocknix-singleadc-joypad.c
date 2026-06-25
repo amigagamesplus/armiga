@@ -288,43 +288,56 @@ static int joypad_amux_select(struct analog_mux *amux, int channel)
 	/* select mux channel */
 	gpio_set_value_cansleep(amux->en_gpio, 0);
 
+	/* Set B first, then A - avoids transient channel 0 (RY) when
+	 * switching between channels that differ in both A and B bits.
+	 * e.g. RX(A=0,B=1)->Y(A=1,B=0): setting A first gives A=1,B=1=ch3,
+	 * setting B first gives A=0,B=0=ch0. Neither is ideal but ch0=RY
+	 * is more likely to cause crosstalk than ch3=X which is at rest. */
 	switch(channel) {
-		case 0:	/* EVENT (ABS_RY) */
-			gpio_set_value_cansleep(amux->sel_a_gpio, 0);
+		case 0:	/* EVENT (ABS_RY): A=0, B=0 */
 			gpio_set_value_cansleep(amux->sel_b_gpio, 0);
+			gpio_set_value_cansleep(amux->sel_a_gpio, 0);
 			break;
-		case 1:	/* EVENT (ABS_RX) */
+		case 1:	/* EVENT (ABS_RX): A=0, B=1 */
 			gpio_set_value_cansleep(amux->sel_a_gpio, 0);
 			gpio_set_value_cansleep(amux->sel_b_gpio, 1);
 			break;
-		case 2:	/* EVENT (ABS_Y) */
-			gpio_set_value_cansleep(amux->sel_a_gpio, 1);
+		case 2:	/* EVENT (ABS_Y): A=1, B=0 */
 			gpio_set_value_cansleep(amux->sel_b_gpio, 0);
+			gpio_set_value_cansleep(amux->sel_a_gpio, 1);
 			break;
-		case 3:	/* EVENT (ABS_X) */
+		case 3:	/* EVENT (ABS_X): A=1, B=1 */
 			gpio_set_value_cansleep(amux->sel_a_gpio, 1);
 			gpio_set_value_cansleep(amux->sel_b_gpio, 1);
 			break;
 		default:
-			/* amux disanle */
+			/* amux disable */
 			gpio_set_value_cansleep(amux->en_gpio, 1);
 			return -1;
 	}
-	/* mux swtiching speed : 35ns(on) / 9ns(off) */
-	usleep_range(1000, 1100);
+	/* mux switching speed : 35ns(on) / 9ns(off) */
+	usleep_range(5000, 5100);
 	return 0;
 }
 
 /*----------------------------------------------------------------------------*/
 static int joypad_adc_read(struct analog_mux *amux, struct bt_adc *adc)
 {
-	int value;
-
+	int value, i, sum = 0;
 
 	if (joypad_amux_select(amux, adc->amux_ch))
 		return 0;
 
+	/* Discard first read - mux capacitance may hold previous channel voltage */
 	iio_read_channel_raw(amux->iio_ch, &value);
+	usleep_range(1000, 1100);
+
+	/* Average 4 reads for stability */
+	for (i = 0; i < 4; i++) {
+		iio_read_channel_raw(amux->iio_ch, &value);
+		sum += value;
+	}
+	value = sum / 4;
 
 	value *= adc->scale;
 
@@ -468,18 +481,10 @@ static void joypad_adc_check(struct joypad *joypad)
 
 		/* Read first joystick axis */
 		adcx->value = joypad_adc_read(joypad->amux, adcx);
-		if (!adcx->value) {
-			//dev_err(joypad->dev, "%s : saradc channels[%d]! adc->value : %d\n",__func__, nbtn, adc->value);
-			continue;
-		}
 		adcx->value = adcx->value - adcx->cal;
 
 		/* Read second joystick axis */
 		adcy->value = joypad_adc_read(joypad->amux, adcy);
-		if (!adcy->value) {
-			//dev_err(joypad->dev, "%s : saradc channels[%d]! adc->value : %d\n",__func__, nbtn, adc->value);
-			continue;
-		}
 		adcy->value = adcy->value - adcy->cal;
 
 		/* Scaled Radial Deadzone */
