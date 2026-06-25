@@ -1,3 +1,4 @@
+# ARMIGA_CFG_VERSION=1
 accessibility_enable = "false"
 accessibility_narrator_speech_speed = "5"
 ai_service_enable = "false"

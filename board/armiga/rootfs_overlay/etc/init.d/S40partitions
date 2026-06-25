@@ -56,7 +56,12 @@ do_expand_if_needed() {
              "$AMIGA_DATA_MNT/shaders" \
              "$AMIGA_DATA_MNT/retroarch/saves" "$AMIGA_DATA_MNT/retroarch/states" \
              "$AMIGA_DATA_MNT/retroarch/screenshots" "$AMIGA_DATA_MNT/retroarch/config"
-    if [ ! -f "$AMIGA_DATA_MNT/retroarch/retroarch.cfg" ]; then
+    # Comparar version del template con la instalada
+    TEMPLATE_VER=$(grep "^# ARMIGA_CFG_VERSION=" /etc/retroarch/retroarch.cfg.template | cut -d= -f2)
+    INSTALLED_VER=$(grep "^# ARMIGA_CFG_VERSION=" "$AMIGA_DATA_MNT/retroarch/retroarch.cfg" 2>/dev/null | cut -d= -f2)
+    TEMPLATE_VER=${TEMPLATE_VER:-0}
+    INSTALLED_VER=${INSTALLED_VER:-0}
+    if [ ! -f "$AMIGA_DATA_MNT/retroarch/retroarch.cfg" ] || [ "$TEMPLATE_VER" -gt "$INSTALLED_VER" ]; then
         cp /etc/retroarch/retroarch.cfg.template "$AMIGA_DATA_MNT/retroarch/retroarch.cfg"
     fi
     touch "$EXPAND_FLAG"
