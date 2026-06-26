@@ -1,9 +1,6 @@
 #!/bin/sh
 # retroarch-launch.sh — wrapper Armiga
-/usr/bin/retroarch.real --config /media/amiga_data/retroarch/retroarch.cfg "$@" 2>/dev/null
-# Restaurar parametros criticos tras salir
-CFG="/media/amiga_data/retroarch/retroarch.cfg"
-sed -i "s/audio_driver = .*/audio_driver = \"alsathread\"/" "$CFG"
-sed -i "s/audio_out_rate = .*/audio_out_rate = \"44100\"/" "$CFG"
-sed -i "s/video_threaded = .*/video_threaded = \"true\"/" "$CFG"
-sed -i "s/menu_driver = .*/menu_driver = \"ozone\"/" "$CFG"
+/usr/bin/retroarch.real \
+  --config /media/amiga_data/retroarch/retroarch.cfg \
+  --appendconfig /etc/retroarch/armiga.cfg \
+  "$@" 2>/dev/null
