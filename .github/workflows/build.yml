@@ -133,14 +133,14 @@ jobs:
           echo "=== Imágenes generadas ==="
           ls -lh "${BR_OUTPUT}/images/"
           echo ""
-          echo "=== Tamaño sdcard.img ==="
-          du -h "${BR_OUTPUT}/images/sdcard.img" || echo "sdcard.img no encontrado"
+          echo "=== Tamaño armiga.img ==="
+          du -h "${BR_OUTPUT}/images/armiga.img" || echo "armiga.img no encontrado"
 
       - name: Upload SD image
         uses: actions/upload-artifact@v4
         with:
-          name: armiga-sdcard-${{ github.run_number }}
-          path: output/images/sdcard.img
+          name: armiga-${{ github.run_number }}
+          path: output/images/armiga.img
           compression-level: 9
           retention-days: 30
 
@@ -160,6 +160,6 @@ jobs:
             ### Flash
             sudo bash flash.sh /dev/sdX
             (escribe solo boot+system; preserva kickstarts/roms en amiga_data)
-          files: output/images/sdcard.img
+          files: output/images/armiga.img
           draft: false
           prerelease: true
