@@ -1,15 +1,14 @@
 #!/bin/sh
 # S29alsa — Restaurar/guardar niveles ALSA
 ALSA_STATE="/media/amiga_data/alsa/asound.state"
+ALSA_DEFAULT="/etc/alsa/asound.state"
 
 case "$1" in
     start)
         if [ -f "$ALSA_STATE" ]; then
             alsactl -f "$ALSA_STATE" restore
-        else
-            amixer sset "Line Out" 80% on
-            amixer sset "DAC" 80% on
-            amixer sset "Speaker" on
+        elif [ -f "$ALSA_DEFAULT" ]; then
+            alsactl -f "$ALSA_DEFAULT" restore
         fi
         ;;
     stop)
