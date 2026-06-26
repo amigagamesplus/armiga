@@ -1,23 +1,10 @@
 #!/bin/sh
-# S29alsa — Restaurar/guardar niveles ALSA
-ALSA_STATE="/media/amiga_data/alsa/asound.state"
-ALSA_DEFAULT="/etc/alsa/asound.state"
-
+# S29alsa — Restaurar niveles ALSA desde rootfs
 case "$1" in
     start)
-        if [ -f "$ALSA_STATE" ]; then
-            alsactl -f "$ALSA_STATE" restore
-        elif [ -f "$ALSA_DEFAULT" ]; then
-            alsactl -f "$ALSA_DEFAULT" restore
-        fi
+        alsactl -f /etc/alsa/asound.state restore
         ;;
-    stop)
-        mkdir -p "$(dirname $ALSA_STATE)"
-        alsactl -f "$ALSA_STATE" store
-        ;;
-    restart)
-        "$0" stop
-        "$0" start
+    stop|restart)
         ;;
     *)
         echo "Usage: $0 {start|stop|restart}"
