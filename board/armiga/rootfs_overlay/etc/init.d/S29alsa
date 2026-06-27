@@ -2,7 +2,8 @@
 # S29alsa — Restaurar niveles ALSA desde rootfs
 case "$1" in
     start)
-        alsactl -f /etc/alsa/asound.state restore
+        amixer sset 'Line Out' 100% on
+        amixer sset 'DAC' 100% on
         ;;
     stop|restart)
         ;;
