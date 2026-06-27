@@ -1,0 +1,15 @@
+#!/bin/sh
+# S05splash — Mostrar splash screen en el framebuffer
+case "$1" in
+    start)
+        if [ -f /usr/share/armiga/splash.raw ]; then
+            cat /usr/share/armiga/splash.raw > /dev/fb0 &
+        fi
+        ;;
+    stop|restart)
+        ;;
+    *)
+        echo "Usage: $0 {start|stop|restart}"
+        exit 1
+        ;;
+esac
