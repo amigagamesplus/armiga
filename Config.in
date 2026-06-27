@@ -1,4 +1,5 @@
 source "$BR2_EXTERNAL_ARMIGA_PATH/package/fastfetch/Config.in"
+source "$BR2_EXTERNAL_ARMIGA_PATH/package/btop/Config.in"
 source "$BR2_EXTERNAL_ARMIGA_PATH/package/sdl3/Config.in"
 source "$BR2_EXTERNAL_ARMIGA_PATH/package/kmsdrm-test/Config.in"
 source "$BR2_EXTERNAL_ARMIGA_PATH/package/sdl3_image/Config.in"
