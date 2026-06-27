@@ -1,11 +1,26 @@
 #!/bin/sh
 # =============================================================================
-# S20wifi — Arranque de WiFi (wpa_supplicant + udhcpc)
+# S41wifi — Arranque de WiFi (wpa_supplicant + udhcpc)
 # Chip: RTL8821CS vía SDIO
 # =============================================================================
 
 INTERFACE="wlan0"
 WPA_CONF="/etc/wpa_supplicant.conf"
+WIFI_USER_CONF="/media/amiga_data/wifi.conf"
+
+# Generar wpa_supplicant.conf desde wifi.conf si existe
+if [ -f "$WIFI_USER_CONF" ]; then
+    SSID=$(grep "^SSID=" "$WIFI_USER_CONF" | cut -d= -f2-)
+    PASSWORD=$(grep "^PASSWORD=" "$WIFI_USER_CONF" | cut -d= -f2-)
+    if [ -n "$SSID" ] && [ -n "$PASSWORD" ]; then
+        printf 'network={
+    ssid="%s"
+    psk="%s"
+    key_mgmt=WPA-PSK
+}
+'             "$SSID" "$PASSWORD" > "$WPA_CONF"
+    fi
+fi
 PID_WPA="/var/run/wpa_supplicant.pid"
 PID_DHCP="/var/run/udhcpc.wlan0.pid"
 
