@@ -1,6 +1,6 @@
 #!/bin/sh
 # retroarch-launch.sh — wrapper Armiga
 /usr/bin/retroarch.real \
-  --config /etc/retroarch/retroarch.cfg \
+  --config /media/amiga_data/retroarch/retroarch.cfg \
   --appendconfig /etc/retroarch/armiga.cfg \
   "$@" 2>/dev/null
