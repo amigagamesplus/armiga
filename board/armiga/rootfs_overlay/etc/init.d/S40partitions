@@ -69,6 +69,10 @@ do_expand_if_needed() {
         mkdir -p "$AMIGA_DATA_MNT/retroarch/config/PUAE 2021"
         cp "/etc/retroarch/PUAE 2021.opt" "$AMIGA_DATA_MNT/retroarch/config/PUAE 2021/PUAE 2021.opt"
     fi
+    # Crear wifi.conf de ejemplo si no existe
+    if [ ! -f "$AMIGA_DATA_MNT/wifi.conf" ]; then
+        printf '# Configuracion WiFi de Armiga\n# Edita este fichero con tu red WiFi\nSSID=nombre_de_tu_red\nPASSWORD=tu_contrasena\n'             > "$AMIGA_DATA_MNT/wifi.conf"
+    fi
     touch "$EXPAND_FLAG"
     umount "$AMIGA_DATA_MNT"
 
