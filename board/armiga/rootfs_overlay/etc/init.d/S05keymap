@@ -2,7 +2,7 @@
 case "$1" in
     start)
         loadkeys es 2>/dev/null || true
-        printf 'keycode 114 = nul\nkeycode 115 = nul\n' | loadkeys -
+        printf 'keycode 114 = VoidSymbol\nkeycode 115 = VoidSymbol\n' | loadkeys -
         ;;
     stop)
         ;;
