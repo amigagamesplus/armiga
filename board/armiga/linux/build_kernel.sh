@@ -9,7 +9,7 @@
 
 set -e
 
-KERNEL_VERSION="7.0.2"
+KERNEL_VERSION="7.0.11"
 LINUX_DIR="linux-${KERNEL_VERSION}"
 BOARD_DIR="$(cd "$(dirname "$0")" && pwd)"
 BOOTLOADER_DIR="$(dirname "$BOARD_DIR")/bootloader"
