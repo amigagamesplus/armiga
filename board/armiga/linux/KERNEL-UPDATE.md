@@ -163,6 +163,27 @@ sudo sync
 sudo umount /mnt/armiga_root
 ```
 
+**Verificación crítica del DTB ANTES de flashear:**
+
+```bash
+dtc -I dtb -O dts \
+    /run/media/vince/samsung/armiga/board/armiga/bootloader/dtb.img \
+    2>/dev/null | grep -E "dpad-hat|adc-scale|adc-deadzone"
+```
+
+La salida debe contener exactamente estas 6 líneas — ni una más, ni una menos:
+
+```
+button-adc-scale = <0x02>;
+button-adc-deadzone = <0x80>;
+        rocknix,dpad-hat = <0x01>;
+        rocknix,dpad-hat = <0x02>;
+        rocknix,dpad-hat = <0x03>;
+        rocknix,dpad-hat = <0x04>;
+```
+
+Si falta cualquiera de ellas, el DPAD no funcionará como hat. No continuar hasta que la verificación sea correcta.
+
 Arrancar el dispositivo y verificar:
 
 ```bash
@@ -178,11 +199,16 @@ ssh root@10.212.82.130 "lsmod | grep rtw"
 ssh root@10.212.82.130 "modprobe rocknix-singleadc-joypad && lsmod | grep joypad"
 # Debe mostrar: rocknix_singleadc_joypad
 
-# Verificar input del gamepad
-ssh root@10.212.82.130 "evtest --list"
+# Verificar DPAD como hat (crítico)
+ssh root@10.212.82.130 "evtest /dev/input/event3"
+# En la sección "Supported events" debe aparecer:
+#   Event code 16 (ABS_HAT0X)
+#   Event code 17 (ABS_HAT0Y)
+# Si aparece BTN_DPAD_UP/DOWN/LEFT/RIGHT en lugar de ABS_HAT0X/Y,
+# el DTB no tiene los subnodos sw1-sw4 correctos.
 ```
 
-No commitear hasta que las tres verificaciones sean correctas.
+No commitear hasta que todas las verificaciones sean correctas.
 
 ---
 
@@ -232,6 +258,51 @@ Verificar que se pasa `DEVICE=H700`. Sin esa variable, el Makefile compila ambos
 ### modprobe: module not found in modules.dep
 
 Falta ejecutar `depmod`. Ver Paso 5. Buildroot lo ejecuta automáticamente en el build de CI, pero en pruebas manuales hay que hacerlo explícitamente.
+
+### El DPAD sale como BTN_DPAD_UP/DOWN/LEFT/RIGHT en lugar de ABS_HAT0X/Y
+
+El DTB compilado no tiene los subnodos `sw1-sw4` con `rocknix,dpad-hat`. Causa más probable: el DTS fuente del repo (`board/armiga/linux/dts/`) no tiene esos subnodos, y `build_kernel.sh` lo copió al árbol del kernel sobreescribiendo el que funcionaba.
+
+Verificar el DTB:
+```bash
+dtc -I dtb -O dts board/armiga/bootloader/dtb.img 2>/dev/null | grep "dpad-hat"
+```
+
+Si no devuelve nada, el DTS fuente del repo está incompleto. Los subnodos correctos son:
+```dts
+sw1 {
+    gpios = <&pio 0 6 GPIO_ACTIVE_LOW>;
+    label = "GPIO DPAD-UP";
+    linux,code = <BTN_DPAD_UP>;
+    rocknix,dpad-hat = <1>;
+    gpio-active-low;
+};
+sw2 {
+    gpios = <&pio 4 0 GPIO_ACTIVE_LOW>;
+    label = "GPIO DPAD-DOWN";
+    linux,code = <BTN_DPAD_DOWN>;
+    rocknix,dpad-hat = <2>;
+    gpio-active-low;
+};
+sw3 {
+    gpios = <&pio 0 8 GPIO_ACTIVE_LOW>;
+    label = "GPIO DPAD-LEFT";
+    linux,code = <BTN_DPAD_LEFT>;
+    rocknix,dpad-hat = <3>;
+    gpio-active-low;
+};
+sw4 {
+    gpios = <&pio 0 9 GPIO_ACTIVE_LOW>;
+    label = "GPIO DPAD-RIGHT";
+    linux,code = <BTN_DPAD_RIGHT>;
+    rocknix,dpad-hat = <4>;
+    gpio-active-low;
+};
+```
+
+Añadirlos dentro del bloque `&joypad { }` del DTS, recompilar el DTB y verificar de nuevo.
+
+⚠️ **Lección aprendida:** cualquier cambio en el DTS debe hacerse siempre en `board/armiga/linux/dts/` primero. Nunca editar directamente en el árbol del kernel (`linux-X.Y.Z/arch/arm64/boot/dts/allwinner/`) sin sincronizar el fuente del repo.
 
 ### El gamepad no aparece en evtest
 
