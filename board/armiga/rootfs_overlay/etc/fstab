@@ -6,7 +6,7 @@
 
 # <device>              <mountpoint>     <type>   <options>                          <dump> <pass>
 /dev/mmcblk0p2          /                ext4     ro,noatime                          0      1
-/dev/mmcblk0p1          /boot            vfat     ro,noatime                          0      2
+/dev/mmcblk0p1          /boot            vfat     ro,noatime,nofail                   0      2
 
 # amiga_data: montada explícitamente por S40partitions (necesita lógica de
 # expansión en primer arranque), no aquí directamente. Se deja comentada
