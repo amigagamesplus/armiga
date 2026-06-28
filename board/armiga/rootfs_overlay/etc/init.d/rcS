@@ -1,0 +1,20 @@
+#!/bin/sh
+#
+# Start all init scripts in /etc/init.d
+# executing them in numerical order.
+#
+for i in /etc/init.d/S??*; do
+	[ ! -f "$i" ] && continue
+	case "$i" in
+		*.sh)
+			(
+				trap - INT QUIT TSTP
+				set start
+				. "$i"
+			) > /dev/null 2>&1
+			;;
+		*)
+			"$i" start > /dev/null 2>&1
+			;;
+	esac
+done
