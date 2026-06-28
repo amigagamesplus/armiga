@@ -28,7 +28,7 @@ cat > "$IMAGES_DIR/extlinux.conf" << 'EOF'
 LABEL Armiga
   LINUX /KERNEL
   FDT /dtb.img
-  APPEND root=/dev/mmcblk0p2 rootfstype=ext4 rootwait ro console=ttyS0,115200 console=tty0 net.ifnames=0 quiet loglevel=0
+  APPEND root=/dev/mmcblk0p2 rootfstype=ext4 rootwait ro console=ttyS0,115200 net.ifnames=0 quiet loglevel=0
 EOF
 
 # --- Generar amiga_data.img (exFAT) ------------------------------------------
