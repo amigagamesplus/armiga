@@ -1,0 +1,7 @@
+config BR2_PACKAGE_ARMIGA_LAUNCHER
+	bool "armiga-launcher"
+	depends on BR2_PACKAGE_SDL3
+	depends on BR2_PACKAGE_SDL3_TTF
+	help
+	  Launcher principal de Armiga.
+	  Menú de juegos, actualización online e información del sistema.
