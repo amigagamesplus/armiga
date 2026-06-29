@@ -7,9 +7,6 @@ echo "armiga" > "$TARGET_DIR/etc/hostname"
 if ! grep -q "^ttyS0::" "$TARGET_DIR/etc/inittab" 2>/dev/null; then
     echo "ttyS0::respawn:/sbin/getty -L ttyS0 115200 vt100" >> "$TARGET_DIR/etc/inittab"
 fi
-if ! grep -q "^tty0::" "$TARGET_DIR/etc/inittab" 2>/dev/null; then
-    echo "tty0::respawn:/sbin/getty -L tty0 115200 vt100" >> "$TARGET_DIR/etc/inittab"
-fi
 mkdir -p "$TARGET_DIR/usr/share/keymaps"
 mkdir -p "$TARGET_DIR/lib/firmware/rtl_bt"
 mkdir -p "$TARGET_DIR/lib/firmware/rtlwifi"
@@ -45,8 +42,18 @@ esac
 UDHCPC_EOF
     chmod +x "$TARGET_DIR/usr/share/udhcpc/default.script"
 fi
-KVER="7.0.2-armiga"
+KVER="7.0.11-armiga"
 depmod -a -b "$TARGET_DIR" "$KVER" || true
+# --- armiga-release ----------------------------------------------------------
+cat > "$TARGET_DIR/etc/armiga-release" << 'RELEASE_EOF'
+ARMIGA_VERSION=1.0
+KERNEL_VERSION=7.0.11-armiga
+MESA_VERSION=26.1.3
+RETROARCH_VERSION=1.22.2
+SDL3_VERSION=3.4.10
+SDL3_TTF_VERSION=3.2.2
+RELEASE_EOF
+
 echo ">>> Armiga post-build.sh: done"
 
 # --- OS name -----------------------------------------------------------------
