@@ -113,7 +113,7 @@ jobs:
           sudo apt-get install -y libgbm-dev
           cp /usr/include/gbm.h "$SYSROOT/usr/include/"
           mkdir -p "$SYSROOT/usr/lib/pkgconfig"
-          printf 'prefix=/usr\nlibdir=${prefix}/lib\nincludedir=${prefix}/include\nName: gbm\nDescription: Mesa GBM library\nVersion: 26.1.2\nLibs: -L${libdir} -lgbm\nCflags: -I${includedir}\n' > "$SYSROOT/usr/lib/pkgconfig/gbm.pc"
+          printf 'prefix=/usr\nlibdir=${prefix}/lib\nincludedir=${prefix}/include\nName: gbm\nDescription: Mesa GBM library\nVersion: 26.1.3\nLibs: -L${libdir} -lgbm\nCflags: -I${includedir}\n' > "$SYSROOT/usr/lib/pkgconfig/gbm.pc"
           # Inject nlohmann/json headers into sysroot (descarga release completo)
           wget -q https://github.com/nlohmann/json/releases/download/v3.11.3/json.hpp -O "$SYSROOT/usr/include/nlohmann/json.hpp" || true
           wget -q https://github.com/nlohmann/json/archive/refs/tags/v3.11.3.tar.gz -O /tmp/nlohmann.tar.gz
