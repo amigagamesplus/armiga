@@ -9,26 +9,19 @@
 #define FONT_PATH     "/root/.config/retroarch/assets/ozone/bold.ttf"
 #define FONT_SIZE     24
 #define FONT_SIZE_SM  18
+#define DEBOUNCE_MS   200
 
-/* Colores */
-#define COL_BG        {  0,   0,   0, 255}
-#define COL_WHITE     {255, 255, 255, 255}
-#define COL_SELECTED  {  0,  85, 170, 255}  /* Azul Workbench */
-#define COL_GRAY      {160, 160, 160, 255}
+#define ACTION_NONE    0
+#define ACTION_ROMS    1
+#define ACTION_UPDATE  2
+#define ACTION_SHELL   3
 
-/* Opciones del menú */
 static const char *MENU_ITEMS[] = {
     "Mis juegos",
     "Actualizar Armiga",
     "Salir al shell",
 };
 #define MENU_COUNT 3
-
-/* Acciones */
-#define ACTION_NONE    0
-#define ACTION_ROMS    1
-#define ACTION_UPDATE  2
-#define ACTION_SHELL   3
 
 static void render_text(SDL_Renderer *r, TTF_Font *font,
                         const char *text, SDL_Color color,
@@ -57,7 +50,7 @@ static void render_text_centered(SDL_Renderer *r, TTF_Font *font,
 
 int main(void)
 {
-    if (!SDL_Init(SDL_INIT_VIDEO | SDL_INIT_GAMEPAD)) {
+    if (!SDL_Init(SDL_INIT_VIDEO | SDL_INIT_JOYSTICK | SDL_INIT_GAMEPAD)) {
         fprintf(stderr, "SDL_Init error: %s\n", SDL_GetError());
         return 1;
     }
@@ -77,55 +70,72 @@ int main(void)
     TTF_Font *font    = TTF_OpenFont(FONT_PATH, FONT_SIZE);
     TTF_Font *font_sm = TTF_OpenFont(FONT_PATH, FONT_SIZE_SM);
     if (!font || !font_sm) {
-        fprintf(stderr, "TTF_OpenFont error: %s\n", SDL_GetError());
         SDL_DestroyRenderer(renderer);
         SDL_DestroyWindow(window);
         TTF_Quit(); SDL_Quit();
         return 1;
     }
 
-    int selected = 0;
-    int action   = ACTION_NONE;
-    bool running = true;
-    SDL_Event event;
-
-    /* Abrir gamepad si está disponible */
-    SDL_Gamepad *gamepad = NULL;
+    /* Abrir joystick para leer hats */
+    SDL_Joystick *joystick = NULL;
     int num_joysticks = 0;
     SDL_JoystickID *joysticks = SDL_GetJoysticks(&num_joysticks);
     if (joysticks && num_joysticks > 0)
-        gamepad = SDL_OpenGamepad(joysticks[0]);
+        joystick = SDL_OpenJoystick(joysticks[0]);
     SDL_free(joysticks);
 
+    int selected = 0;
+    int action   = ACTION_NONE;
+    bool running = true;
+    Uint64 last_move = 0;
+    SDL_Event event;
+
     while (running) {
+        Uint64 now = SDL_GetTicks();
+
         while (SDL_PollEvent(&event)) {
-            /* Teclado (desarrollo) */
+            /* Teclado */
             if (event.type == SDL_EVENT_KEY_DOWN) {
-                if (event.key.key == SDLK_UP)
+                if (event.key.key == SDLK_UP && now - last_move > DEBOUNCE_MS) {
                     selected = (selected - 1 + MENU_COUNT) % MENU_COUNT;
-                if (event.key.key == SDLK_DOWN)
+                    last_move = now;
+                }
+                if (event.key.key == SDLK_DOWN && now - last_move > DEBOUNCE_MS) {
                     selected = (selected + 1) % MENU_COUNT;
-                if (event.key.key == SDLK_RETURN || event.key.key == SDLK_SPACE)
+                    last_move = now;
+                }
+                if (event.key.key == SDLK_RETURN)
                     action = selected + 1;
                 if (event.key.key == SDLK_ESCAPE)
                     running = false;
             }
-            /* Gamepad */
-            if (event.type == SDL_EVENT_GAMEPAD_BUTTON_DOWN) {
-                if (event.gbutton.button == SDL_GAMEPAD_BUTTON_DPAD_UP)
-                    selected = (selected - 1 + MENU_COUNT) % MENU_COUNT;
-                if (event.gbutton.button == SDL_GAMEPAD_BUTTON_DPAD_DOWN)
-                    selected = (selected + 1) % MENU_COUNT;
-                if (event.gbutton.button == SDL_GAMEPAD_BUTTON_SOUTH)
+            /* Hat (DPAD como ABS_HAT0X/Y) */
+            if (event.type == SDL_EVENT_JOYSTICK_HAT_MOTION) {
+                if (now - last_move > DEBOUNCE_MS) {
+                    if (event.jhat.value == SDL_HAT_UP) {
+                        selected = (selected - 1 + MENU_COUNT) % MENU_COUNT;
+                        last_move = now;
+                    } else if (event.jhat.value == SDL_HAT_DOWN) {
+                        selected = (selected + 1) % MENU_COUNT;
+                        last_move = now;
+                    }
+                }
+            }
+            /* Botones joystick — BTN_EAST es A físico (b0 en SDL) */
+            if (event.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN) {
+                if (event.jbutton.button == 0) /* BTN_EAST = A */
                     action = selected + 1;
             }
-            /* Hat (DPAD como ABS_HAT0X/Y) */
-            if (event.type == SDL_EVENT_GAMEPAD_AXIS_MOTION) {
-                if (event.gaxis.axis == SDL_GAMEPAD_AXIS_LEFTY) {
-                    if (event.gaxis.value < -16000)
+            /* Analógico izquierdo como fallback */
+            if (event.type == SDL_EVENT_JOYSTICK_AXIS_MOTION) {
+                if (event.jaxis.axis == 1 && now - last_move > DEBOUNCE_MS) {
+                    if (event.jaxis.value < -16000) {
                         selected = (selected - 1 + MENU_COUNT) % MENU_COUNT;
-                    else if (event.gaxis.value > 16000)
+                        last_move = now;
+                    } else if (event.jaxis.value > 16000) {
                         selected = (selected + 1) % MENU_COUNT;
+                        last_move = now;
+                    }
                 }
             }
         }
@@ -133,7 +143,6 @@ int main(void)
         /* Ejecutar acción */
         if (action != ACTION_NONE) {
             if (action == ACTION_SHELL) {
-                /* Salir al shell */
                 running = false;
             } else if (action == ACTION_ROMS) {
                 /* TODO: lanzar RetroArch con browser de ROMs */
@@ -144,12 +153,11 @@ int main(void)
         }
 
         /* --- Render --- */
-        SDL_Color bg       = COL_BG;
-        SDL_Color white    = COL_WHITE;
-        SDL_Color selected_col = COL_SELECTED;
-        SDL_Color gray     = COL_GRAY;
+        SDL_Color white        = {255, 255, 255, 255};
+        SDL_Color selected_col = {  0,  85, 170, 255};
+        SDL_Color gray         = {160, 160, 160, 255};
 
-        SDL_SetRenderDrawColor(renderer, bg.r, bg.g, bg.b, bg.a);
+        SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255);
         SDL_RenderClear(renderer);
 
         /* Título */
@@ -160,7 +168,6 @@ int main(void)
         float line_h = 40.0f;
         for (int i = 0; i < MENU_COUNT; i++) {
             SDL_Color col = (i == selected) ? selected_col : white;
-            /* Indicador de selección */
             if (i == selected)
                 render_text(renderer, font, "\xE2\x96\xBA", selected_col,
                             180.0f, menu_y + i * line_h);
@@ -175,7 +182,7 @@ int main(void)
         SDL_RenderPresent(renderer);
     }
 
-    if (gamepad) SDL_CloseGamepad(gamepad);
+    if (joystick) SDL_CloseJoystick(joystick);
     TTF_CloseFont(font_sm);
     TTF_CloseFont(font);
     SDL_DestroyRenderer(renderer);
