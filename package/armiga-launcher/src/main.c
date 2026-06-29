@@ -3,190 +3,259 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdbool.h>
+#include <string.h>
+#include <sys/utsname.h>
 
-#define SCREEN_W      640
-#define SCREEN_H      480
-#define FONT_PATH     "/root/.config/retroarch/assets/ozone/bold.ttf"
-#define FONT_SIZE     24
-#define FONT_SIZE_SM  18
-#define DEBOUNCE_MS   200
+#define SCREEN_W  640
+#define SCREEN_H  480
+
+#define FONT_PATH    "/usr/share/armiga/fonts/JetBrainsMonoNL-ExtraBold.ttf"
+#define FONT_BIG     48
+#define FONT_MED     18
+#define FONT_SM      14
+
+#define COL_BG       { 26,  26,  26, 255}
+#define COL_GREEN    {  0, 255, 136, 255}
+#define COL_DKGREEN  {  0, 119,  68, 255}
+#define COL_WHITE    {220, 220, 220, 255}
+#define COL_GRAY     {136, 136, 136, 255}
+#define COL_SEL_BG   { 42,  42,  42, 255}
 
 #define ACTION_NONE    0
 #define ACTION_ROMS    1
 #define ACTION_UPDATE  2
-#define ACTION_SHELL   3
+#define ACTION_INFO    3
+#define ACTION_SHELL   4
 
 static const char *MENU_ITEMS[] = {
     "Mis juegos",
     "Actualizar Armiga",
+    "Informacion del sistema",
     "Salir al shell",
 };
-#define MENU_COUNT 3
+#define MENU_COUNT 4
 
-static void render_text(SDL_Renderer *r, TTF_Font *font,
-                        const char *text, SDL_Color color,
-                        float x, float y)
+/* --- Leer armiga-release --- */
+static void read_release(char *kernel, char *mesa, char *retroarch, char *sdl3)
 {
-    SDL_Surface *s = TTF_RenderText_Blended(font, text, 0, color);
+    /* Defaults */
+    strncpy(kernel,   "?", 32);
+    strncpy(mesa,     "?", 32);
+    strncpy(retroarch,"?", 32);
+    strncpy(sdl3,     "?", 32);
+
+    FILE *f = fopen("/etc/armiga-release", "r");
+    if (!f) return;
+    char line[128];
+    while (fgets(line, sizeof(line), f)) {
+        char key[64], val[64];
+        if (sscanf(line, "%63[^=]=%63s", key, val) == 2) {
+            if (!strcmp(key, "KERNEL_VERSION"))   strncpy(kernel,    val, 32);
+            if (!strcmp(key, "MESA_VERSION"))     strncpy(mesa,      val, 32);
+            if (!strcmp(key, "RETROARCH_VERSION"))strncpy(retroarch, val, 32);
+            if (!strcmp(key, "SDL3_VERSION"))     strncpy(sdl3,      val, 32);
+        }
+    }
+    fclose(f);
+}
+
+/* --- Helpers de render --- */
+static void draw_text(SDL_Renderer *r, TTF_Font *f, const char *t,
+                      SDL_Color c, float x, float y)
+{
+    SDL_Surface *s = TTF_RenderText_Blended(f, t, 0, c);
     if (!s) return;
-    SDL_Texture *t = SDL_CreateTextureFromSurface(r, s);
+    SDL_Texture *tx = SDL_CreateTextureFromSurface(r, s);
     SDL_FRect dst = {x, y, (float)s->w, (float)s->h};
-    SDL_RenderTexture(r, t, NULL, &dst);
-    SDL_DestroyTexture(t);
+    SDL_RenderTexture(r, tx, NULL, &dst);
+    SDL_DestroyTexture(tx);
     SDL_DestroySurface(s);
 }
 
-static void render_text_centered(SDL_Renderer *r, TTF_Font *font,
-                                  const char *text, SDL_Color color, float y)
+static void draw_rect_filled(SDL_Renderer *r, float x, float y,
+                              float w, float h, SDL_Color c)
 {
-    SDL_Surface *s = TTF_RenderText_Blended(font, text, 0, color);
-    if (!s) return;
-    SDL_Texture *t = SDL_CreateTextureFromSurface(r, s);
-    SDL_FRect dst = {(SCREEN_W - s->w) / 2.0f, y, (float)s->w, (float)s->h};
-    SDL_RenderTexture(r, t, NULL, &dst);
-    SDL_DestroyTexture(t);
-    SDL_DestroySurface(s);
+    SDL_SetRenderDrawColor(r, c.r, c.g, c.b, c.a);
+    SDL_FRect rect = {x, y, w, h};
+    SDL_RenderFillRect(r, &rect);
+}
+
+static void draw_line(SDL_Renderer *r, float x1, float y1,
+                      float x2, float y2, SDL_Color c)
+{
+    SDL_SetRenderDrawColor(r, c.r, c.g, c.b, c.a);
+    SDL_RenderLine(r, x1, y1, x2, y2);
 }
 
 int main(void)
 {
-    if (!SDL_Init(SDL_INIT_VIDEO | SDL_INIT_JOYSTICK | SDL_INIT_GAMEPAD)) {
-        fprintf(stderr, "SDL_Init error: %s\n", SDL_GetError());
+    if (!SDL_Init(SDL_INIT_VIDEO | SDL_INIT_JOYSTICK)) {
+        fprintf(stderr, "SDL_Init: %s\n", SDL_GetError());
         return 1;
     }
     if (!TTF_Init()) {
-        fprintf(stderr, "TTF_Init error: %s\n", SDL_GetError());
-        SDL_Quit();
-        return 1;
+        fprintf(stderr, "TTF_Init: %s\n", SDL_GetError());
+        SDL_Quit(); return 1;
     }
 
-    SDL_Window *window = SDL_CreateWindow("Armiga",
+    SDL_Window *win = SDL_CreateWindow("Armiga",
         SCREEN_W, SCREEN_H, SDL_WINDOW_FULLSCREEN);
-    if (!window) { TTF_Quit(); SDL_Quit(); return 1; }
+    if (!win) { TTF_Quit(); SDL_Quit(); return 1; }
 
-    SDL_Renderer *renderer = SDL_CreateRenderer(window, NULL);
-    if (!renderer) { SDL_DestroyWindow(window); TTF_Quit(); SDL_Quit(); return 1; }
+    SDL_Renderer *ren = SDL_CreateRenderer(win, NULL);
+    if (!ren) { SDL_DestroyWindow(win); TTF_Quit(); SDL_Quit(); return 1; }
 
-    TTF_Font *font    = TTF_OpenFont(FONT_PATH, FONT_SIZE);
-    TTF_Font *font_sm = TTF_OpenFont(FONT_PATH, FONT_SIZE_SM);
-    if (!font || !font_sm) {
-        SDL_DestroyRenderer(renderer);
-        SDL_DestroyWindow(window);
-        TTF_Quit(); SDL_Quit();
-        return 1;
+    TTF_Font *f_big = TTF_OpenFont(FONT_PATH, FONT_BIG);
+    TTF_Font *f_med = TTF_OpenFont(FONT_PATH, FONT_MED);
+    TTF_Font *f_sm  = TTF_OpenFont(FONT_PATH, FONT_SM);
+    if (!f_big || !f_med || !f_sm) {
+        fprintf(stderr, "TTF_OpenFont: %s\n", SDL_GetError());
+        SDL_DestroyRenderer(ren); SDL_DestroyWindow(win);
+        TTF_Quit(); SDL_Quit(); return 1;
     }
 
-    /* Abrir joystick para leer hats */
-    SDL_Joystick *joystick = NULL;
-    int num_joysticks = 0;
-    SDL_JoystickID *joysticks = SDL_GetJoysticks(&num_joysticks);
-    if (joysticks && num_joysticks > 0)
-        joystick = SDL_OpenJoystick(joysticks[0]);
-    SDL_free(joysticks);
+    /* Leer versiones */
+    char s_kernel[32], s_mesa[32], s_retroarch[32], s_sdl3[32];
+    read_release(s_kernel, s_mesa, s_retroarch, s_sdl3);
+
+    /* Joystick */
+    SDL_Joystick *joy = NULL;
+    int nj = 0;
+    SDL_JoystickID *jids = SDL_GetJoysticks(&nj);
+    if (jids && nj > 0) joy = SDL_OpenJoystick(jids[0]);
+    SDL_free(jids);
 
     int selected = 0;
     int action   = ACTION_NONE;
     bool running = true;
-    Uint64 last_move = 0;
-    SDL_Event event;
+    SDL_Event ev;
+
+    /* Colores */
+    SDL_Color c_bg      = COL_BG;
+    SDL_Color c_green   = COL_GREEN;
+    SDL_Color c_dkgreen = COL_DKGREEN;
+    SDL_Color c_white   = COL_WHITE;
+    SDL_Color c_gray    = COL_GRAY;
+    SDL_Color c_selbg   = COL_SEL_BG;
+
+    /* Layout */
+    float mx    = 40.0f;   /* menu x */
+    float mw    = 380.0f;  /* menu width */
+    float sep_x = 450.0f;  /* separador vertical x */
+    float rx    = 470.0f;  /* panel derecho x */
+    float sep_y = 128.0f;  /* separador horizontal y */
+    float menu_y0 = 148.0f;
+    float item_h  = 56.0f;
 
     while (running) {
-        Uint64 now = SDL_GetTicks();
-
-        while (SDL_PollEvent(&event)) {
+        while (SDL_PollEvent(&ev)) {
             /* Teclado */
-            if (event.type == SDL_EVENT_KEY_DOWN) {
-                if (event.key.key == SDLK_UP && now - last_move > DEBOUNCE_MS) {
+            if (ev.type == SDL_EVENT_KEY_DOWN) {
+                if (ev.key.key == SDLK_UP)
                     selected = (selected - 1 + MENU_COUNT) % MENU_COUNT;
-                    last_move = now;
-                }
-                if (event.key.key == SDLK_DOWN && now - last_move > DEBOUNCE_MS) {
+                if (ev.key.key == SDLK_DOWN)
                     selected = (selected + 1) % MENU_COUNT;
-                    last_move = now;
-                }
-                if (event.key.key == SDLK_RETURN)
+                if (ev.key.key == SDLK_RETURN)
                     action = selected + 1;
-                if (event.key.key == SDLK_ESCAPE)
+                if (ev.key.key == SDLK_ESCAPE)
                     running = false;
             }
-            /* Hat (DPAD como ABS_HAT0X/Y) */
-            if (event.type == SDL_EVENT_JOYSTICK_HAT_MOTION) {
-                if (now - last_move > DEBOUNCE_MS) {
-                    if (event.jhat.value == SDL_HAT_UP) {
+            /* Hat DPAD */
+            if (ev.type == SDL_EVENT_JOYSTICK_HAT_MOTION) {
+                if (ev.jhat.value == SDL_HAT_UP)
+                    selected = (selected - 1 + MENU_COUNT) % MENU_COUNT;
+                else if (ev.jhat.value == SDL_HAT_DOWN)
+                    selected = (selected + 1) % MENU_COUNT;
+            }
+            /* Analógico izquierdo */
+            if (ev.type == SDL_EVENT_JOYSTICK_AXIS_MOTION &&
+                ev.jaxis.axis == 1) {
+                static int axis_prev = 0;
+                int v = ev.jaxis.value;
+                int zone = (v < -16000) ? -1 : (v > 16000) ? 1 : 0;
+                if (zone != axis_prev) {
+                    if (zone == -1)
                         selected = (selected - 1 + MENU_COUNT) % MENU_COUNT;
-                        last_move = now;
-                    } else if (event.jhat.value == SDL_HAT_DOWN) {
+                    else if (zone == 1)
                         selected = (selected + 1) % MENU_COUNT;
-                        last_move = now;
-                    }
+                    axis_prev = zone;
                 }
             }
-            /* Botones joystick — BTN_EAST es A físico (b0 en SDL) */
-            if (event.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN) {
-                if (event.jbutton.button == 0) /* BTN_EAST = A */
-                    action = selected + 1;
-            }
-            /* Analógico izquierdo como fallback */
-            if (event.type == SDL_EVENT_JOYSTICK_AXIS_MOTION) {
-                if (event.jaxis.axis == 1 && now - last_move > DEBOUNCE_MS) {
-                    if (event.jaxis.value < -16000) {
-                        selected = (selected - 1 + MENU_COUNT) % MENU_COUNT;
-                        last_move = now;
-                    } else if (event.jaxis.value > 16000) {
-                        selected = (selected + 1) % MENU_COUNT;
-                        last_move = now;
-                    }
-                }
-            }
+            /* Botón A (BTN_EAST = button 1) */
+            if (ev.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN &&
+                ev.jbutton.button == 1)
+                action = selected + 1;
         }
 
-        /* Ejecutar acción */
+        /* Acciones */
         if (action != ACTION_NONE) {
-            if (action == ACTION_SHELL) {
+            if (action == ACTION_SHELL)
                 running = false;
-            } else if (action == ACTION_ROMS) {
-                /* TODO: lanzar RetroArch con browser de ROMs */
-            } else if (action == ACTION_UPDATE) {
-                /* TODO: actualizar Armiga */
-            }
             action = ACTION_NONE;
         }
 
-        /* --- Render --- */
-        SDL_Color white        = {255, 255, 255, 255};
-        SDL_Color selected_col = {  0,  85, 170, 255};
-        SDL_Color gray         = {160, 160, 160, 255};
+        /* ---- RENDER ---- */
+        SDL_SetRenderDrawColor(ren, c_bg.r, c_bg.g, c_bg.b, 255);
+        SDL_RenderClear(ren);
 
-        SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255);
-        SDL_RenderClear(renderer);
+        /* Cabecera */
+        draw_text(ren, f_big, ">_ armiga", c_green, mx, 28.0f);
+        draw_text(ren, f_med, "68K SOUL, ARM64 HEART.", c_dkgreen, mx + 4.0f, 88.0f);
 
-        /* Título */
-        render_text_centered(renderer, font, "ARMIGA", white, 60.0f);
+        /* Separador horizontal */
+        draw_line(ren, mx, sep_y, SCREEN_W - 20.0f, sep_y, c_green);
+
+        /* Separador vertical */
+        draw_line(ren, sep_x, sep_y, sep_x, 438.0f, c_green);
 
         /* Menú */
-        float menu_y = 200.0f;
-        float line_h = 40.0f;
         for (int i = 0; i < MENU_COUNT; i++) {
-            SDL_Color col = (i == selected) ? selected_col : white;
-            if (i == selected)
-                render_text(renderer, font, "\xE2\x96\xBA", selected_col,
-                            180.0f, menu_y + i * line_h);
-            render_text(renderer, font, MENU_ITEMS[i], col,
-                        210.0f, menu_y + i * line_h);
+            float iy = menu_y0 + i * item_h;
+            if (i == selected) {
+                /* Fondo selección */
+                draw_rect_filled(ren, mx - 4.0f, iy - 4.0f,
+                                 mw, item_h - 4.0f, c_selbg);
+                /* Barra lateral verde */
+                draw_rect_filled(ren, mx - 4.0f, iy - 4.0f,
+                                 4.0f, item_h - 4.0f, c_green);
+                /* Texto seleccionado */
+                draw_text(ren, f_med, MENU_ITEMS[i], c_green, mx + 10.0f, iy);
+                /* Flecha derecha */
+                draw_text(ren, f_med, ">", c_green, mx + mw - 20.0f, iy);
+            } else {
+                draw_text(ren, f_med, MENU_ITEMS[i], c_gray, mx + 10.0f, iy);
+                draw_text(ren, f_med, ">", c_gray, mx + mw - 20.0f, iy);
+            }
         }
 
-        /* Ayuda inferior */
-        render_text_centered(renderer, font_sm,
-            "A: Seleccionar   DPAD: Navegar", gray, 440.0f);
+        /* Panel derecho — versiones */
+        float ry = menu_y0;
+        draw_text(ren, f_sm, "KERNEL",    c_green, rx, ry);
+        draw_text(ren, f_med, s_kernel,   c_white, rx, ry + 16.0f);
+        ry += 56.0f;
+        draw_text(ren, f_sm, "MESA",      c_green, rx, ry);
+        draw_text(ren, f_med, s_mesa,     c_white, rx, ry + 16.0f);
+        ry += 56.0f;
+        draw_text(ren, f_sm, "RETROARCH", c_green, rx, ry);
+        draw_text(ren, f_med, s_retroarch,c_white, rx, ry + 16.0f);
+        ry += 56.0f;
+        draw_text(ren, f_sm, "SDL3",      c_green, rx, ry);
+        draw_text(ren, f_med, s_sdl3,     c_white, rx, ry + 16.0f);
 
-        SDL_RenderPresent(renderer);
+        /* Barra inferior */
+        draw_line(ren, mx, 438.0f, SCREEN_W - 20.0f, 438.0f, c_green);
+        draw_text(ren, f_sm, "[A] Seleccionar    [DPAD] Navegar",
+                  c_gray, mx, 448.0f);
+
+        SDL_RenderPresent(ren);
     }
 
-    if (joystick) SDL_CloseJoystick(joystick);
-    TTF_CloseFont(font_sm);
-    TTF_CloseFont(font);
-    SDL_DestroyRenderer(renderer);
-    SDL_DestroyWindow(window);
+    if (joy) SDL_CloseJoystick(joy);
+    TTF_CloseFont(f_sm);
+    TTF_CloseFont(f_med);
+    TTF_CloseFont(f_big);
+    SDL_DestroyRenderer(ren);
+    SDL_DestroyWindow(win);
     TTF_Quit();
     SDL_Quit();
     return 0;
