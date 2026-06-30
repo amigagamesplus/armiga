@@ -1,0 +1,20 @@
+#!/bin/sh
+# S42ntp — sincronizar la hora del sistema vía NTP
+# Se ejecuta tras S41wifi. No bloquea el arranque si falla.
+
+case "$1" in
+    start)
+        # -q: sincroniza una vez y sale (sin quedarse como demonio)
+        # -n: no hacer fork a background
+        # timeout corto para no retrasar el arranque si no hay red
+        timeout 5 ntpd -q -n -p pool.ntp.org >/dev/null 2>&1 &
+        ;;
+    stop)
+        ;;
+    *)
+        echo "Uso: $0 {start|stop}"
+        exit 1
+        ;;
+esac
+
+exit 0
