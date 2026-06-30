@@ -9,3 +9,8 @@ CONFIG_RFKILL=y
 
 # Enable loadkmap (for keyboard layout)
 CONFIG_LOADKMAP=y
+# Enable ntpd (sincronizacion de hora via NTP, lanzado por S42ntp)
+CONFIG_NTPD=y
+CONFIG_FEATURE_NTPD_SERVER=n
+CONFIG_FEATURE_NTPD_CONF=n
+CONFIG_FEATURE_NTP_AUTH=n
