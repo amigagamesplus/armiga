@@ -27,6 +27,20 @@
 
 #define ARMIGA_VERSION "armiga v1.0"
 
+typedef enum {
+    STATE_MENU,
+    STATE_DEVMODE,
+    STATE_CONFIRM
+} AppState;
+
+typedef enum {
+    EXEC_NONE,
+    EXEC_SHELL,
+    EXEC_BTOP,
+    EXEC_REBOOT,
+    EXEC_SHUTDOWN
+} ExecRequest;
+
 #define ACTION_NONE    0
 #define ACTION_ROMS    1
 #define ACTION_UPDATE  2
@@ -47,6 +61,28 @@ static const char *MENU_ITEMS[] = {
     "Salir al shell",
 };
 #define MENU_COUNT 4
+
+#define DEV_ACTION_TERMINAL 0
+#define DEV_ACTION_BTOP     1
+#define DEV_ACTION_REBOOT   2
+#define DEV_ACTION_SHUTDOWN 3
+
+static const char *DEV_MENU_ITEMS[] = {
+    "Terminal",
+    "btop",
+    "Reboot",
+    "Shutdown",
+};
+#define DEV_MENU_COUNT 4
+
+/* SDL button indices del H700 (confirmados en hardware, no kernel/evdev) */
+#define BTN_SDL_B      0
+#define BTN_SDL_A      1
+#define BTN_SDL_L1     4
+#define BTN_SDL_SELECT 8
+#define BTN_SDL_START  9
+
+#define DEVMODE_HOLD_MS 3000
 
 #define ARMIGA_CONFIG_PATH "/media/amiga_data/armiga.cfg"
 
@@ -150,6 +186,14 @@ static void draw_text_right(SDL_Renderer *r, TTF_Font *f, const char *t,
     draw_text(r, f, t, c, right_x - (float)w, y);
 }
 
+static void draw_text_centered(SDL_Renderer *r, TTF_Font *f, const char *t,
+                               SDL_Color c, float center_x, float y)
+{
+    int w = 0, h = 0;
+    TTF_GetStringSize(f, t, 0, &w, &h);
+    draw_text(r, f, t, c, center_x - (float)w / 2.0f, y);
+}
+
 static void draw_rect_filled(SDL_Renderer *r, float x, float y,
                               float w, float h, SDL_Color c)
 {
@@ -215,10 +259,16 @@ int main(void)
     SDL_free(jids);
 
     int selected = 0;
-    bool want_shell = false;
+    int dev_selected = 0;
+    int confirm_target = DEV_ACTION_REBOOT; /* cual de los dos confirm. */
+    AppState state = STATE_MENU;
+    ExecRequest exec_req = EXEC_NONE;
     int action   = ACTION_NONE;
     bool running = true;
     SDL_Event ev;
+
+    Uint64 devmode_hold_start = 0; /* 0 = combo no presionado */
+    bool devmode_combo_held = false;
 
     char status_time[8] = "--:--";
     bool status_wifi_up = false;
@@ -243,44 +293,121 @@ int main(void)
 
     while (running) {
         while (SDL_PollEvent(&ev)) {
-            if (ev.type == SDL_EVENT_KEY_DOWN) {
-                if (ev.key.key == SDLK_UP)
-                    selected = (selected - 1 + MENU_COUNT) % MENU_COUNT;
-                if (ev.key.key == SDLK_DOWN)
-                    selected = (selected + 1) % MENU_COUNT;
-                if (ev.key.key == SDLK_RETURN)
-                    action = selected + 1;
-                if (ev.key.key == SDLK_ESCAPE)
-                    running = false;
+            if (ev.type == SDL_EVENT_KEY_DOWN && ev.key.key == SDLK_ESCAPE) {
+                if (state == STATE_MENU) running = false;
+                else if (state == STATE_CONFIRM) state = STATE_DEVMODE;
+                else if (state == STATE_DEVMODE) state = STATE_MENU;
             }
-            if (ev.type == SDL_EVENT_JOYSTICK_HAT_MOTION) {
-                if (ev.jhat.value == SDL_HAT_UP)
-                    selected = (selected - 1 + MENU_COUNT) % MENU_COUNT;
-                else if (ev.jhat.value == SDL_HAT_DOWN)
-                    selected = (selected + 1) % MENU_COUNT;
-            }
-            if (ev.type == SDL_EVENT_JOYSTICK_AXIS_MOTION &&
-                ev.jaxis.axis == 1) {
-                static int axis_prev = 0;
-                int v = ev.jaxis.value;
-                int zone = (v < -16000) ? -1 : (v > 16000) ? 1 : 0;
-                if (zone != axis_prev) {
-                    if (zone == -1)
+
+            if (state == STATE_MENU) {
+                if (ev.type == SDL_EVENT_KEY_DOWN) {
+                    if (ev.key.key == SDLK_UP)
                         selected = (selected - 1 + MENU_COUNT) % MENU_COUNT;
-                    else if (zone == 1)
+                    if (ev.key.key == SDLK_DOWN)
                         selected = (selected + 1) % MENU_COUNT;
-                    axis_prev = zone;
+                    if (ev.key.key == SDLK_RETURN)
+                        action = selected + 1;
                 }
+                if (ev.type == SDL_EVENT_JOYSTICK_HAT_MOTION) {
+                    if (ev.jhat.value == SDL_HAT_UP)
+                        selected = (selected - 1 + MENU_COUNT) % MENU_COUNT;
+                    else if (ev.jhat.value == SDL_HAT_DOWN)
+                        selected = (selected + 1) % MENU_COUNT;
+                }
+                if (ev.type == SDL_EVENT_JOYSTICK_AXIS_MOTION &&
+                    ev.jaxis.axis == 1) {
+                    static int axis_prev = 0;
+                    int v = ev.jaxis.value;
+                    int zone = (v < -16000) ? -1 : (v > 16000) ? 1 : 0;
+                    if (zone != axis_prev) {
+                        if (zone == -1)
+                            selected = (selected - 1 + MENU_COUNT) % MENU_COUNT;
+                        else if (zone == 1)
+                            selected = (selected + 1) % MENU_COUNT;
+                        axis_prev = zone;
+                    }
+                }
+                if (ev.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN &&
+                    ev.jbutton.button == BTN_SDL_A)
+                    action = selected + 1;
             }
-            if (ev.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN &&
-                ev.jbutton.button == 1)
-                action = selected + 1;
+            else if (state == STATE_DEVMODE) {
+                if (ev.type == SDL_EVENT_KEY_DOWN) {
+                    if (ev.key.key == SDLK_UP)
+                        dev_selected = (dev_selected - 1 + DEV_MENU_COUNT) % DEV_MENU_COUNT;
+                    if (ev.key.key == SDLK_DOWN)
+                        dev_selected = (dev_selected + 1) % DEV_MENU_COUNT;
+                }
+                if (ev.type == SDL_EVENT_JOYSTICK_HAT_MOTION) {
+                    if (ev.jhat.value == SDL_HAT_UP)
+                        dev_selected = (dev_selected - 1 + DEV_MENU_COUNT) % DEV_MENU_COUNT;
+                    else if (ev.jhat.value == SDL_HAT_DOWN)
+                        dev_selected = (dev_selected + 1) % DEV_MENU_COUNT;
+                }
+                if ((ev.type == SDL_EVENT_KEY_DOWN && ev.key.key == SDLK_RETURN) ||
+                    (ev.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN &&
+                     ev.jbutton.button == BTN_SDL_A)) {
+                    if (dev_selected == DEV_ACTION_TERMINAL) {
+                        running = false;
+                        exec_req = EXEC_SHELL;
+                    } else if (dev_selected == DEV_ACTION_BTOP) {
+                        running = false;
+                        exec_req = EXEC_BTOP;
+                    } else if (dev_selected == DEV_ACTION_REBOOT) {
+                        confirm_target = DEV_ACTION_REBOOT;
+                        state = STATE_CONFIRM;
+                    } else if (dev_selected == DEV_ACTION_SHUTDOWN) {
+                        confirm_target = DEV_ACTION_SHUTDOWN;
+                        state = STATE_CONFIRM;
+                    }
+                }
+                if (ev.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN &&
+                    ev.jbutton.button == BTN_SDL_B)
+                    state = STATE_MENU;
+            }
+            else if (state == STATE_CONFIRM) {
+                if ((ev.type == SDL_EVENT_KEY_DOWN && ev.key.key == SDLK_RETURN) ||
+                    (ev.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN &&
+                     ev.jbutton.button == BTN_SDL_A)) {
+                    running = false;
+                    exec_req = (confirm_target == DEV_ACTION_REBOOT)
+                               ? EXEC_REBOOT : EXEC_SHUTDOWN;
+                }
+                if (ev.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN &&
+                    ev.jbutton.button == BTN_SDL_B)
+                    state = STATE_DEVMODE;
+            }
+        }
+
+        /* Deteccion de combo SELECT+START+L1 mantenido 3s (solo desde STATE_MENU) */
+        if (state == STATE_MENU && joy) {
+            bool sel_held   = SDL_GetJoystickButton(joy, BTN_SDL_SELECT);
+            bool start_held = SDL_GetJoystickButton(joy, BTN_SDL_START);
+            bool l1_held    = SDL_GetJoystickButton(joy, BTN_SDL_L1);
+            bool combo_now  = sel_held && start_held && l1_held;
+
+            if (combo_now && !devmode_combo_held) {
+                devmode_hold_start = SDL_GetTicks();
+                devmode_combo_held = true;
+            } else if (!combo_now) {
+                devmode_combo_held = false;
+                devmode_hold_start = 0;
+            } else if (devmode_combo_held && devmode_hold_start != 0 &&
+                       SDL_GetTicks() - devmode_hold_start >= DEVMODE_HOLD_MS) {
+                state = STATE_DEVMODE;
+                dev_selected = 0;
+                devmode_combo_held = false;
+                devmode_hold_start = 0;
+            }
+        } else if (state != STATE_MENU) {
+            devmode_combo_held = false;
+            devmode_hold_start = 0;
         }
 
         if (action != ACTION_NONE) {
             if (action == ACTION_SHELL) {
                 running = false;
-                want_shell = true;
+                exec_req = EXEC_SHELL;
             }
             action = ACTION_NONE;
         }
@@ -296,6 +423,7 @@ int main(void)
         SDL_SetRenderDrawColor(ren, c_bg.r, c_bg.g, c_bg.b, 255);
         SDL_RenderClear(ren);
 
+        if (state == STATE_MENU) {
         /* Logo */
         if (logo_tex) {
             SDL_FRect logo_dst = {mx, 14.0f, (float)LOGO_W, (float)LOGO_H};
@@ -378,6 +506,52 @@ int main(void)
         draw_text_right(ren, f_sm, ARMIGA_VERSION, c_dkgreen,
                         SCREEN_W - 20.0f, 448.0f);
 
+        /* Barra de progreso del hold de modo dev (si se está manteniendo) */
+        if (devmode_combo_held && devmode_hold_start != 0) {
+            Uint64 elapsed = SDL_GetTicks() - devmode_hold_start;
+            float frac = (float)elapsed / (float)DEVMODE_HOLD_MS;
+            if (frac > 1.0f) frac = 1.0f;
+            float bar_w = 200.0f;
+            float bar_x = (SCREEN_W - bar_w) / 2.0f;
+            float bar_y = SCREEN_H - 14.0f;
+            draw_rect_filled(ren, bar_x, bar_y, bar_w, 4.0f, c_gray);
+            draw_rect_filled(ren, bar_x, bar_y, bar_w * frac, 4.0f, c_green);
+        }
+
+        } else if (state == STATE_DEVMODE) {
+            draw_text_centered(ren, f_title, "MODO DESARROLLADOR", c_green,
+                               SCREEN_W / 2.0f, 40.0f);
+
+            float dev_item_h = 44.0f;
+            float dev_y0 = 200.0f;
+            float dev_w  = 220.0f;
+            float dev_x  = (SCREEN_W - dev_w) / 2.0f;
+
+            for (int i = 0; i < DEV_MENU_COUNT; i++) {
+                float iy = dev_y0 + i * dev_item_h;
+                if (i == dev_selected) {
+                    draw_rect_filled(ren, dev_x, iy - 6.0f, dev_w, dev_item_h - 10.0f, c_selbg);
+                    draw_text_centered(ren, f_med, DEV_MENU_ITEMS[i], c_green,
+                                       SCREEN_W / 2.0f, iy);
+                } else {
+                    draw_text_centered(ren, f_med, DEV_MENU_ITEMS[i], c_gray,
+                                       SCREEN_W / 2.0f, iy);
+                }
+            }
+
+            draw_text_centered(ren, f_sm, "[A] Seleccionar   [B] Volver", c_gray,
+                               SCREEN_W / 2.0f, SCREEN_H - 30.0f);
+
+        } else if (state == STATE_CONFIRM) {
+            const char *label = (confirm_target == DEV_ACTION_REBOOT)
+                                 ? "Reiniciar el dispositivo?"
+                                 : "Apagar el dispositivo?";
+            draw_text_centered(ren, f_med, label, c_white,
+                               SCREEN_W / 2.0f, SCREEN_H / 2.0f - 30.0f);
+            draw_text_centered(ren, f_med, "[A] Si        [B] No", c_green,
+                               SCREEN_W / 2.0f, SCREEN_H / 2.0f + 10.0f);
+        }
+
         SDL_RenderPresent(ren);
     }
 
@@ -391,15 +565,32 @@ int main(void)
     TTF_Quit();
     SDL_Quit();
 
-    if (want_shell) {
-        const char *shell = getenv("SHELL");
-        if (!shell || shell[0] == '\0') shell = "/bin/sh";
-        execl(shell, shell, "-i", (char *)NULL);
-        /* Si execl falla, no hay terminal interactiva disponible: */
-        fprintf(stderr, "armiga-launcher: no se pudo ejecutar %s: %s\n",
-                shell, strerror(errno));
-        return 1;
+    switch (exec_req) {
+        case EXEC_SHELL: {
+            const char *shell = getenv("SHELL");
+            if (!shell || shell[0] == '\0') shell = "/bin/sh";
+            execl(shell, shell, "-i", (char *)NULL);
+            fprintf(stderr, "armiga-launcher: no se pudo ejecutar %s: %s\n",
+                    shell, strerror(errno));
+            return 1;
+        }
+        case EXEC_BTOP:
+            execl("/usr/bin/btop", "btop", (char *)NULL);
+            fprintf(stderr, "armiga-launcher: no se pudo ejecutar btop: %s\n",
+                    strerror(errno));
+            return 1;
+        case EXEC_REBOOT:
+            execl("/sbin/reboot", "reboot", (char *)NULL);
+            fprintf(stderr, "armiga-launcher: no se pudo ejecutar reboot: %s\n",
+                    strerror(errno));
+            return 1;
+        case EXEC_SHUTDOWN:
+            execl("/sbin/poweroff", "poweroff", (char *)NULL);
+            fprintf(stderr, "armiga-launcher: no se pudo ejecutar poweroff: %s\n",
+                    strerror(errno));
+            return 1;
+        case EXEC_NONE:
+        default:
+            return 0;
     }
-
-    return 0;
 }
