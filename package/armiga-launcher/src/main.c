@@ -4,15 +4,15 @@
 #include <stdlib.h>
 #include <stdbool.h>
 #include <string.h>
-#include <sys/utsname.h>
+#include "logo.h"
 
 #define SCREEN_W  640
 #define SCREEN_H  480
 
 #define FONT_PATH    "/usr/share/armiga/fonts/JetBrainsMonoNL-ExtraBold.ttf"
-#define FONT_BIG     48
-#define FONT_MED     18
-#define FONT_SM      14
+#define FONT_TITLE   36
+#define FONT_MED     16
+#define FONT_SM      12
 
 #define COL_BG       { 26,  26,  26, 255}
 #define COL_GREEN    {  0, 255, 136, 255}
@@ -27,6 +27,13 @@
 #define ACTION_INFO    3
 #define ACTION_SHELL   4
 
+static const char *MENU_ICONS[] = {
+    "[>]",
+    "[~]",
+    "[i]",
+    "[$]",
+};
+
 static const char *MENU_ITEMS[] = {
     "Mis juegos",
     "Actualizar Armiga",
@@ -35,31 +42,27 @@ static const char *MENU_ITEMS[] = {
 };
 #define MENU_COUNT 4
 
-/* --- Leer armiga-release --- */
 static void read_release(char *kernel, char *mesa, char *retroarch, char *sdl3)
 {
-    /* Defaults */
-    strncpy(kernel,   "?", 32);
-    strncpy(mesa,     "?", 32);
-    strncpy(retroarch,"?", 32);
-    strncpy(sdl3,     "?", 32);
-
+    strncpy(kernel,    "?", 32);
+    strncpy(mesa,      "?", 32);
+    strncpy(retroarch, "?", 32);
+    strncpy(sdl3,      "?", 32);
     FILE *f = fopen("/etc/armiga-release", "r");
     if (!f) return;
     char line[128];
     while (fgets(line, sizeof(line), f)) {
         char key[64], val[64];
         if (sscanf(line, "%63[^=]=%63s", key, val) == 2) {
-            if (!strcmp(key, "KERNEL_VERSION"))   strncpy(kernel,    val, 32);
-            if (!strcmp(key, "MESA_VERSION"))     strncpy(mesa,      val, 32);
-            if (!strcmp(key, "RETROARCH_VERSION"))strncpy(retroarch, val, 32);
-            if (!strcmp(key, "SDL3_VERSION"))     strncpy(sdl3,      val, 32);
+            if (!strcmp(key, "KERNEL_VERSION"))    strncpy(kernel,    val, 32);
+            if (!strcmp(key, "MESA_VERSION"))      strncpy(mesa,      val, 32);
+            if (!strcmp(key, "RETROARCH_VERSION")) strncpy(retroarch, val, 32);
+            if (!strcmp(key, "SDL3_VERSION"))      strncpy(sdl3,      val, 32);
         }
     }
     fclose(f);
 }
 
-/* --- Helpers de render --- */
 static void draw_text(SDL_Renderer *r, TTF_Font *f, const char *t,
                       SDL_Color c, float x, float y)
 {
@@ -105,13 +108,22 @@ int main(void)
     SDL_Renderer *ren = SDL_CreateRenderer(win, NULL);
     if (!ren) { SDL_DestroyWindow(win); TTF_Quit(); SDL_Quit(); return 1; }
 
-    TTF_Font *f_big = TTF_OpenFont(FONT_PATH, FONT_BIG);
-    TTF_Font *f_med = TTF_OpenFont(FONT_PATH, FONT_MED);
-    TTF_Font *f_sm  = TTF_OpenFont(FONT_PATH, FONT_SM);
-    if (!f_big || !f_med || !f_sm) {
+    TTF_Font *f_title = TTF_OpenFont(FONT_PATH, FONT_TITLE);
+    TTF_Font *f_med   = TTF_OpenFont(FONT_PATH, FONT_MED);
+    TTF_Font *f_sm    = TTF_OpenFont(FONT_PATH, FONT_SM);
+    if (!f_title || !f_med || !f_sm) {
         fprintf(stderr, "TTF_OpenFont: %s\n", SDL_GetError());
         SDL_DestroyRenderer(ren); SDL_DestroyWindow(win);
         TTF_Quit(); SDL_Quit(); return 1;
+    }
+
+    /* Cargar logo desde array C */
+    SDL_Texture *logo_tex = NULL;
+    SDL_Surface *logo_surf = SDL_CreateSurface(LOGO_W, LOGO_H, SDL_PIXELFORMAT_RGBA32);
+    if (logo_surf) {
+        SDL_memcpy(logo_surf->pixels, logo_data, LOGO_W * LOGO_H * 4);
+        logo_tex = SDL_CreateTextureFromSurface(ren, logo_surf);
+        SDL_DestroySurface(logo_surf);
     }
 
     /* Leer versiones */
@@ -130,7 +142,6 @@ int main(void)
     bool running = true;
     SDL_Event ev;
 
-    /* Colores */
     SDL_Color c_bg      = COL_BG;
     SDL_Color c_green   = COL_GREEN;
     SDL_Color c_dkgreen = COL_DKGREEN;
@@ -139,17 +150,16 @@ int main(void)
     SDL_Color c_selbg   = COL_SEL_BG;
 
     /* Layout */
-    float mx    = 40.0f;   /* menu x */
-    float mw    = 380.0f;  /* menu width */
-    float sep_x = 450.0f;  /* separador vertical x */
-    float rx    = 470.0f;  /* panel derecho x */
-    float sep_y = 128.0f;  /* separador horizontal y */
-    float menu_y0 = 148.0f;
-    float item_h  = 56.0f;
+    float mx     = 30.0f;
+    float mw     = 390.0f;
+    float sep_x  = 440.0f;
+    float rx      = 458.0f;
+    float sep_y  = 110.0f;
+    float menu_y0 = 126.0f;
+    float item_h  = 40.0f;
 
     while (running) {
         while (SDL_PollEvent(&ev)) {
-            /* Teclado */
             if (ev.type == SDL_EVENT_KEY_DOWN) {
                 if (ev.key.key == SDLK_UP)
                     selected = (selected - 1 + MENU_COUNT) % MENU_COUNT;
@@ -160,14 +170,12 @@ int main(void)
                 if (ev.key.key == SDLK_ESCAPE)
                     running = false;
             }
-            /* Hat DPAD */
             if (ev.type == SDL_EVENT_JOYSTICK_HAT_MOTION) {
                 if (ev.jhat.value == SDL_HAT_UP)
                     selected = (selected - 1 + MENU_COUNT) % MENU_COUNT;
                 else if (ev.jhat.value == SDL_HAT_DOWN)
                     selected = (selected + 1) % MENU_COUNT;
             }
-            /* Analógico izquierdo */
             if (ev.type == SDL_EVENT_JOYSTICK_AXIS_MOTION &&
                 ev.jaxis.axis == 1) {
                 static int axis_prev = 0;
@@ -181,26 +189,29 @@ int main(void)
                     axis_prev = zone;
                 }
             }
-            /* Botón A (BTN_EAST = button 1) */
             if (ev.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN &&
                 ev.jbutton.button == 1)
                 action = selected + 1;
         }
 
-        /* Acciones */
         if (action != ACTION_NONE) {
             if (action == ACTION_SHELL)
                 running = false;
             action = ACTION_NONE;
         }
 
-        /* ---- RENDER ---- */
+        /* RENDER */
         SDL_SetRenderDrawColor(ren, c_bg.r, c_bg.g, c_bg.b, 255);
         SDL_RenderClear(ren);
 
-        /* Cabecera */
-        draw_text(ren, f_big, ">_ armiga", c_green, mx, 28.0f);
-        draw_text(ren, f_med, "68K SOUL, ARM64 HEART.", c_dkgreen, mx + 4.0f, 88.0f);
+        /* Logo */
+        if (logo_tex) {
+            SDL_FRect logo_dst = {mx, 14.0f, (float)LOGO_W, (float)LOGO_H};
+            SDL_RenderTexture(ren, logo_tex, NULL, &logo_dst);
+        }
+
+        /* Slogan */
+        draw_text(ren, f_sm, "68K SOUL, ARM64 HEART.", c_dkgreen, mx + 2.0f, 96.0f);
 
         /* Separador horizontal */
         draw_line(ren, mx, sep_y, SCREEN_W - 20.0f, sep_y, c_green);
@@ -212,35 +223,33 @@ int main(void)
         for (int i = 0; i < MENU_COUNT; i++) {
             float iy = menu_y0 + i * item_h;
             if (i == selected) {
-                /* Fondo selección */
                 draw_rect_filled(ren, mx - 4.0f, iy - 4.0f,
-                                 mw, item_h - 4.0f, c_selbg);
-                /* Barra lateral verde */
+                                 mw, item_h - 2.0f, c_selbg);
                 draw_rect_filled(ren, mx - 4.0f, iy - 4.0f,
-                                 4.0f, item_h - 4.0f, c_green);
-                /* Texto seleccionado */
-                draw_text(ren, f_med, MENU_ITEMS[i], c_green, mx + 10.0f, iy);
-                /* Flecha derecha */
+                                 4.0f, item_h - 2.0f, c_green);
+                draw_text(ren, f_med, MENU_ICONS[i], c_green, mx + 8.0f, iy);
+                draw_text(ren, f_med, MENU_ITEMS[i], c_green, mx + 46.0f, iy);
                 draw_text(ren, f_med, ">", c_green, mx + mw - 20.0f, iy);
             } else {
-                draw_text(ren, f_med, MENU_ITEMS[i], c_gray, mx + 10.0f, iy);
+                draw_text(ren, f_med, MENU_ICONS[i], c_gray, mx + 8.0f, iy);
+                draw_text(ren, f_med, MENU_ITEMS[i], c_gray, mx + 46.0f, iy);
                 draw_text(ren, f_med, ">", c_gray, mx + mw - 20.0f, iy);
             }
         }
 
-        /* Panel derecho — versiones */
+        /* Panel derecho */
         float ry = menu_y0;
-        draw_text(ren, f_sm, "KERNEL",    c_green, rx, ry);
-        draw_text(ren, f_med, s_kernel,   c_white, rx, ry + 16.0f);
-        ry += 56.0f;
-        draw_text(ren, f_sm, "MESA",      c_green, rx, ry);
-        draw_text(ren, f_med, s_mesa,     c_white, rx, ry + 16.0f);
-        ry += 56.0f;
-        draw_text(ren, f_sm, "RETROARCH", c_green, rx, ry);
-        draw_text(ren, f_med, s_retroarch,c_white, rx, ry + 16.0f);
-        ry += 56.0f;
-        draw_text(ren, f_sm, "SDL3",      c_green, rx, ry);
-        draw_text(ren, f_med, s_sdl3,     c_white, rx, ry + 16.0f);
+        draw_text(ren, f_sm,  "KERNEL",     c_green, rx, ry);
+        draw_text(ren, f_med, s_kernel,     c_white, rx, ry + 14.0f);
+        ry += 46.0f;
+        draw_text(ren, f_sm,  "MESA",       c_green, rx, ry);
+        draw_text(ren, f_med, s_mesa,       c_white, rx, ry + 14.0f);
+        ry += 46.0f;
+        draw_text(ren, f_sm,  "RETROARCH",  c_green, rx, ry);
+        draw_text(ren, f_med, s_retroarch,  c_white, rx, ry + 14.0f);
+        ry += 46.0f;
+        draw_text(ren, f_sm,  "SDL3",       c_green, rx, ry);
+        draw_text(ren, f_med, s_sdl3,       c_white, rx, ry + 14.0f);
 
         /* Barra inferior */
         draw_line(ren, mx, 438.0f, SCREEN_W - 20.0f, 438.0f, c_green);
@@ -250,10 +259,11 @@ int main(void)
         SDL_RenderPresent(ren);
     }
 
+    if (logo_tex) SDL_DestroyTexture(logo_tex);
     if (joy) SDL_CloseJoystick(joy);
     TTF_CloseFont(f_sm);
     TTF_CloseFont(f_med);
-    TTF_CloseFont(f_big);
+    TTF_CloseFont(f_title);
     SDL_DestroyRenderer(ren);
     SDL_DestroyWindow(win);
     TTF_Quit();
