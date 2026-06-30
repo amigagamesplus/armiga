@@ -11,7 +11,7 @@
 
 #define FONT_PATH    "/usr/share/armiga/fonts/JetBrainsMonoNL-ExtraBold.ttf"
 #define FONT_TITLE   36
-#define FONT_MED     16
+#define FONT_MED     13
 #define FONT_SM      12
 
 #define COL_BG       { 26,  26,  26, 255}
@@ -156,7 +156,7 @@ int main(void)
     float rx      = 458.0f;
     float sep_y  = 110.0f;
     float menu_y0 = 126.0f;
-    float item_h  = 40.0f;
+    float item_h  = 30.0f;
 
     while (running) {
         while (SDL_PollEvent(&ev)) {
