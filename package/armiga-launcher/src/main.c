@@ -5,6 +5,8 @@
 #include <stdbool.h>
 #include <string.h>
 #include <time.h>
+#include <unistd.h>
+#include <errno.h>
 #include "logo.h"
 
 #define SCREEN_W  640
@@ -45,6 +47,27 @@ static const char *MENU_ITEMS[] = {
     "Salir al shell",
 };
 #define MENU_COUNT 4
+
+#define ARMIGA_CONFIG_PATH "/media/amiga_data/armiga.cfg"
+
+static void apply_timezone(void)
+{
+    FILE *f = fopen(ARMIGA_CONFIG_PATH, "r");
+    if (!f) return; /* sin config -> se queda en UTC (default del sistema) */
+
+    char line[128];
+    while (fgets(line, sizeof(line), f)) {
+        char key[32], val[96];
+        if (sscanf(line, "%31[^=]=%95s", key, val) == 2) {
+            if (!strcmp(key, "TZ")) {
+                setenv("TZ", val, 1);
+                tzset();
+                break;
+            }
+        }
+    }
+    fclose(f);
+}
 
 static bool read_sysfs_str(const char *path, char *buf, size_t bufsize)
 {
@@ -153,6 +176,8 @@ int main(void)
         SDL_Quit(); return 1;
     }
 
+    apply_timezone();
+
     SDL_Window *win = SDL_CreateWindow("Armiga",
         SCREEN_W, SCREEN_H, SDL_WINDOW_FULLSCREEN);
     if (!win) { TTF_Quit(); SDL_Quit(); return 1; }
@@ -190,6 +215,7 @@ int main(void)
     SDL_free(jids);
 
     int selected = 0;
+    bool want_shell = false;
     int action   = ACTION_NONE;
     bool running = true;
     SDL_Event ev;
@@ -252,8 +278,10 @@ int main(void)
         }
 
         if (action != ACTION_NONE) {
-            if (action == ACTION_SHELL)
+            if (action == ACTION_SHELL) {
                 running = false;
+                want_shell = true;
+            }
             action = ACTION_NONE;
         }
 
@@ -362,5 +390,16 @@ int main(void)
     SDL_DestroyWindow(win);
     TTF_Quit();
     SDL_Quit();
+
+    if (want_shell) {
+        const char *shell = getenv("SHELL");
+        if (!shell || shell[0] == '\0') shell = "/bin/sh";
+        execl(shell, shell, "-i", (char *)NULL);
+        /* Si execl falla, no hay terminal interactiva disponible: */
+        fprintf(stderr, "armiga-launcher: no se pudo ejecutar %s: %s\n",
+                shell, strerror(errno));
+        return 1;
+    }
+
     return 0;
 }
