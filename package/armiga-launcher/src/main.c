@@ -4,6 +4,7 @@
 #include <stdlib.h>
 #include <stdbool.h>
 #include <string.h>
+#include <time.h>
 #include "logo.h"
 
 #define SCREEN_W  640
@@ -20,6 +21,9 @@
 #define COL_WHITE    {220, 220, 220, 255}
 #define COL_GRAY     {136, 136, 136, 255}
 #define COL_SEL_BG   { 42,  42,  42, 255}
+#define COL_RED      {200,  40,  40, 255}
+
+#define ARMIGA_VERSION "armiga v1.0"
 
 #define ACTION_NONE    0
 #define ACTION_ROMS    1
@@ -41,6 +45,46 @@ static const char *MENU_ITEMS[] = {
     "Salir al shell",
 };
 #define MENU_COUNT 4
+
+static bool read_sysfs_str(const char *path, char *buf, size_t bufsize)
+{
+    FILE *f = fopen(path, "r");
+    if (!f) return false;
+    bool ok = (fgets(buf, (int)bufsize, f) != NULL);
+    fclose(f);
+    if (ok) {
+        size_t len = strlen(buf);
+        while (len > 0 && (buf[len-1] == '\n' || buf[len-1] == '\r')) {
+            buf[--len] = '\0';
+        }
+    }
+    return ok;
+}
+
+static bool read_sysfs_int(const char *path, int *out)
+{
+    char buf[16];
+    if (!read_sysfs_str(path, buf, sizeof(buf))) return false;
+    *out = atoi(buf);
+    return true;
+}
+
+static void update_status(char *time_str, size_t time_str_sz,
+                          bool *wifi_up, int *battery_pct)
+{
+    time_t t = time(NULL);
+    struct tm *lt = localtime(&t);
+    if (lt) strftime(time_str, time_str_sz, "%H:%M", lt);
+    else    strncpy(time_str, "--:--", time_str_sz);
+
+    char operstate[16] = {0};
+    *wifi_up = read_sysfs_str("/sys/class/net/wlan0/operstate", operstate, sizeof(operstate))
+               && strncmp(operstate, "up", 2) == 0;
+
+    int cap = -1;
+    read_sysfs_int("/sys/class/power_supply/battery/capacity", &cap);
+    *battery_pct = cap;
+}
 
 static void read_release(char *kernel, char *mesa, char *retroarch, char *sdl3)
 {
@@ -73,6 +117,14 @@ static void draw_text(SDL_Renderer *r, TTF_Font *f, const char *t,
     SDL_RenderTexture(r, tx, NULL, &dst);
     SDL_DestroyTexture(tx);
     SDL_DestroySurface(s);
+}
+
+static void draw_text_right(SDL_Renderer *r, TTF_Font *f, const char *t,
+                            SDL_Color c, float right_x, float y)
+{
+    int w = 0, h = 0;
+    TTF_GetStringSize(f, t, 0, &w, &h);
+    draw_text(r, f, t, c, right_x - (float)w, y);
 }
 
 static void draw_rect_filled(SDL_Renderer *r, float x, float y,
@@ -142,6 +194,11 @@ int main(void)
     bool running = true;
     SDL_Event ev;
 
+    char status_time[8] = "--:--";
+    bool status_wifi_up = false;
+    int  status_battery = -1;
+    Uint64 last_status_update = 0;
+
     SDL_Color c_bg      = COL_BG;
     SDL_Color c_green   = COL_GREEN;
     SDL_Color c_dkgreen = COL_DKGREEN;
@@ -154,8 +211,8 @@ int main(void)
     float mw     = 390.0f;
     float sep_x  = 440.0f;
     float rx      = 458.0f;
-    float sep_y  = 110.0f;
-    float menu_y0 = 126.0f;
+    float sep_y  = 118.0f;
+    float menu_y0 = 134.0f;
     float item_h  = 30.0f;
 
     while (running) {
@@ -200,6 +257,13 @@ int main(void)
             action = ACTION_NONE;
         }
 
+        Uint64 now_ticks = SDL_GetTicks();
+        if (last_status_update == 0 || now_ticks - last_status_update > 3000) {
+            update_status(status_time, sizeof(status_time),
+                         &status_wifi_up, &status_battery);
+            last_status_update = now_ticks;
+        }
+
         /* RENDER */
         SDL_SetRenderDrawColor(ren, c_bg.r, c_bg.g, c_bg.b, 255);
         SDL_RenderClear(ren);
@@ -211,7 +275,35 @@ int main(void)
         }
 
         /* Slogan */
-        draw_text(ren, f_sm, "68K SOUL, ARM64 HEART.", c_dkgreen, mx + 2.0f, 96.0f);
+        draw_text(ren, f_sm, "68K SOUL, ARM64 HEART.", c_dkgreen, mx + 2.0f, 94.0f);
+
+        /* Indicadores esquina superior derecha: reloj | WIFI | batería */
+        {
+            SDL_Color c_red = COL_RED;
+            float corner_right = SCREEN_W - 20.0f;
+            float corner_y     = 18.0f;
+            float gap          = 14.0f;
+            int wbuf, hbuf;
+            char batt_buf[8];
+
+            if (status_battery >= 0)
+                snprintf(batt_buf, sizeof(batt_buf), "%d%%", status_battery);
+            else
+                strncpy(batt_buf, "--", sizeof(batt_buf));
+
+            TTF_GetStringSize(f_sm, batt_buf, 0, &wbuf, &hbuf);
+            float x_batt = corner_right - (float)wbuf;
+            draw_text(ren, f_sm, batt_buf, c_white, x_batt, corner_y);
+
+            TTF_GetStringSize(f_sm, "WIFI", 0, &wbuf, &hbuf);
+            float x_wifi = x_batt - gap - (float)wbuf;
+            draw_text(ren, f_sm, "WIFI", status_wifi_up ? c_green : c_red,
+                      x_wifi, corner_y);
+
+            TTF_GetStringSize(f_sm, status_time, 0, &wbuf, &hbuf);
+            float x_clock = x_wifi - gap - (float)wbuf;
+            draw_text(ren, f_sm, status_time, c_white, x_clock, corner_y);
+        }
 
         /* Separador horizontal */
         draw_line(ren, mx, sep_y, SCREEN_W - 20.0f, sep_y, c_green);
@@ -255,6 +347,8 @@ int main(void)
         draw_line(ren, mx, 438.0f, SCREEN_W - 20.0f, 438.0f, c_green);
         draw_text(ren, f_sm, "[A] Seleccionar    [DPAD] Navegar",
                   c_gray, mx, 448.0f);
+        draw_text_right(ren, f_sm, ARMIGA_VERSION, c_dkgreen,
+                        SCREEN_W - 20.0f, 448.0f);
 
         SDL_RenderPresent(ren);
     }
