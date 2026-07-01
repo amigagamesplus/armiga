@@ -8,8 +8,6 @@
 #include <unistd.h>
 #include <errno.h>
 #include <fcntl.h>
-#include <sys/ioctl.h>
-#include <linux/kd.h>
 #include <ifaddrs.h>
 #include <arpa/inet.h>
 #include "logo.h"
@@ -110,7 +108,6 @@ static bool redirect_stdio_to_local_console(void)
     dup2(fd, STDIN_FILENO);
     dup2(fd, STDOUT_FILENO);
     dup2(fd, STDERR_FILENO);
-    ioctl(fd, KDSETMODE, KD_TEXT);
     if (fd > STDERR_FILENO) close(fd);
     return true;
 }
