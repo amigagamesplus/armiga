@@ -8,9 +8,12 @@
 #include <unistd.h>
 #include <errno.h>
 #include <fcntl.h>
-#include <sys/ioctl.h>
+#include <sys/types.h>
+#include <sys/wait.h>
 #include <ifaddrs.h>
 #include <arpa/inet.h>
+#include <sys/ioctl.h>
+#include <linux/kd.h>
 #include "logo.h"
 
 #define SCREEN_W  640
@@ -109,8 +112,9 @@ static bool redirect_stdio_to_local_console(void)
     dup2(fd, STDIN_FILENO);
     dup2(fd, STDOUT_FILENO);
     dup2(fd, STDERR_FILENO);
-    setsid();
-    ioctl(fd, TIOCSCTTY, 0);
+    /* SDL/DRM deja la consola en KD_GRAPHICS; sin esto el shell corre
+     * pero no se ve nada en pantalla (cursor parpadeando, sin texto). */
+    ioctl(fd, KDSETMODE, KD_TEXT);
     if (fd > STDERR_FILENO) close(fd);
     return true;
 }
@@ -289,6 +293,9 @@ static void draw_line(SDL_Renderer *r, float x1, float y1,
 
 int main(void)
 {
+    for (;;) {
+    bool relaunch_after_retroarch = false;
+
     if (!SDL_Init(SDL_INIT_VIDEO | SDL_INIT_JOYSTICK)) {
         fprintf(stderr, "SDL_Init: %s\n", SDL_GetError());
         return 1;
@@ -493,6 +500,9 @@ int main(void)
             if (action == ACTION_SHELL) {
                 running = false;
                 exec_req = EXEC_SHELL;
+            } else if (action == ACTION_ROMS) {
+                running = false;
+                relaunch_after_retroarch = true;
             }
             action = ACTION_NONE;
         }
@@ -708,7 +718,7 @@ int main(void)
         }
         case EXEC_DEV_BTOP:
             if (!redirect_stdio_to_local_console()) return 1;
-            execl("/usr/bin/btop", "btop", "--force-utf", (char *)NULL);
+            execl("/usr/bin/btop", "btop", (char *)NULL);
             fprintf(stderr, "armiga-launcher: no se pudo ejecutar btop: %s\n",
                     strerror(errno));
             return 1;
@@ -724,6 +734,26 @@ int main(void)
             return 1;
         case EXEC_NONE:
         default:
+            if (relaunch_after_retroarch) {
+                pid_t pid = fork();
+                if (pid == 0) {
+                    /* hijo: RetroArch toma la pantalla/DRM */
+                    execl("/usr/bin/retroarch", "retroarch", (char *)NULL);
+                    fprintf(stderr, "armiga-launcher: no se pudo ejecutar retroarch: %s\n",
+                            strerror(errno));
+                    _exit(1);
+                } else if (pid > 0) {
+                    int status;
+                    waitpid(pid, &status, 0);
+                    /* al terminar RetroArch, volvemos al inicio del for(;;)
+                     * para reinicializar SDL/DRM desde cero */
+                    continue;
+                } else {
+                    fprintf(stderr, "armiga-launcher: fork() fallo: %s\n",
+                            strerror(errno));
+                }
+            }
             return 0;
     }
+    } /* for(;;) */
 }
