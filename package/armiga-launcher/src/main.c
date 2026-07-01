@@ -8,6 +8,8 @@
 #include <unistd.h>
 #include <errno.h>
 #include <fcntl.h>
+#include <ifaddrs.h>
+#include <arpa/inet.h>
 #include "logo.h"
 
 #define SCREEN_W  640
@@ -108,6 +110,55 @@ static bool redirect_stdio_to_local_console(void)
     dup2(fd, STDERR_FILENO);
     if (fd > STDERR_FILENO) close(fd);
     return true;
+}
+
+static void read_ip_address(char *buf, size_t bufsize)
+{
+    strncpy(buf, "sin red", bufsize);
+    struct ifaddrs *ifaddr, *ifa;
+    if (getifaddrs(&ifaddr) == -1) return;
+    for (ifa = ifaddr; ifa != NULL; ifa = ifa->ifa_next) {
+        if (!ifa->ifa_addr) continue;
+        if (ifa->ifa_addr->sa_family != AF_INET) continue;
+        if (strcmp(ifa->ifa_name, "wlan0") != 0) continue;
+        struct sockaddr_in *sa = (struct sockaddr_in *)ifa->ifa_addr;
+        inet_ntop(AF_INET, &sa->sin_addr, buf, bufsize);
+        break;
+    }
+    freeifaddrs(ifaddr);
+}
+
+static void read_uptime(char *buf, size_t bufsize)
+{
+    strncpy(buf, "--", bufsize);
+    FILE *f = fopen("/proc/uptime", "r");
+    if (!f) return;
+    double secs = 0.0;
+    if (fscanf(f, "%lf", &secs) == 1) {
+        int h = (int)(secs / 3600);
+        int m = (int)(secs / 60) % 60;
+        snprintf(buf, bufsize, "%dh %dm", h, m);
+    }
+    fclose(f);
+}
+
+static void read_ram_usage(char *buf, size_t bufsize)
+{
+    strncpy(buf, "--", bufsize);
+    FILE *f = fopen("/proc/meminfo", "r");
+    if (!f) return;
+    long mem_total = -1, mem_avail = -1;
+    char line[128];
+    while (fgets(line, sizeof(line), f)) {
+        if (!strncmp(line, "MemTotal:", 9))     sscanf(line, "MemTotal: %ld", &mem_total);
+        if (!strncmp(line, "MemAvailable:", 13)) sscanf(line, "MemAvailable: %ld", &mem_avail);
+    }
+    fclose(f);
+    if (mem_total > 0 && mem_avail >= 0) {
+        long used_mb = (mem_total - mem_avail) / 1024;
+        long total_mb = mem_total / 1024;
+        snprintf(buf, bufsize, "%ld/%ld MB", used_mb, total_mb);
+    }
 }
 
 static void apply_timezone(void)
@@ -294,6 +345,10 @@ int main(void)
     Uint64 devmode_hold_start = 0; /* 0 = combo no presionado */
     bool devmode_combo_held = false;
 
+    char dev_ip[32]     = "sin red";
+    char dev_uptime[16] = "--";
+    char dev_ram[24]    = "--";
+
     char status_time[8] = "--:--";
     bool status_wifi_up = false;
     int  status_battery = -1;
@@ -422,6 +477,9 @@ int main(void)
                 dev_selected = 0;
                 devmode_combo_held = false;
                 devmode_hold_start = 0;
+                read_ip_address(dev_ip, sizeof(dev_ip));
+                read_uptime(dev_uptime, sizeof(dev_uptime));
+                read_ram_usage(dev_ram, sizeof(dev_ram));
             }
         } else if (state != STATE_MENU) {
             devmode_combo_held = false;
@@ -543,28 +601,66 @@ int main(void)
         }
 
         } else if (state == STATE_DEVMODE) {
-            draw_text_centered(ren, f_title, "MODO DESARROLLADOR", c_green,
-                               SCREEN_W / 2.0f, 40.0f);
+            /* Titulo pequeño arriba a la izquierda */
+            draw_text(ren, f_sm, "MODO DESARROLLADOR", c_green, mx, 20.0f);
+            draw_line(ren, mx, 44.0f, SCREEN_W - 20.0f, 44.0f, c_green);
+            draw_line(ren, sep_x, 44.0f, sep_x, 438.0f, c_green);
 
-            float dev_item_h = 44.0f;
-            float dev_y0 = 200.0f;
-            float dev_w  = 220.0f;
-            float dev_x  = (SCREEN_W - dev_w) / 2.0f;
+            /* Menú (columna izquierda), mismo estilo compacto que el menu principal */
+            float dev_y0 = 64.0f;
+            float dev_item_h = 26.0f;
 
             for (int i = 0; i < DEV_MENU_COUNT; i++) {
                 float iy = dev_y0 + i * dev_item_h;
                 if (i == dev_selected) {
-                    draw_rect_filled(ren, dev_x, iy - 6.0f, dev_w, dev_item_h - 10.0f, c_selbg);
-                    draw_text_centered(ren, f_med, DEV_MENU_ITEMS[i], c_green,
-                                       SCREEN_W / 2.0f, iy);
+                    draw_rect_filled(ren, mx - 4.0f, iy - 4.0f,
+                                     mw, dev_item_h - 2.0f, c_selbg);
+                    draw_rect_filled(ren, mx - 4.0f, iy - 4.0f,
+                                     4.0f, dev_item_h - 2.0f, c_green);
+                    draw_text(ren, f_sm, DEV_MENU_ITEMS[i], c_green, mx + 8.0f, iy);
                 } else {
-                    draw_text_centered(ren, f_med, DEV_MENU_ITEMS[i], c_gray,
-                                       SCREEN_W / 2.0f, iy);
+                    draw_text(ren, f_sm, DEV_MENU_ITEMS[i], c_gray, mx + 8.0f, iy);
                 }
             }
 
-            draw_text_centered(ren, f_sm, "[A] Seleccionar   [B] Volver", c_gray,
-                               SCREEN_W / 2.0f, SCREEN_H - 30.0f);
+            /* Panel derecho: info tecnica para el desarrollador */
+            float ry = 64.0f;
+            draw_text(ren, f_sm,  "IP",         c_green, rx, ry);
+            draw_text(ren, f_med, dev_ip,       c_white, rx, ry + 14.0f);
+            ry += 40.0f;
+            draw_text(ren, f_sm,  "UPTIME",     c_green, rx, ry);
+            draw_text(ren, f_med, dev_uptime,   c_white, rx, ry + 14.0f);
+            ry += 40.0f;
+            draw_text(ren, f_sm,  "RAM",        c_green, rx, ry);
+            draw_text(ren, f_med, dev_ram,      c_white, rx, ry + 14.0f);
+            ry += 40.0f;
+            draw_text(ren, f_sm,  "BATERIA",    c_green, rx, ry);
+            {
+                char batt_buf[8];
+                if (status_battery >= 0)
+                    snprintf(batt_buf, sizeof(batt_buf), "%d%%", status_battery);
+                else
+                    strncpy(batt_buf, "--", sizeof(batt_buf));
+                draw_text(ren, f_med, batt_buf, c_white, rx, ry + 14.0f);
+            }
+            ry += 40.0f;
+            draw_text(ren, f_sm,  "KERNEL",     c_green, rx, ry);
+            draw_text(ren, f_med, s_kernel,     c_white, rx, ry + 14.0f);
+            ry += 40.0f;
+            draw_text(ren, f_sm,  "MESA",       c_green, rx, ry);
+            draw_text(ren, f_med, s_mesa,       c_white, rx, ry + 14.0f);
+            ry += 40.0f;
+            draw_text(ren, f_sm,  "RETROARCH",  c_green, rx, ry);
+            draw_text(ren, f_med, s_retroarch,  c_white, rx, ry + 14.0f);
+            ry += 40.0f;
+            draw_text(ren, f_sm,  "SDL3",       c_green, rx, ry);
+            draw_text(ren, f_med, s_sdl3,       c_white, rx, ry + 14.0f);
+
+            /* Barra inferior */
+            draw_line(ren, mx, 438.0f, SCREEN_W - 20.0f, 438.0f, c_green);
+            draw_text(ren, f_sm, "[A] Seleccionar    [B] Volver", c_gray, mx, 448.0f);
+            draw_text_right(ren, f_sm, ARMIGA_VERSION, c_dkgreen,
+                            SCREEN_W - 20.0f, 448.0f);
 
         } else if (state == STATE_CONFIRM) {
             const char *label = (confirm_target == DEV_ACTION_REBOOT)
