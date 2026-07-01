@@ -7,6 +7,7 @@
 #include <time.h>
 #include <unistd.h>
 #include <errno.h>
+#include <fcntl.h>
 #include "logo.h"
 
 #define SCREEN_W  640
@@ -35,8 +36,9 @@ typedef enum {
 
 typedef enum {
     EXEC_NONE,
-    EXEC_SHELL,
-    EXEC_BTOP,
+    EXEC_SHELL,        /* "Salir al shell" del menu principal: hereda stdio actual (SSH o consola) */
+    EXEC_DEV_TERMINAL, /* "Terminal" del modo dev: fuerza consola local /dev/tty0 */
+    EXEC_DEV_BTOP,     /* "btop" del modo dev: fuerza consola local /dev/tty0 */
     EXEC_REBOOT,
     EXEC_SHUTDOWN
 } ExecRequest;
@@ -85,6 +87,28 @@ static const char *DEV_MENU_ITEMS[] = {
 #define DEVMODE_HOLD_MS 3000
 
 #define ARMIGA_CONFIG_PATH "/media/amiga_data/armiga.cfg"
+
+#define LOCAL_CONSOLE_PATH "/dev/tty0"
+
+/* Redirige stdin/stdout/stderr a la consola local (pantalla+teclado del
+ * dispositivo), en vez de heredar los descriptores actuales (que si el
+ * launcher se lanzo por SSH, serian los de esa sesion remota). Necesario
+ * para que Terminal/btop del modo desarrollador sean usables con un
+ * teclado USB conectado directamente al Anbernic. */
+static bool redirect_stdio_to_local_console(void)
+{
+    int fd = open(LOCAL_CONSOLE_PATH, O_RDWR);
+    if (fd < 0) {
+        fprintf(stderr, "armiga-launcher: no se pudo abrir %s: %s\n",
+                LOCAL_CONSOLE_PATH, strerror(errno));
+        return false;
+    }
+    dup2(fd, STDIN_FILENO);
+    dup2(fd, STDOUT_FILENO);
+    dup2(fd, STDERR_FILENO);
+    if (fd > STDERR_FILENO) close(fd);
+    return true;
+}
 
 static void apply_timezone(void)
 {
@@ -349,10 +373,10 @@ int main(void)
                      ev.jbutton.button == BTN_SDL_A)) {
                     if (dev_selected == DEV_ACTION_TERMINAL) {
                         running = false;
-                        exec_req = EXEC_SHELL;
+                        exec_req = EXEC_DEV_TERMINAL;
                     } else if (dev_selected == DEV_ACTION_BTOP) {
                         running = false;
-                        exec_req = EXEC_BTOP;
+                        exec_req = EXEC_DEV_BTOP;
                     } else if (dev_selected == DEV_ACTION_REBOOT) {
                         confirm_target = DEV_ACTION_REBOOT;
                         state = STATE_CONFIRM;
@@ -574,7 +598,17 @@ int main(void)
                     shell, strerror(errno));
             return 1;
         }
-        case EXEC_BTOP:
+        case EXEC_DEV_TERMINAL: {
+            if (!redirect_stdio_to_local_console()) return 1;
+            const char *shell = getenv("SHELL");
+            if (!shell || shell[0] == '\0') shell = "/bin/sh";
+            execl(shell, shell, "-i", (char *)NULL);
+            fprintf(stderr, "armiga-launcher: no se pudo ejecutar %s: %s\n",
+                    shell, strerror(errno));
+            return 1;
+        }
+        case EXEC_DEV_BTOP:
+            if (!redirect_stdio_to_local_console()) return 1;
             execl("/usr/bin/btop", "btop", (char *)NULL);
             fprintf(stderr, "armiga-launcher: no se pudo ejecutar btop: %s\n",
                     strerror(errno));
