@@ -8,6 +8,7 @@
 #include <unistd.h>
 #include <errno.h>
 #include <fcntl.h>
+#include <sys/ioctl.h>
 #include <ifaddrs.h>
 #include <arpa/inet.h>
 #include "logo.h"
@@ -108,6 +109,8 @@ static bool redirect_stdio_to_local_console(void)
     dup2(fd, STDIN_FILENO);
     dup2(fd, STDOUT_FILENO);
     dup2(fd, STDERR_FILENO);
+    setsid();
+    ioctl(fd, TIOCSCTTY, 0);
     if (fd > STDERR_FILENO) close(fd);
     return true;
 }
