@@ -737,7 +737,11 @@ int main(void)
             if (relaunch_after_retroarch) {
                 pid_t pid = fork();
                 if (pid == 0) {
-                    /* hijo: RetroArch toma la pantalla/DRM */
+                    /* hijo: RetroArch toma la pantalla/DRM.
+                     * Forzamos HOME porque el launcher arranca desde
+                     * inittab con un entorno minimo (sin HOME), y
+                     * RetroArch falla en silencio sin esa variable. */
+                    setenv("HOME", "/root", 1);
                     execl("/usr/bin/retroarch", "retroarch", (char *)NULL);
                     fprintf(stderr, "armiga-launcher: no se pudo ejecutar retroarch: %s\n",
                             strerror(errno));
