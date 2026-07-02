@@ -10,6 +10,7 @@
 #include <fcntl.h>
 #include <sys/types.h>
 #include <sys/wait.h>
+#include <sys/statvfs.h>
 #include <ifaddrs.h>
 #include <arpa/inet.h>
 #include <sys/ioctl.h>
@@ -37,7 +38,8 @@
 typedef enum {
     STATE_MENU,
     STATE_DEVMODE,
-    STATE_CONFIRM
+    STATE_CONFIRM,
+    STATE_SYSINFO
 } AppState;
 
 typedef enum {
@@ -166,6 +168,29 @@ static void read_ram_usage(char *buf, size_t bufsize)
         long total_mb = mem_total / 1024;
         snprintf(buf, bufsize, "%ld/%ld MB", used_mb, total_mb);
     }
+}
+
+static void read_disk_usage(const char *path, char *buf, size_t bufsize)
+{
+    strncpy(buf, "--", bufsize);
+    struct statvfs st;
+    if (statvfs(path, &st) != 0) return;
+    unsigned long long total_mb = (unsigned long long)st.f_blocks * st.f_frsize / (1024 * 1024);
+    unsigned long long free_mb  = (unsigned long long)st.f_bfree  * st.f_frsize / (1024 * 1024);
+    unsigned long long used_mb  = total_mb - free_mb;
+    snprintf(buf, bufsize, "%llu/%llu MB", used_mb, total_mb);
+}
+
+static void read_cpu_temp(char *buf, size_t bufsize)
+{
+    strncpy(buf, "--", bufsize);
+    FILE *f = fopen("/sys/class/thermal/thermal_zone0/temp", "r");
+    if (!f) return;
+    int millideg = 0;
+    if (fscanf(f, "%d", &millideg) == 1) {
+        snprintf(buf, bufsize, "%.1f C", millideg / 1000.0);
+    }
+    fclose(f);
 }
 
 static void apply_timezone(void)
@@ -359,6 +384,10 @@ int main(void)
     char dev_uptime[16] = "--";
     char dev_ram[24]    = "--";
 
+    char sysinfo_disk_data[32] = "--";
+    char sysinfo_disk_root[32] = "--";
+    char sysinfo_temp[16]      = "--";
+
     char status_time[8] = "--:--";
     bool status_wifi_up = false;
     int  status_battery = -1;
@@ -386,6 +415,7 @@ int main(void)
                 if (state == STATE_MENU) running = false;
                 else if (state == STATE_CONFIRM) state = STATE_DEVMODE;
                 else if (state == STATE_DEVMODE) state = STATE_MENU;
+                else if (state == STATE_SYSINFO) state = STATE_MENU;
             }
 
             if (state == STATE_MENU) {
@@ -466,6 +496,11 @@ int main(void)
                     ev.jbutton.button == BTN_SDL_B)
                     state = STATE_DEVMODE;
             }
+            else if (state == STATE_SYSINFO) {
+                if (ev.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN &&
+                    ev.jbutton.button == BTN_SDL_B)
+                    state = STATE_MENU;
+            }
         }
 
         /* Deteccion de combo SELECT+START+L1 mantenido 3s (solo desde STATE_MENU) */
@@ -503,6 +538,14 @@ int main(void)
             } else if (action == ACTION_ROMS) {
                 running = false;
                 relaunch_after_retroarch = true;
+            } else if (action == ACTION_INFO) {
+                state = STATE_SYSINFO;
+                read_ip_address(dev_ip, sizeof(dev_ip));
+                read_uptime(dev_uptime, sizeof(dev_uptime));
+                read_ram_usage(dev_ram, sizeof(dev_ram));
+                read_disk_usage("/media/amiga_data", sysinfo_disk_data, sizeof(sysinfo_disk_data));
+                read_disk_usage("/", sysinfo_disk_root, sizeof(sysinfo_disk_root));
+                read_cpu_temp(sysinfo_temp, sizeof(sysinfo_temp));
             }
             action = ACTION_NONE;
         }
@@ -683,6 +726,53 @@ int main(void)
                                SCREEN_W / 2.0f, SCREEN_H / 2.0f - 30.0f);
             draw_text_centered(ren, f_med, "[A] Si        [B] No", c_green,
                                SCREEN_W / 2.0f, SCREEN_H / 2.0f + 10.0f);
+
+        } else if (state == STATE_SYSINFO) {
+            draw_text(ren, f_sm, "INFORMACION DEL SISTEMA", c_green, mx, 20.0f);
+            draw_line(ren, mx, 44.0f, SCREEN_W - 20.0f, 44.0f, c_green);
+            draw_line(ren, sep_x, 44.0f, sep_x, 438.0f, c_green);
+
+            /* Columna izquierda: versiones */
+            float ly = 64.0f;
+            draw_text(ren, f_sm,  "ARMIGA",     c_green, mx, ly);
+            draw_text(ren, f_med, ARMIGA_VERSION, c_white, mx, ly + 14.0f);
+            ly += 40.0f;
+            draw_text(ren, f_sm,  "KERNEL",     c_green, mx, ly);
+            draw_text(ren, f_med, s_kernel,     c_white, mx, ly + 14.0f);
+            ly += 40.0f;
+            draw_text(ren, f_sm,  "MESA",       c_green, mx, ly);
+            draw_text(ren, f_med, s_mesa,       c_white, mx, ly + 14.0f);
+            ly += 40.0f;
+            draw_text(ren, f_sm,  "RETROARCH",  c_green, mx, ly);
+            draw_text(ren, f_med, s_retroarch,  c_white, mx, ly + 14.0f);
+            ly += 40.0f;
+            draw_text(ren, f_sm,  "SDL3",       c_green, mx, ly);
+            draw_text(ren, f_med, s_sdl3,       c_white, mx, ly + 14.0f);
+
+            /* Columna derecha: estado en vivo */
+            float ry2 = 64.0f;
+            draw_text(ren, f_sm,  "IP",             c_green, rx, ry2);
+            draw_text(ren, f_med, dev_ip,           c_white, rx, ry2 + 14.0f);
+            ry2 += 40.0f;
+            draw_text(ren, f_sm,  "UPTIME",         c_green, rx, ry2);
+            draw_text(ren, f_med, dev_uptime,       c_white, rx, ry2 + 14.0f);
+            ry2 += 40.0f;
+            draw_text(ren, f_sm,  "RAM",            c_green, rx, ry2);
+            draw_text(ren, f_med, dev_ram,          c_white, rx, ry2 + 14.0f);
+            ry2 += 40.0f;
+            draw_text(ren, f_sm,  "DISCO AMIGA_DATA", c_green, rx, ry2);
+            draw_text(ren, f_med, sysinfo_disk_data, c_white, rx, ry2 + 14.0f);
+            ry2 += 40.0f;
+            draw_text(ren, f_sm,  "DISCO SISTEMA",   c_green, rx, ry2);
+            draw_text(ren, f_med, sysinfo_disk_root, c_white, rx, ry2 + 14.0f);
+            ry2 += 40.0f;
+            draw_text(ren, f_sm,  "TEMP CPU",        c_green, rx, ry2);
+            draw_text(ren, f_med, sysinfo_temp,      c_white, rx, ry2 + 14.0f);
+
+            draw_line(ren, mx, 438.0f, SCREEN_W - 20.0f, 438.0f, c_green);
+            draw_text(ren, f_sm, "[B] Volver", c_gray, mx, 448.0f);
+            draw_text_right(ren, f_sm, ARMIGA_VERSION, c_dkgreen,
+                            SCREEN_W - 20.0f, 448.0f);
         }
 
         SDL_RenderPresent(ren);
