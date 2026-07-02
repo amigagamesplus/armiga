@@ -700,6 +700,7 @@ int main(void)
 
     switch (exec_req) {
         case EXEC_SHELL: {
+            if (!redirect_stdio_to_local_console()) return 1;
             const char *shell = getenv("SHELL");
             if (!shell || shell[0] == '\0') shell = "/bin/sh";
             execl(shell, shell, "-i", (char *)NULL);
