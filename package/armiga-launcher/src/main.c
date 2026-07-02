@@ -719,7 +719,7 @@ int main(void)
         }
         case EXEC_DEV_BTOP:
             if (!redirect_stdio_to_local_console()) return 1;
-            execl("/usr/bin/btop", "btop", (char *)NULL);
+            execl("/usr/bin/btop", "btop", "--force-utf", (char *)NULL);
             fprintf(stderr, "armiga-launcher: no se pudo ejecutar btop: %s\n",
                     strerror(errno));
             return 1;
