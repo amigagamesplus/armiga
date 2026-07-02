@@ -1,13 +1,19 @@
 #!/bin/sh
-# S42ntp — sincronizar la hora del sistema vía NTP
-# Se ejecuta tras S41wifi. No bloquea el arranque si falla.
+# S42ntp — sincronizar la hora del sistema vía NTP y guardarla en el RTC
+# (sun6i-rtc). El kernel ya arranca con la hora del RTC, pero esta puede
+# tener deriva acumulada; NTP la corrige y aqui la persistimos de vuelta
+# al RTC para que el proximo arranque ya parta de una hora correcta.
+# No bloquea el arranque: reintenta en background sin limite de tiempo
+# fijo, ya que el WiFi puede tardar un tiempo variable en conectar.
 
 case "$1" in
     start)
-        # -q: sincroniza una vez y sale (sin quedarse como demonio)
-        # -n: no hacer fork a background
-        # timeout corto para no retrasar el arranque si no hay red
-        timeout 5 ntpd -q -n -p pool.ntp.org >/dev/null 2>&1 &
+        (
+            while ! ntpd -q -n -p pool.ntp.org >/dev/null 2>&1; do
+                sleep 3
+            done
+            hwclock --systohc 2>/dev/null
+        ) &
         ;;
     stop)
         ;;
