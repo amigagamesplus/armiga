@@ -193,144 +193,6 @@ static void read_cpu_temp(char *buf, size_t bufsize)
     fclose(f);
 }
 
-static long read_proc_stat_cpu(long *idle_out)
-{
-    FILE *f = fopen("/proc/stat", "r");
-    if (!f) { if (idle_out) *idle_out = 0; return 0; }
-    long u = 0, n = 0, s = 0, id = 0, wa = 0, hi = 0, si = 0, st = 0;
-    long total = 0;
-    if (fscanf(f, "cpu %ld %ld %ld %ld %ld %ld %ld %ld",
-               &u, &n, &s, &id, &wa, &hi, &si, &st) == 8) {
-        if (idle_out) *idle_out = id + wa;
-        total = u + n + s + id + wa + hi + si + st;
-    }
-    fclose(f);
-    return total;
-}
-
-static void read_cpu_usage(char *buf, size_t bufsize, int *pct_out)
-{
-    /* Delta entre dos snapshots separados 80ms */
-    long idle1 = 0, idle2 = 0;
-    long total1 = read_proc_stat_cpu(&idle1);
-    SDL_Delay(80);
-    long total2 = read_proc_stat_cpu(&idle2);
-
-    long dtotal = total2 - total1;
-    long didle  = idle2  - idle1;
-    int pct = 0;
-    if (dtotal > 0)
-        pct = (int)(100L * (dtotal - didle) / dtotal);
-    if (pct < 0)   pct = 0;
-    if (pct > 100) pct = 100;
-    if (pct_out) *pct_out = pct;
-    snprintf(buf, bufsize, "%d%%", pct);
-}
-
-static void read_loadavg(char *buf, size_t bufsize)
-{
-    strncpy(buf, "--", bufsize);
-    FILE *f = fopen("/proc/loadavg", "r");
-    if (!f) return;
-    float l1, l5, l15;
-    if (fscanf(f, "%f %f %f", &l1, &l5, &l15) == 3)
-        snprintf(buf, bufsize, "%.2f  %.2f  %.2f", l1, l5, l15);
-    fclose(f);
-}
-
-static void read_wifi_signal(char *buf, size_t bufsize, int *pct_out)
-{
-    strncpy(buf, "--", bufsize);
-    if (pct_out) *pct_out = -1;
-    FILE *f = fopen("/proc/net/wireless", "r");
-    if (!f) return;
-    char line[128];
-    /* Saltar las dos primeras líneas de cabecera */
-    fgets(line, sizeof(line), f);
-    fgets(line, sizeof(line), f);
-    if (fgets(line, sizeof(line), f)) {
-        char iface[16];
-        int status;
-        float quality, signal, noise;
-        /* Formato: "wlan0: 0000   54.  -56.  -256. ..." */
-        if (sscanf(line, " %15[^:]: %d %f %f %f",
-                   iface, &status, &quality, &signal, &noise) >= 4) {
-            int dbm = (int)signal;
-            /* Convertir dBm a porcentaje (rango típico -100 a -50 dBm) */
-            int pct = 0;
-            if (dbm <= -100)      pct = 0;
-            else if (dbm >= -50)  pct = 100;
-            else                  pct = 2 * (dbm + 100);
-            if (pct_out) *pct_out = pct;
-            snprintf(buf, bufsize, "%d dBm (%d%%)", dbm, pct);
-        }
-    }
-    fclose(f);
-}
-
-static void read_mac_address(char *buf, size_t bufsize)
-{
-    strncpy(buf, "--", bufsize);
-    FILE *f = fopen("/sys/class/net/wlan0/address", "r");
-    if (!f) return;
-    if (fgets(buf, (int)bufsize, f)) {
-        size_t len = strlen(buf);
-        while (len > 0 && (buf[len-1] == '\n' || buf[len-1] == '\r'))
-            buf[--len] = '\0';
-    }
-    fclose(f);
-}
-
-/* Dibuja barra ASCII [##########] con parte rellena en verde y vacía en verde oscuro.
- * ncols = número de caracteres de la barra (sin contar corchetes). */
-static void draw_bar(SDL_Renderer *r, TTF_Font *f, int pct,
-                     SDL_Color c_fill, SDL_Color c_empty,
-                     float x, float y, int ncols)
-{
-    if (pct < 0)   pct = 0;
-    if (pct > 100) pct = 100;
-    if (ncols < 1 || ncols > 60) ncols = 10;
-
-    int filled = (pct * ncols) / 100;
-    int empty  = ncols - filled;
-
-    /* Tres segmentos: "[" + "#"*filled  |  "-"*empty  |  "]" */
-    char s_open[4]   = "[";
-    char s_fill[64]  = {0};
-    char s_emp[64]   = {0};
-    char s_close[4]  = "]";
-
-    for (int i = 0; i < filled && i < 63; i++) { s_fill[i] = '#'; s_fill[i+1] = '\0'; }
-    for (int i = 0; i < empty  && i < 63; i++) { s_emp[i]  = '-'; s_emp[i+1]  = '\0'; }
-
-    int wo = 0, wf = 0, we = 0, h = 0;
-    TTF_GetStringSize(f, s_open,  0, &wo, &h);
-    TTF_GetStringSize(f, s_fill,  0, &wf, &h);
-    TTF_GetStringSize(f, s_emp,   0, &we, &h);
-
-    draw_text(r, f, s_open,  c_fill,  x,                           y);
-    if (filled > 0)
-        draw_text(r, f, s_fill,  c_fill,  x + (float)wo,           y);
-    if (empty > 0)
-        draw_text(r, f, s_emp,   c_empty, x + (float)wo + (float)wf, y);
-    draw_text(r, f, s_close, c_fill,  x + (float)wo + (float)wf + (float)we, y);
-}
-
-/* Fila de sysinfo: etiqueta izquierda, valor derecha, opcional barra debajo */
-static void draw_si_row(SDL_Renderer *r, TTF_Font *f_lbl, TTF_Font *f_val,
-                        const char *label, const char *value,
-                        SDL_Color c_lbl, SDL_Color c_val,
-                        float x, float y, float col_w)
-{
-    draw_text(r, f_lbl, label, c_lbl, x, y);
-    /* Valor alineado a la derecha de la columna */
-    int wv = 0, hv = 0;
-    TTF_GetStringSize(f_val, value, 0, &wv, &hv);
-    float vx = x + col_w - (float)wv;
-    if (vx < x + 60.0f) vx = x + 60.0f; /* mínimo para etiquetas largas */
-    draw_text(r, f_val, value, c_val, vx, y);
-}
-
 static void apply_timezone(void)
 {
     FILE *f = fopen(ARMIGA_CONFIG_PATH, "r");
@@ -441,6 +303,145 @@ static void draw_text_centered(SDL_Renderer *r, TTF_Font *f, const char *t,
     TTF_GetStringSize(f, t, 0, &w, &h);
     draw_text(r, f, t, c, center_x - (float)w / 2.0f, y);
 }
+
+static long read_proc_stat_cpu(long *idle_out)
+{
+    FILE *f = fopen("/proc/stat", "r");
+    if (!f) { if (idle_out) *idle_out = 0; return 0; }
+    long u = 0, n = 0, s = 0, id = 0, wa = 0, hi = 0, si = 0, st = 0;
+    long total = 0;
+    if (fscanf(f, "cpu %ld %ld %ld %ld %ld %ld %ld %ld",
+               &u, &n, &s, &id, &wa, &hi, &si, &st) == 8) {
+        if (idle_out) *idle_out = id + wa;
+        total = u + n + s + id + wa + hi + si + st;
+    }
+    fclose(f);
+    return total;
+}
+
+static void read_cpu_usage(char *buf, size_t bufsize, int *pct_out)
+{
+    /* Delta entre dos snapshots separados 80ms */
+    long idle1 = 0, idle2 = 0;
+    long total1 = read_proc_stat_cpu(&idle1);
+    SDL_Delay(80);
+    long total2 = read_proc_stat_cpu(&idle2);
+
+    long dtotal = total2 - total1;
+    long didle  = idle2  - idle1;
+    int pct = 0;
+    if (dtotal > 0)
+        pct = (int)(100L * (dtotal - didle) / dtotal);
+    if (pct < 0)   pct = 0;
+    if (pct > 100) pct = 100;
+    if (pct_out) *pct_out = pct;
+    snprintf(buf, bufsize, "%d%%", pct);
+}
+
+static void read_loadavg(char *buf, size_t bufsize)
+{
+    strncpy(buf, "--", bufsize);
+    FILE *f = fopen("/proc/loadavg", "r");
+    if (!f) return;
+    float l1, l5, l15;
+    if (fscanf(f, "%f %f %f", &l1, &l5, &l15) == 3)
+        snprintf(buf, bufsize, "%.2f  %.2f  %.2f", l1, l5, l15);
+    fclose(f);
+}
+
+static void read_wifi_signal(char *buf, size_t bufsize, int *pct_out)
+{
+    strncpy(buf, "--", bufsize);
+    if (pct_out) *pct_out = -1;
+    FILE *f = fopen("/proc/net/wireless", "r");
+    if (!f) return;
+    char line[128];
+    /* Saltar las dos primeras líneas de cabecera */
+    (void)fgets(line, sizeof(line), f);
+    (void)fgets(line, sizeof(line), f);
+    if (fgets(line, sizeof(line), f)) {
+        char iface[16];
+        int status;
+        float quality, signal, noise;
+        /* Formato: "wlan0: 0000   54.  -56.  -256. ..." */
+        if (sscanf(line, " %15[^:]: %d %f %f %f",
+                   iface, &status, &quality, &signal, &noise) >= 4) {
+            int dbm = (int)signal;
+            /* Convertir dBm a porcentaje (rango típico -100 a -50 dBm) */
+            int pct = 0;
+            if (dbm <= -100)      pct = 0;
+            else if (dbm >= -50)  pct = 100;
+            else                  pct = 2 * (dbm + 100);
+            if (pct_out) *pct_out = pct;
+            snprintf(buf, bufsize, "%d dBm (%d%%)", dbm, pct);
+        }
+    }
+    fclose(f);
+}
+
+static void read_mac_address(char *buf, size_t bufsize)
+{
+    strncpy(buf, "--", bufsize);
+    FILE *f = fopen("/sys/class/net/wlan0/address", "r");
+    if (!f) return;
+    if (fgets(buf, (int)bufsize, f)) {
+        size_t len = strlen(buf);
+        while (len > 0 && (buf[len-1] == '\n' || buf[len-1] == '\r'))
+            buf[--len] = '\0';
+    }
+    fclose(f);
+}
+
+/* Dibuja barra ASCII [##########] con parte rellena en verde y vacía en verde oscuro.
+ * ncols = número de caracteres de la barra (sin contar corchetes). */
+static void draw_bar(SDL_Renderer *r, TTF_Font *f, int pct,
+                     SDL_Color c_fill, SDL_Color c_empty,
+                     float x, float y, int ncols)
+{
+    if (pct < 0)   pct = 0;
+    if (pct > 100) pct = 100;
+    if (ncols < 1 || ncols > 60) ncols = 10;
+
+    int filled = (pct * ncols) / 100;
+    int empty  = ncols - filled;
+
+    /* Tres segmentos: "[" + "#"*filled  |  "-"*empty  |  "]" */
+    char s_open[4]   = "[";
+    char s_fill[64]  = {0};
+    char s_emp[64]   = {0};
+    char s_close[4]  = "]";
+
+    for (int i = 0; i < filled && i < 63; i++) { s_fill[i] = '#'; s_fill[i+1] = '\0'; }
+    for (int i = 0; i < empty  && i < 63; i++) { s_emp[i]  = '-'; s_emp[i+1]  = '\0'; }
+
+    int wo = 0, wf = 0, we = 0, h = 0;
+    TTF_GetStringSize(f, s_open,  0, &wo, &h);
+    TTF_GetStringSize(f, s_fill,  0, &wf, &h);
+    TTF_GetStringSize(f, s_emp,   0, &we, &h);
+
+    draw_text(r, f, s_open,  c_fill,  x,                           y);
+    if (filled > 0)
+        draw_text(r, f, s_fill,  c_fill,  x + (float)wo,           y);
+    if (empty > 0)
+        draw_text(r, f, s_emp,   c_empty, x + (float)wo + (float)wf, y);
+    draw_text(r, f, s_close, c_fill,  x + (float)wo + (float)wf + (float)we, y);
+}
+
+/* Fila de sysinfo: etiqueta izquierda, valor derecha, opcional barra debajo */
+static void draw_si_row(SDL_Renderer *r, TTF_Font *f_lbl, TTF_Font *f_val,
+                        const char *label, const char *value,
+                        SDL_Color c_lbl, SDL_Color c_val,
+                        float x, float y, float col_w)
+{
+    draw_text(r, f_lbl, label, c_lbl, x, y);
+    /* Valor alineado a la derecha de la columna */
+    int wv = 0, hv = 0;
+    TTF_GetStringSize(f_val, value, 0, &wv, &hv);
+    float vx = x + col_w - (float)wv;
+    if (vx < x + 60.0f) vx = x + 60.0f; /* mínimo para etiquetas largas */
+    draw_text(r, f_val, value, c_val, vx, y);
+}
+
 
 static void draw_rect_filled(SDL_Renderer *r, float x, float y,
                               float w, float h, SDL_Color c)
