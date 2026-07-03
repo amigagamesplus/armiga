@@ -724,12 +724,15 @@ int main(void)
                 SDL_Delay(80); /* visible al menos 2 frames */
                 take_screenshot(ren, SCREEN_W, SCREEN_H);
                 screenshot_flash_until = SDL_GetTicks() + 500;
+                SDL_PumpEvents();
                 /* Esperar a que suelten los botones para evitar disparos multiples */
+                SDL_PumpEvents();
                 while (SDL_GetJoystickButton(joy, BTN_SDL_SELECT) ||
                        SDL_GetJoystickButton(joy, BTN_SDL_R1)) {
                     SDL_PumpEvents();
                     SDL_Delay(20);
                 }
+                SDL_Delay(200); /* debounce tras soltar */
             }
         }
 
