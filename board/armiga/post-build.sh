@@ -45,13 +45,15 @@ fi
 KVER="7.0.11-armiga"
 depmod -a -b "$TARGET_DIR" "$KVER" || true
 # --- armiga-release ----------------------------------------------------------
-cat > "$TARGET_DIR/etc/armiga-release" << 'RELEASE_EOF'
+BUILD_DATE=$(date -u +"%Y-%m-%d %H:%M")
+cat > "$TARGET_DIR/etc/armiga-release" << RELEASE_EOF
 ARMIGA_VERSION=1.0
 KERNEL_VERSION=7.0.11-armiga
 MESA_VERSION=26.1.3
 RETROARCH_VERSION=1.22.2
 SDL3_VERSION=3.4.10
 SDL3_TTF_VERSION=3.2.2
+BUILD_DATE=$BUILD_DATE
 RELEASE_EOF
 
 echo ">>> Armiga post-build.sh: done"

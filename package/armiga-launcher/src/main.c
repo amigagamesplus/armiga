@@ -193,6 +193,144 @@ static void read_cpu_temp(char *buf, size_t bufsize)
     fclose(f);
 }
 
+static long read_proc_stat_cpu(long *idle_out)
+{
+    FILE *f = fopen("/proc/stat", "r");
+    if (!f) { if (idle_out) *idle_out = 0; return 0; }
+    long u = 0, n = 0, s = 0, id = 0, wa = 0, hi = 0, si = 0, st = 0;
+    long total = 0;
+    if (fscanf(f, "cpu %ld %ld %ld %ld %ld %ld %ld %ld",
+               &u, &n, &s, &id, &wa, &hi, &si, &st) == 8) {
+        if (idle_out) *idle_out = id + wa;
+        total = u + n + s + id + wa + hi + si + st;
+    }
+    fclose(f);
+    return total;
+}
+
+static void read_cpu_usage(char *buf, size_t bufsize, int *pct_out)
+{
+    /* Delta entre dos snapshots separados 80ms */
+    long idle1 = 0, idle2 = 0;
+    long total1 = read_proc_stat_cpu(&idle1);
+    SDL_Delay(80);
+    long total2 = read_proc_stat_cpu(&idle2);
+
+    long dtotal = total2 - total1;
+    long didle  = idle2  - idle1;
+    int pct = 0;
+    if (dtotal > 0)
+        pct = (int)(100L * (dtotal - didle) / dtotal);
+    if (pct < 0)   pct = 0;
+    if (pct > 100) pct = 100;
+    if (pct_out) *pct_out = pct;
+    snprintf(buf, bufsize, "%d%%", pct);
+}
+
+static void read_loadavg(char *buf, size_t bufsize)
+{
+    strncpy(buf, "--", bufsize);
+    FILE *f = fopen("/proc/loadavg", "r");
+    if (!f) return;
+    float l1, l5, l15;
+    if (fscanf(f, "%f %f %f", &l1, &l5, &l15) == 3)
+        snprintf(buf, bufsize, "%.2f  %.2f  %.2f", l1, l5, l15);
+    fclose(f);
+}
+
+static void read_wifi_signal(char *buf, size_t bufsize, int *pct_out)
+{
+    strncpy(buf, "--", bufsize);
+    if (pct_out) *pct_out = -1;
+    FILE *f = fopen("/proc/net/wireless", "r");
+    if (!f) return;
+    char line[128];
+    /* Saltar las dos primeras líneas de cabecera */
+    fgets(line, sizeof(line), f);
+    fgets(line, sizeof(line), f);
+    if (fgets(line, sizeof(line), f)) {
+        char iface[16];
+        int status;
+        float quality, signal, noise;
+        /* Formato: "wlan0: 0000   54.  -56.  -256. ..." */
+        if (sscanf(line, " %15[^:]: %d %f %f %f",
+                   iface, &status, &quality, &signal, &noise) >= 4) {
+            int dbm = (int)signal;
+            /* Convertir dBm a porcentaje (rango típico -100 a -50 dBm) */
+            int pct = 0;
+            if (dbm <= -100)      pct = 0;
+            else if (dbm >= -50)  pct = 100;
+            else                  pct = 2 * (dbm + 100);
+            if (pct_out) *pct_out = pct;
+            snprintf(buf, bufsize, "%d dBm (%d%%)", dbm, pct);
+        }
+    }
+    fclose(f);
+}
+
+static void read_mac_address(char *buf, size_t bufsize)
+{
+    strncpy(buf, "--", bufsize);
+    FILE *f = fopen("/sys/class/net/wlan0/address", "r");
+    if (!f) return;
+    if (fgets(buf, (int)bufsize, f)) {
+        size_t len = strlen(buf);
+        while (len > 0 && (buf[len-1] == '\n' || buf[len-1] == '\r'))
+            buf[--len] = '\0';
+    }
+    fclose(f);
+}
+
+/* Dibuja barra ASCII [##########] con parte rellena en verde y vacía en verde oscuro.
+ * ncols = número de caracteres de la barra (sin contar corchetes). */
+static void draw_bar(SDL_Renderer *r, TTF_Font *f, int pct,
+                     SDL_Color c_fill, SDL_Color c_empty,
+                     float x, float y, int ncols)
+{
+    if (pct < 0)   pct = 0;
+    if (pct > 100) pct = 100;
+    if (ncols < 1 || ncols > 60) ncols = 10;
+
+    int filled = (pct * ncols) / 100;
+    int empty  = ncols - filled;
+
+    /* Tres segmentos: "[" + "#"*filled  |  "-"*empty  |  "]" */
+    char s_open[4]   = "[";
+    char s_fill[64]  = {0};
+    char s_emp[64]   = {0};
+    char s_close[4]  = "]";
+
+    for (int i = 0; i < filled && i < 63; i++) { s_fill[i] = '#'; s_fill[i+1] = '\0'; }
+    for (int i = 0; i < empty  && i < 63; i++) { s_emp[i]  = '-'; s_emp[i+1]  = '\0'; }
+
+    int wo = 0, wf = 0, we = 0, h = 0;
+    TTF_GetStringSize(f, s_open,  0, &wo, &h);
+    TTF_GetStringSize(f, s_fill,  0, &wf, &h);
+    TTF_GetStringSize(f, s_emp,   0, &we, &h);
+
+    draw_text(r, f, s_open,  c_fill,  x,                           y);
+    if (filled > 0)
+        draw_text(r, f, s_fill,  c_fill,  x + (float)wo,           y);
+    if (empty > 0)
+        draw_text(r, f, s_emp,   c_empty, x + (float)wo + (float)wf, y);
+    draw_text(r, f, s_close, c_fill,  x + (float)wo + (float)wf + (float)we, y);
+}
+
+/* Fila de sysinfo: etiqueta izquierda, valor derecha, opcional barra debajo */
+static void draw_si_row(SDL_Renderer *r, TTF_Font *f_lbl, TTF_Font *f_val,
+                        const char *label, const char *value,
+                        SDL_Color c_lbl, SDL_Color c_val,
+                        float x, float y, float col_w)
+{
+    draw_text(r, f_lbl, label, c_lbl, x, y);
+    /* Valor alineado a la derecha de la columna */
+    int wv = 0, hv = 0;
+    TTF_GetStringSize(f_val, value, 0, &wv, &hv);
+    float vx = x + col_w - (float)wv;
+    if (vx < x + 60.0f) vx = x + 60.0f; /* mínimo para etiquetas largas */
+    draw_text(r, f_val, value, c_val, vx, y);
+}
+
 static void apply_timezone(void)
 {
     FILE *f = fopen(ARMIGA_CONFIG_PATH, "r");
@@ -252,12 +390,14 @@ static void update_status(char *time_str, size_t time_str_sz,
     *battery_pct = cap;
 }
 
-static void read_release(char *kernel, char *mesa, char *retroarch, char *sdl3)
+static void read_release(char *kernel, char *mesa, char *retroarch, char *sdl3,
+                         char *build_date)
 {
-    strncpy(kernel,    "?", 32);
-    strncpy(mesa,      "?", 32);
-    strncpy(retroarch, "?", 32);
-    strncpy(sdl3,      "?", 32);
+    strncpy(kernel,     "?", 32);
+    strncpy(mesa,       "?", 32);
+    strncpy(retroarch,  "?", 32);
+    strncpy(sdl3,       "?", 32);
+    if (build_date) strncpy(build_date, "?", 24);
     FILE *f = fopen("/etc/armiga-release", "r");
     if (!f) return;
     char line[128];
@@ -268,6 +408,7 @@ static void read_release(char *kernel, char *mesa, char *retroarch, char *sdl3)
             if (!strcmp(key, "MESA_VERSION"))      strncpy(mesa,      val, 32);
             if (!strcmp(key, "RETROARCH_VERSION")) strncpy(retroarch, val, 32);
             if (!strcmp(key, "SDL3_VERSION"))      strncpy(sdl3,      val, 32);
+            if (build_date && !strcmp(key, "BUILD_DATE")) strncpy(build_date, val, 24);
         }
     }
     fclose(f);
@@ -358,8 +499,8 @@ int main(void)
     }
 
     /* Leer versiones */
-    char s_kernel[32], s_mesa[32], s_retroarch[32], s_sdl3[32];
-    read_release(s_kernel, s_mesa, s_retroarch, s_sdl3);
+    char s_kernel[32], s_mesa[32], s_retroarch[32], s_sdl3[32], s_build_date[24];
+    read_release(s_kernel, s_mesa, s_retroarch, s_sdl3, s_build_date);
 
     /* Joystick */
     SDL_Joystick *joy = NULL;
@@ -387,6 +528,14 @@ int main(void)
     char sysinfo_disk_data[32] = "--";
     char sysinfo_disk_root[32] = "--";
     char sysinfo_temp[16]      = "--";
+    char sysinfo_cpu_usage[8]  = "--";
+    int  sysinfo_cpu_pct       = 0;
+    char sysinfo_loadavg[32]   = "--";
+    char sysinfo_wifi_sig[32]  = "--";
+    int  sysinfo_wifi_pct      = -1;
+    char sysinfo_mac[24]       = "--";
+    char sysinfo_build[24]     = "--";
+    Uint64 last_sysinfo_update = 0;
 
     char status_time[8] = "--:--";
     bool status_wifi_up = false;
@@ -540,12 +689,7 @@ int main(void)
                 relaunch_after_retroarch = true;
             } else if (action == ACTION_INFO) {
                 state = STATE_SYSINFO;
-                read_ip_address(dev_ip, sizeof(dev_ip));
-                read_uptime(dev_uptime, sizeof(dev_uptime));
-                read_ram_usage(dev_ram, sizeof(dev_ram));
-                read_disk_usage("/media/amiga_data", sysinfo_disk_data, sizeof(sysinfo_disk_data));
-                read_disk_usage("/", sysinfo_disk_root, sizeof(sysinfo_disk_root));
-                read_cpu_temp(sysinfo_temp, sizeof(sysinfo_temp));
+                last_sysinfo_update = 0; /* forzar refresco inmediato */
             }
             action = ACTION_NONE;
         }
@@ -555,6 +699,22 @@ int main(void)
             update_status(status_time, sizeof(status_time),
                          &status_wifi_up, &status_battery);
             last_status_update = now_ticks;
+        }
+
+        if (state == STATE_SYSINFO &&
+            (last_sysinfo_update == 0 || now_ticks - last_sysinfo_update > 5000)) {
+            read_ip_address(dev_ip, sizeof(dev_ip));
+            read_uptime(dev_uptime, sizeof(dev_uptime));
+            read_ram_usage(dev_ram, sizeof(dev_ram));
+            read_disk_usage("/media/amiga_data", sysinfo_disk_data, sizeof(sysinfo_disk_data));
+            read_disk_usage("/", sysinfo_disk_root, sizeof(sysinfo_disk_root));
+            read_cpu_temp(sysinfo_temp, sizeof(sysinfo_temp));
+            read_cpu_usage(sysinfo_cpu_usage, sizeof(sysinfo_cpu_usage), &sysinfo_cpu_pct);
+            read_loadavg(sysinfo_loadavg, sizeof(sysinfo_loadavg));
+            read_wifi_signal(sysinfo_wifi_sig, sizeof(sysinfo_wifi_sig), &sysinfo_wifi_pct);
+            read_mac_address(sysinfo_mac, sizeof(sysinfo_mac));
+            strncpy(sysinfo_build, s_build_date, sizeof(sysinfo_build));
+            last_sysinfo_update = now_ticks;
         }
 
         /* RENDER */
@@ -728,51 +888,180 @@ int main(void)
                                SCREEN_W / 2.0f, SCREEN_H / 2.0f + 10.0f);
 
         } else if (state == STATE_SYSINFO) {
-            draw_text(ren, f_sm, "INFORMACION DEL SISTEMA", c_green, mx, 20.0f);
-            draw_line(ren, mx, 44.0f, SCREEN_W - 20.0f, 44.0f, c_green);
-            draw_line(ren, sep_x, 44.0f, sep_x, 438.0f, c_green);
+            /* ── Layout: cuadrícula 2 columnas × 3 bloques ──────────────────
+             *  Pantalla: 640×480, margen 20px, separador vertical en x=330
+             *  Bloques apilados verticalmente: header(44) + 3×bloques(~128) + footer(42)
+             *  Col izq: x=20..330  Col der: x=348..620
+             *  Cada bloque: título(14) + guiones(10) + N filas×(label+valor, 18px)
+             */
+            SDL_Color c_red = COL_RED;
 
-            /* Columna izquierda: versiones */
-            float ly = 64.0f;
-            draw_text(ren, f_sm,  "ARMIGA",     c_green, mx, ly);
-            draw_text(ren, f_med, ARMIGA_VERSION, c_white, mx, ly + 14.0f);
-            ly += 40.0f;
-            draw_text(ren, f_sm,  "KERNEL",     c_green, mx, ly);
-            draw_text(ren, f_med, s_kernel,     c_white, mx, ly + 14.0f);
-            ly += 40.0f;
-            draw_text(ren, f_sm,  "MESA",       c_green, mx, ly);
-            draw_text(ren, f_med, s_mesa,       c_white, mx, ly + 14.0f);
-            ly += 40.0f;
-            draw_text(ren, f_sm,  "RETROARCH",  c_green, mx, ly);
-            draw_text(ren, f_med, s_retroarch,  c_white, mx, ly + 14.0f);
-            ly += 40.0f;
-            draw_text(ren, f_sm,  "SDL3",       c_green, mx, ly);
-            draw_text(ren, f_med, s_sdl3,       c_white, mx, ly + 14.0f);
+            /* Constantes de layout sysinfo (distintas del menú principal) */
+            const float SI_MX    = 20.0f;   /* margen izquierdo */
+            const float SI_SEP   = 330.0f;  /* separador vertical */
+            const float SI_RX    = 348.0f;  /* columna derecha X */
+            const float SI_CW_L  = 300.0f;  /* ancho columna izquierda */
+            const float SI_CW_R  = 272.0f;  /* ancho columna derecha */
+            const float SI_ROW_H = 17.0f;   /* altura de fila label+valor */
+            const float SI_BLK_H = 128.0f;  /* altura de cada bloque (3 bloques × 128 = 384) */
+            const float SI_Y0    = 50.0f;   /* Y inicio primer bloque */
+            /* Separador horizontal en y=44 */
+            const float SI_SEP_H1 = SI_Y0 + SI_BLK_H;      /* ~178 */
+            const float SI_SEP_H2 = SI_Y0 + SI_BLK_H * 2;  /* ~306 */
 
-            /* Columna derecha: estado en vivo */
-            float ry2 = 64.0f;
-            draw_text(ren, f_sm,  "IP",             c_green, rx, ry2);
-            draw_text(ren, f_med, dev_ip,           c_white, rx, ry2 + 14.0f);
-            ry2 += 40.0f;
-            draw_text(ren, f_sm,  "UPTIME",         c_green, rx, ry2);
-            draw_text(ren, f_med, dev_uptime,       c_white, rx, ry2 + 14.0f);
-            ry2 += 40.0f;
-            draw_text(ren, f_sm,  "RAM",            c_green, rx, ry2);
-            draw_text(ren, f_med, dev_ram,          c_white, rx, ry2 + 14.0f);
-            ry2 += 40.0f;
-            draw_text(ren, f_sm,  "DISCO AMIGA_DATA", c_green, rx, ry2);
-            draw_text(ren, f_med, sysinfo_disk_data, c_white, rx, ry2 + 14.0f);
-            ry2 += 40.0f;
-            draw_text(ren, f_sm,  "DISCO SISTEMA",   c_green, rx, ry2);
-            draw_text(ren, f_med, sysinfo_disk_root, c_white, rx, ry2 + 14.0f);
-            ry2 += 40.0f;
-            draw_text(ren, f_sm,  "TEMP CPU",        c_green, rx, ry2);
-            draw_text(ren, f_med, sysinfo_temp,      c_white, rx, ry2 + 14.0f);
+            /* Título y separador superior */
+            draw_text(ren, f_sm, "INFORMACION DEL SISTEMA", c_green, SI_MX, 20.0f);
+            draw_text_right(ren, f_sm, ARMIGA_VERSION, c_dkgreen, SCREEN_W - 20.0f, 20.0f);
+            draw_line(ren, SI_MX, 44.0f, SCREEN_W - 20.0f, 44.0f, c_green);
 
-            draw_line(ren, mx, 438.0f, SCREEN_W - 20.0f, 438.0f, c_green);
-            draw_text(ren, f_sm, "[B] Volver", c_gray, mx, 448.0f);
-            draw_text_right(ren, f_sm, ARMIGA_VERSION, c_dkgreen,
-                            SCREEN_W - 20.0f, 448.0f);
+            /* Separador vertical */
+            draw_line(ren, SI_SEP, 44.0f, SI_SEP, 438.0f, c_green);
+
+            /* Separadores horizontales entre bloques */
+            draw_line(ren, SI_MX, SI_SEP_H1, SCREEN_W - 20.0f, SI_SEP_H1, c_dkgreen);
+            draw_line(ren, SI_MX, SI_SEP_H2, SCREEN_W - 20.0f, SI_SEP_H2, c_dkgreen);
+
+/* Macro auxiliar: título de bloque + línea de guiones */
+#define SI_BLOCK_TITLE(xpos, ypos, title) do { \
+    draw_text(ren, f_sm, title, c_green, (xpos), (ypos)); \
+    /* guiones bajo el título */ \
+    { char _dashes[32]; int _tl = (int)strlen(title); \
+      if (_tl > 31) _tl = 31; \
+      for (int _i=0;_i<_tl;_i++) _dashes[_i]='-'; _dashes[_tl]='\0'; \
+      draw_text(ren, f_sm, _dashes, c_dkgreen, (xpos), (ypos)+14.0f); } \
+} while(0)
+
+/* Macro fila: etiqueta fija + valor alineado a col_right */
+#define SI_ROW(xpos, ypos, col_right, lbl, val) do { \
+    draw_text(ren, f_sm,  (lbl), c_gray,  (xpos),       (ypos)); \
+    draw_text_right(ren, f_sm, (val), c_white, (col_right), (ypos)); \
+} while(0)
+
+/* Macro fila con barra: etiqueta, barra, valor */
+#define SI_ROW_BAR(xpos, ypos, col_right, lbl, val, pct) do { \
+    draw_text(ren, f_sm, (lbl), c_gray, (xpos), (ypos)); \
+    { int _ncols = 10; \
+      int _fw = 0, _fh = 0; \
+      TTF_GetStringSize(f_sm, (val), 0, &_fw, &_fh); \
+      float _bar_right = (col_right) - (float)_fw - 6.0f; \
+      draw_text(ren, f_sm, (val), c_white, (col_right) - (float)_fw, (ypos)); \
+      /* calcular ancho de una barra de _ncols chars */ \
+      int _bw = 0; char _probe[16]; \
+      snprintf(_probe, sizeof(_probe), "[##########]"); \
+      TTF_GetStringSize(f_sm, _probe, 0, &_bw, &_fh); \
+      draw_bar(ren, f_sm, (pct), c_green, c_dkgreen, _bar_right - (float)_bw, (ypos), _ncols); \
+    } \
+} while(0)
+
+            /* ── BLOQUE 1 IZQ: SISTEMA ───────────────────────────────────── */
+            float y = SI_Y0 + 2.0f;
+            SI_BLOCK_TITLE(SI_MX, y, "SISTEMA");
+            y += 28.0f;
+            SI_ROW(SI_MX, y, SI_MX + SI_CW_L, "Armiga",       "v1.0");          y += SI_ROW_H;
+            SI_ROW(SI_MX, y, SI_MX + SI_CW_L, "Kernel",       s_kernel);        y += SI_ROW_H;
+            SI_ROW(SI_MX, y, SI_MX + SI_CW_L, "Arquitectura", "aarch64");       y += SI_ROW_H;
+            SI_ROW(SI_MX, y, SI_MX + SI_CW_L, "Build",        sysinfo_build);   y += SI_ROW_H;
+            SI_ROW(SI_MX, y, SI_MX + SI_CW_L, "Hostname",     "armiga");
+
+            /* ── BLOQUE 1 DER: ESTADO ────────────────────────────────────── */
+            y = SI_Y0 + 2.0f;
+            SI_BLOCK_TITLE(SI_RX, y, "ESTADO");
+            y += 28.0f;
+            {
+                /* RAM: calcular pct */
+                int ram_pct = 0;
+                {
+                    FILE *fm = fopen("/proc/meminfo", "r");
+                    if (fm) {
+                        long mt = -1, ma = -1; char ln[128];
+                        while (fgets(ln, sizeof(ln), fm)) {
+                            if (!strncmp(ln, "MemTotal:",    9)) sscanf(ln, "MemTotal: %ld",    &mt);
+                            if (!strncmp(ln, "MemAvailable:",13)) sscanf(ln, "MemAvailable: %ld",&ma);
+                        }
+                        fclose(fm);
+                        if (mt > 0 && ma >= 0) ram_pct = (int)(100 * (mt - ma) / mt);
+                    }
+                }
+                int temp_pct = 0;
+                { int td = 0; if (read_sysfs_int("/sys/class/thermal/thermal_zone0/temp",&td)) temp_pct = td/1000; if(temp_pct>100)temp_pct=100; }
+
+                SI_ROW_BAR(SI_RX, y, SI_RX + SI_CW_R, "CPU Uso",  sysinfo_cpu_usage, sysinfo_cpu_pct); y += SI_ROW_H;
+                SI_ROW_BAR(SI_RX, y, SI_RX + SI_CW_R, "RAM Uso",  dev_ram,           ram_pct);          y += SI_ROW_H;
+                SI_ROW_BAR(SI_RX, y, SI_RX + SI_CW_R, "Temp CPU", sysinfo_temp,      temp_pct);         y += SI_ROW_H;
+                SI_ROW    (SI_RX, y, SI_RX + SI_CW_R, "Uptime",   dev_uptime);                          y += SI_ROW_H;
+                SI_ROW    (SI_RX, y, SI_RX + SI_CW_R, "Load Avg", sysinfo_loadavg);
+            }
+
+            /* ── BLOQUE 2 IZQ: ALMACENAMIENTO ───────────────────────────── */
+            y = SI_SEP_H1 + 4.0f;
+            SI_BLOCK_TITLE(SI_MX, y, "ALMACENAMIENTO");
+            y += 28.0f;
+            {
+                /* Disco sistema: pct */
+                int disk_root_pct = 0, disk_data_pct = 0;
+                { struct statvfs st;
+                  if (statvfs("/", &st) == 0 && st.f_blocks > 0)
+                      disk_root_pct = (int)(100 - 100ULL * st.f_bfree / st.f_blocks); }
+                { struct statvfs st;
+                  if (statvfs("/media/amiga_data", &st) == 0 && st.f_blocks > 0)
+                      disk_data_pct = (int)(100 - 100ULL * st.f_bfree / st.f_blocks); }
+
+                SI_ROW_BAR(SI_MX, y, SI_MX + SI_CW_L, "Sistema", sysinfo_disk_root, disk_root_pct); y += SI_ROW_H;
+                SI_ROW_BAR(SI_MX, y, SI_MX + SI_CW_L, "Datos",   sysinfo_disk_data, disk_data_pct); y += SI_ROW_H;
+                /* Libre total en datos */
+                {
+                    char free_buf[32] = "--";
+                    struct statvfs st;
+                    if (statvfs("/media/amiga_data", &st) == 0) {
+                        unsigned long long free_mb = (unsigned long long)st.f_bfree * st.f_frsize / (1024*1024);
+                        if (free_mb >= 1024) snprintf(free_buf, sizeof(free_buf), "%.1f GB", free_mb / 1024.0);
+                        else                 snprintf(free_buf, sizeof(free_buf), "%llu MB", free_mb);
+                    }
+                    SI_ROW(SI_MX, y, SI_MX + SI_CW_L, "Libre Total", free_buf);
+                }
+            }
+
+            /* ── BLOQUE 2 DER: HARDWARE ──────────────────────────────────── */
+            y = SI_SEP_H1 + 4.0f;
+            SI_BLOCK_TITLE(SI_RX, y, "HARDWARE");
+            y += 28.0f;
+            SI_ROW(SI_RX, y, SI_RX + SI_CW_R, "CPU",           "Cortex-A53 @1.51GHz"); y += SI_ROW_H;
+            SI_ROW(SI_RX, y, SI_RX + SI_CW_R, "GPU",           "Mali-G31 (Panfrost)"); y += SI_ROW_H;
+            SI_ROW(SI_RX, y, SI_RX + SI_CW_R, "RAM",           "1 GB LPDDR4");         y += SI_ROW_H;
+            SI_ROW(SI_RX, y, SI_RX + SI_CW_R, "Almacenamiento","microSD");              y += SI_ROW_H;
+            SI_ROW(SI_RX, y, SI_RX + SI_CW_R, "Resolucion",    "640x480 @ 60Hz");
+
+            /* ── BLOQUE 3 IZQ: SOFTWARE ──────────────────────────────────── */
+            y = SI_SEP_H2 + 4.0f;
+            SI_BLOCK_TITLE(SI_MX, y, "SOFTWARE");
+            y += 28.0f;
+            SI_ROW(SI_MX, y, SI_MX + SI_CW_L, "RetroArch", s_retroarch); y += SI_ROW_H;
+            SI_ROW(SI_MX, y, SI_MX + SI_CW_L, "Mesa",      s_mesa);      y += SI_ROW_H;
+            SI_ROW(SI_MX, y, SI_MX + SI_CW_L, "SDL3",      s_sdl3);      y += SI_ROW_H;
+
+            /* ── BLOQUE 3 DER: RED ───────────────────────────────────────── */
+            y = SI_SEP_H2 + 4.0f;
+            SI_BLOCK_TITLE(SI_RX, y, "RED");
+            y += 28.0f;
+            SI_ROW    (SI_RX, y, SI_RX + SI_CW_R, "IP",          dev_ip);          y += SI_ROW_H;
+            SI_ROW    (SI_RX, y, SI_RX + SI_CW_R, "WiFi",        status_wifi_up ? "Conectado" : "Desconectado"); y += SI_ROW_H;
+            SI_ROW_BAR(SI_RX, y, SI_RX + SI_CW_R, "Senal WiFi",  sysinfo_wifi_sig, sysinfo_wifi_pct >= 0 ? sysinfo_wifi_pct : 0); y += SI_ROW_H;
+            SI_ROW    (SI_RX, y, SI_RX + SI_CW_R, "MAC",         sysinfo_mac);
+
+#undef SI_BLOCK_TITLE
+#undef SI_ROW
+#undef SI_ROW_BAR
+
+            /* Barra inferior */
+            draw_line(ren, SI_MX, 438.0f, SCREEN_W - 20.0f, 438.0f, c_green);
+            /* Mensaje de estado: sistema OK o sin red */
+            {
+                const char *status_msg = status_wifi_up
+                    ? "> Sistema funcionando correctamente."
+                    : "> Sin conexion de red.";
+                draw_text(ren, f_sm, status_msg, c_dkgreen, SI_MX, 448.0f);
+            }
+            draw_text_right(ren, f_sm, "[B] Volver", c_gray, SCREEN_W - 20.0f, 448.0f);
         }
 
         SDL_RenderPresent(ren);
