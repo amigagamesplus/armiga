@@ -10,6 +10,7 @@
 #include <fcntl.h>
 #include <sys/types.h>
 #include <sys/wait.h>
+#include <sys/stat.h>
 #include <sys/statvfs.h>
 #include <ifaddrs.h>
 #include <arpa/inet.h>
@@ -89,6 +90,7 @@ static const char *DEV_MENU_ITEMS[] = {
 #define BTN_SDL_B      0
 #define BTN_SDL_A      1
 #define BTN_SDL_L1     4
+#define BTN_SDL_R1     5
 #define BTN_SDL_SELECT 8
 #define BTN_SDL_START  9
 
@@ -191,6 +193,31 @@ static void read_cpu_temp(char *buf, size_t bufsize)
         snprintf(buf, bufsize, "%.1f C", millideg / 1000.0);
     }
     fclose(f);
+}
+
+/* Guarda un BMP de la pantalla actual en /media/amiga_data/screenshots/.
+ * Devuelve 0 en éxito, -1 en error. */
+static int take_screenshot(SDL_Renderer *ren, int screen_w, int screen_h)
+{
+    mkdir("/media/amiga_data/screenshots", 0755);
+
+    /* Nombre de fichero con timestamp */
+    time_t t = time(NULL);
+    struct tm *lt = localtime(&t);
+    char path[128];
+    if (lt)
+        strftime(path, sizeof(path),
+                 "/media/amiga_data/screenshots/armiga_%Y%m%d_%H%M%S.bmp", lt);
+    else
+        snprintf(path, sizeof(path),
+                 "/media/amiga_data/screenshots/armiga_%lu.bmp", (unsigned long)t);
+
+    SDL_Surface *surf = SDL_RenderReadPixels(ren, NULL);
+    if (!surf) return -1;
+
+    int ret = SDL_SaveBMP(surf, path) ? 0 : -1;
+    SDL_DestroySurface(surf);
+    return ret;
 }
 
 static void apply_timezone(void)
@@ -521,6 +548,7 @@ int main(void)
 
     Uint64 devmode_hold_start = 0; /* 0 = combo no presionado */
     bool devmode_combo_held = false;
+    Uint64 screenshot_flash_until = 0; /* ms hasta cuando mostrar flash */
 
     char dev_ip[32]     = "sin red";
     char dev_uptime[16] = "--";
@@ -679,6 +707,22 @@ int main(void)
         } else if (state != STATE_MENU) {
             devmode_combo_held = false;
             devmode_hold_start = 0;
+        }
+
+        /* Combo screenshot: SELECT + R1 pulsados simultaneamente (cualquier estado) */
+        if (joy) {
+            bool sel = SDL_GetJoystickButton(joy, BTN_SDL_SELECT);
+            bool r1  = SDL_GetJoystickButton(joy, BTN_SDL_R1);
+            if (sel && r1) {
+                if (take_screenshot(ren, SCREEN_W, SCREEN_H) == 0)
+                    screenshot_flash_until = SDL_GetTicks() + 600;
+                /* Esperar a que suelten los botones para evitar disparos multiples */
+                while (SDL_GetJoystickButton(joy, BTN_SDL_SELECT) ||
+                       SDL_GetJoystickButton(joy, BTN_SDL_R1)) {
+                    SDL_PumpEvents();
+                    SDL_Delay(20);
+                }
+            }
         }
 
         if (action != ACTION_NONE) {
@@ -1063,6 +1107,17 @@ int main(void)
                 draw_text(ren, f_sm, status_msg, c_dkgreen, SI_MX, 448.0f);
             }
             draw_text_right(ren, f_sm, "[B] Volver", c_gray, SCREEN_W - 20.0f, 448.0f);
+        }
+
+        /* Flash blanco al hacer screenshot */
+        if (screenshot_flash_until > 0 && SDL_GetTicks() < screenshot_flash_until) {
+            SDL_SetRenderDrawBlendMode(ren, SDL_BLENDMODE_BLEND);
+            SDL_SetRenderDrawColor(ren, 255, 255, 255, 180);
+            SDL_FRect flash_rect = {0, 0, (float)SCREEN_W, (float)SCREEN_H};
+            SDL_RenderFillRect(ren, &flash_rect);
+            SDL_SetRenderDrawBlendMode(ren, SDL_BLENDMODE_NONE);
+        } else {
+            screenshot_flash_until = 0;
         }
 
         SDL_RenderPresent(ren);
