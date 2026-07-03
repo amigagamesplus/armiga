@@ -66,9 +66,9 @@ static const char *MENU_ICONS[] = {
 };
 
 static const char *MENU_ITEMS[] = {
-    "Catalogo Amiga",
-    "Actualizacion de sistema",
-    "Diagnostico del sistema",
+    "Catálogo Amiga",
+    "Actualización de sistema",
+    "Diagnóstico del sistema",
     "Apagar dispositivo",
 };
 static const char *MENU_DESC[] = {
@@ -641,7 +641,7 @@ int main(void)
     SDL_Color c_selbg   = COL_SEL_BG;
 
     /* Layout */
-    float mx     = 30.0f;
+    float mx     = 20.0f;
     float mw     = 390.0f;
     float sep_x  = 440.0f;
     float rx      = 458.0f;
@@ -1055,12 +1055,12 @@ int main(void)
             SI_ROW(SI_MX, y, SI_MX + SI_CW_L, "Version OS",       "v1.0");          y += SI_ROW_H;
             SI_ROW(SI_MX, y, SI_MX + SI_CW_L, "Kernel",       s_kernel);        y += SI_ROW_H;
             SI_ROW(SI_MX, y, SI_MX + SI_CW_L, "Arquitectura", "aarch64");       y += SI_ROW_H;
-            SI_ROW(SI_MX, y, SI_MX + SI_CW_L, "Compilacion",        sysinfo_build);   y += SI_ROW_H;
+            SI_ROW(SI_MX, y, SI_MX + SI_CW_L, "Compilación",        sysinfo_build);   y += SI_ROW_H;
             SI_ROW(SI_MX, y, SI_MX + SI_CW_L, "Hostname",     "armiga");
 
             /* ── BLOQUE 1 DER: ESTADO ────────────────────────────────────── */
             y = SI_Y0 + 2.0f;
-            SI_BLOCK_TITLE(SI_RX, y, "METRICAS:");
+            SI_BLOCK_TITLE(SI_RX, y, "MÉTRICAS:");
             y += 28.0f;
             {
                 /* RAM: calcular pct */
@@ -1081,7 +1081,7 @@ int main(void)
                 { int td = 0; if (read_sysfs_int("/sys/class/thermal/thermal_zone0/temp",&td)) temp_pct = td/1000; if(temp_pct>100)temp_pct=100; }
 
                 SI_ROW_BAR(SI_RX, y, SI_RX + SI_CW_R, "Carga CPU",  sysinfo_cpu_usage, sysinfo_cpu_pct); y += SI_ROW_H;
-                SI_ROW_BAR(SI_RX, y, SI_RX + SI_CW_R, "Ocupacion RAM",  dev_ram,           ram_pct);          y += SI_ROW_H;
+                SI_ROW_BAR(SI_RX, y, SI_RX + SI_CW_R, "Ocupación RAM",  dev_ram,           ram_pct);          y += SI_ROW_H;
                 SI_ROW_BAR(SI_RX, y, SI_RX + SI_CW_R, "Temp CPU", sysinfo_temp,      temp_pct);         y += SI_ROW_H;
                 SI_ROW    (SI_RX, y, SI_RX + SI_CW_R, "Uptime",   dev_uptime);                          y += SI_ROW_H;
                 SI_ROW    (SI_RX, y, SI_RX + SI_CW_R, "Load Avg", sysinfo_loadavg);
@@ -1089,7 +1089,7 @@ int main(void)
 
             /* ── BLOQUE 2 IZQ: ALMACENAMIENTO ───────────────────────────── */
             y = SI_SEP_H1 + 4.0f;
-            SI_BLOCK_TITLE(SI_MX, y, "VOLUMENES:");
+            SI_BLOCK_TITLE(SI_MX, y, "VOLÚMENES:");
             y += 28.0f;
             {
                 /* Disco sistema: pct */
@@ -1124,7 +1124,7 @@ int main(void)
             SI_ROW(SI_RX, y, SI_RX + SI_CW_R, "GPU",           "Mali-G31 (Panfrost)"); y += SI_ROW_H;
             SI_ROW(SI_RX, y, SI_RX + SI_CW_R, "RAM",           "1 GB LPDDR4");         y += SI_ROW_H;
             SI_ROW(SI_RX, y, SI_RX + SI_CW_R, "Almacenamiento","microSD");              y += SI_ROW_H;
-            SI_ROW(SI_RX, y, SI_RX + SI_CW_R, "Resolucion",    "640x480 @ 60Hz");
+            SI_ROW(SI_RX, y, SI_RX + SI_CW_R, "Resolución",    "640x480 @ 60Hz");
 
             /* ── BLOQUE 3 IZQ: SOFTWARE ──────────────────────────────────── */
             y = SI_SEP_H2 + 4.0f;
