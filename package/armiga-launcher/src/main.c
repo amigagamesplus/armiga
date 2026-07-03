@@ -93,8 +93,8 @@ static const char *DEV_MENU_ITEMS[] = {
 #define DEV_MENU_COUNT 4
 
 /* SDL button indices del H700 (confirmados en hardware, no kernel/evdev) */
-#define BTN_SDL_B      0
-#define BTN_SDL_A      1
+#define BTN_SDL_B      1
+#define BTN_SDL_A      0
 #define BTN_SDL_L1     4
 #define BTN_SDL_R1     5
 #define BTN_SDL_SELECT 8
@@ -898,7 +898,7 @@ int main(void)
 
         /* Barra inferior */
         draw_line(ren, mx, 438.0f, SCREEN_W - 20.0f, 438.0f, c_green);
-        draw_footer(ren, f_sm, "[A] Seleccionar  [DPAD] Navegar");
+        draw_footer(ren, f_sm, "[B] Seleccionar  [DPAD] Navegar");
 
         /* Barra de progreso del hold de modo dev (si se está manteniendo) */
         if (devmode_combo_held && devmode_hold_start != 0) {
@@ -971,7 +971,7 @@ int main(void)
 
             /* Barra inferior */
             draw_line(ren, mx, 438.0f, SCREEN_W - 20.0f, 438.0f, c_green);
-            draw_footer(ren, f_sm, "[A] Seleccionar  [B] Volver");
+            draw_footer(ren, f_sm, "[B] Seleccionar  [A] Volver");
 
         } else if (state == STATE_CONFIRM) {
             const char *label = (confirm_target == DEV_ACTION_REBOOT)
@@ -979,7 +979,7 @@ int main(void)
                                  : "Apagar el dispositivo?";
             draw_text_centered(ren, f_med, label, c_white,
                                SCREEN_W / 2.0f, SCREEN_H / 2.0f - 30.0f);
-            draw_text_centered(ren, f_med, "[A] Si        [B] No", c_green,
+            draw_text_centered(ren, f_med, "[B] Si        [A] No", c_green,
                                SCREEN_W / 2.0f, SCREEN_H / 2.0f + 10.0f);
 
         } else if (state == STATE_SYSINFO) {
@@ -1149,7 +1149,7 @@ int main(void)
 
             /* Barra inferior */
             draw_line(ren, SI_MX, 438.0f, SCREEN_W - 20.0f, 438.0f, c_green);
-            draw_footer(ren, f_sm, "[B] Volver");
+            draw_footer(ren, f_sm, "[A] Volver");
         }
 
         /* Flash blanco al hacer screenshot */
