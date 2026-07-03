@@ -226,60 +226,6 @@ static int take_screenshot(SDL_Renderer *ren, int screen_w, int screen_h)
     return ret;
 }
 
-/* Dibuja la barra de estado superior derecha: HORA | WIFI | BATERIA
- * Posicion fija: esquina superior derecha, y=18 */
-static void draw_statusbar(SDL_Renderer *ren, TTF_Font *f,
-                            const char *time_str, bool wifi_up, int battery)
-{
-    SDL_Color c_white  = COL_WHITE;
-    SDL_Color c_green  = COL_GREEN;
-    SDL_Color c_gray   = COL_GRAY;
-    SDL_Color c_red    = COL_RED;
-    float right = SCREEN_W - 20.0f;
-    float y     = 18.0f;
-    float gap   = 10.0f;
-    int w, h;
-
-    /* BATERIA */
-    char batt_buf[8];
-    if (battery >= 0) snprintf(batt_buf, sizeof(batt_buf), "%d%%", battery);
-    else              strncpy(batt_buf, "--", sizeof(batt_buf));
-    TTF_GetStringSize(f, batt_buf, 0, &w, &h);
-    draw_text(ren, f, batt_buf, c_white, right - (float)w, y);
-    right -= (float)w + gap;
-
-    /* Separador */
-    TTF_GetStringSize(f, "|", 0, &w, &h);
-    draw_text(ren, f, "|", c_gray, right - (float)w, y);
-    right -= (float)w + gap;
-
-    /* WIFI */
-    const char *wifi_lbl = wifi_up ? "WIFI" : "WIFI";
-    SDL_Color wifi_col   = wifi_up ? c_green : c_red;
-    TTF_GetStringSize(f, wifi_lbl, 0, &w, &h);
-    draw_text(ren, f, wifi_lbl, wifi_col, right - (float)w, y);
-    right -= (float)w + gap;
-
-    /* Separador */
-    TTF_GetStringSize(f, "|", 0, &w, &h);
-    draw_text(ren, f, "|", c_gray, right - (float)w, y);
-    right -= (float)w + gap;
-
-    /* HORA */
-    TTF_GetStringSize(f, time_str, 0, &w, &h);
-    draw_text(ren, f, time_str, c_white, right - (float)w, y);
-}
-
-/* Dibuja footer unificado: leyenda izquierda + version derecha */
-static void draw_footer(SDL_Renderer *ren, TTF_Font *f,
-                        const char *legend)
-{
-    SDL_Color c_gray    = COL_GRAY;
-    SDL_Color c_dkgreen = COL_DKGREEN;
-    draw_text(ren, f, legend, c_gray, 20.0f, 448.0f);
-    draw_text_right(ren, f, ARMIGA_VERSION, c_dkgreen, SCREEN_W - 20.0f, 448.0f);
-}
-
 static void apply_timezone(void)
 {
     FILE *f = fopen(ARMIGA_CONFIG_PATH, "r");
@@ -390,6 +336,62 @@ static void draw_text_centered(SDL_Renderer *r, TTF_Font *f, const char *t,
     TTF_GetStringSize(f, t, 0, &w, &h);
     draw_text(r, f, t, c, center_x - (float)w / 2.0f, y);
 }
+
+/* Dibuja la barra de estado superior derecha: HORA | WIFI | BATERIA
+ * Posicion fija: esquina superior derecha, y=18 */
+static void draw_statusbar(SDL_Renderer *ren, TTF_Font *f,
+                            const char *time_str, bool wifi_up, int battery)
+{
+    SDL_Color c_white  = COL_WHITE;
+    SDL_Color c_green  = COL_GREEN;
+    SDL_Color c_gray   = COL_GRAY;
+    SDL_Color c_red    = COL_RED;
+    float right = SCREEN_W - 20.0f;
+    float y     = 18.0f;
+    float gap   = 10.0f;
+    int w, h;
+
+    /* BATERIA */
+    char batt_buf[8];
+    if (battery >= 0) snprintf(batt_buf, sizeof(batt_buf), "%d%%", battery);
+    else              strncpy(batt_buf, "--", sizeof(batt_buf));
+    TTF_GetStringSize(f, batt_buf, 0, &w, &h);
+    draw_text(ren, f, batt_buf, c_white, right - (float)w, y);
+    right -= (float)w + gap;
+
+    /* Separador */
+    TTF_GetStringSize(f, "|", 0, &w, &h);
+    draw_text(ren, f, "|", c_gray, right - (float)w, y);
+    right -= (float)w + gap;
+
+    /* WIFI */
+    const char *wifi_lbl = wifi_up ? "WIFI" : "WIFI";
+    SDL_Color wifi_col   = wifi_up ? c_green : c_red;
+    TTF_GetStringSize(f, wifi_lbl, 0, &w, &h);
+    draw_text(ren, f, wifi_lbl, wifi_col, right - (float)w, y);
+    right -= (float)w + gap;
+
+    /* Separador */
+    TTF_GetStringSize(f, "|", 0, &w, &h);
+    draw_text(ren, f, "|", c_gray, right - (float)w, y);
+    right -= (float)w + gap;
+
+    /* HORA */
+    TTF_GetStringSize(f, time_str, 0, &w, &h);
+    draw_text(ren, f, time_str, c_white, right - (float)w, y);
+}
+
+/* Dibuja footer unificado: leyenda izquierda + version derecha */
+static void draw_footer(SDL_Renderer *ren, TTF_Font *f,
+                        const char *legend)
+{
+    SDL_Color c_gray    = COL_GRAY;
+    SDL_Color c_dkgreen = COL_DKGREEN;
+    draw_text(ren, f, legend, c_gray, 20.0f, 448.0f);
+    draw_text_right(ren, f, ARMIGA_VERSION, c_dkgreen, SCREEN_W - 20.0f, 448.0f);
+}
+
+
 
 static long read_proc_stat_cpu(long *idle_out)
 {
