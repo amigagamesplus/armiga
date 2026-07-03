@@ -45,7 +45,7 @@ typedef enum {
 
 typedef enum {
     EXEC_NONE,
-    EXEC_SHELL,        /* "Salir al shell" del menu principal: hereda stdio actual (SSH o consola) */
+    EXEC_SHELL,        /* "Apagar dispositivo" del menu principal: hereda stdio actual (SSH o consola) */
     EXEC_DEV_TERMINAL, /* "Terminal" del modo dev: fuerza consola local /dev/tty0 */
     EXEC_DEV_BTOP,     /* "btop" del modo dev: fuerza consola local /dev/tty0 */
     EXEC_REBOOT,
@@ -62,14 +62,20 @@ static const char *MENU_ICONS[] = {
     "[>]",
     "[~]",
     "[i]",
-    "[$]",
+    "[O]",
 };
 
 static const char *MENU_ITEMS[] = {
-    "Mis juegos",
-    "Actualizar Armiga",
-    "Informacion del sistema",
-    "Salir al shell",
+    "Catalogo Amiga",
+    "Actualizacion de sistema",
+    "Diagnostico del sistema",
+    "Apagar dispositivo",
+};
+static const char *MENU_DESC[] = {
+    "Explora y lanza juegos\n" "Amiga desde tu biblioteca.",
+    "Descarga e instala la\n" "ultima version de Armiga.",
+    "Revisa el estado del\n" "hardware y el sistema.",
+    "Apaga el dispositivo\n" "de forma segura.",
 };
 #define MENU_COUNT 4
 
@@ -218,6 +224,60 @@ static int take_screenshot(SDL_Renderer *ren, int screen_w, int screen_h)
     int ret = SDL_SaveBMP(surf, path) ? 0 : -1;
     SDL_DestroySurface(surf);
     return ret;
+}
+
+/* Dibuja la barra de estado superior derecha: HORA | WIFI | BATERIA
+ * Posicion fija: esquina superior derecha, y=18 */
+static void draw_statusbar(SDL_Renderer *ren, TTF_Font *f,
+                            const char *time_str, bool wifi_up, int battery)
+{
+    SDL_Color c_white  = COL_WHITE;
+    SDL_Color c_green  = COL_GREEN;
+    SDL_Color c_gray   = COL_GRAY;
+    SDL_Color c_red    = COL_RED;
+    float right = SCREEN_W - 20.0f;
+    float y     = 18.0f;
+    float gap   = 10.0f;
+    int w, h;
+
+    /* BATERIA */
+    char batt_buf[8];
+    if (battery >= 0) snprintf(batt_buf, sizeof(batt_buf), "%d%%", battery);
+    else              strncpy(batt_buf, "--", sizeof(batt_buf));
+    TTF_GetStringSize(f, batt_buf, 0, &w, &h);
+    draw_text(ren, f, batt_buf, c_white, right - (float)w, y);
+    right -= (float)w + gap;
+
+    /* Separador */
+    TTF_GetStringSize(f, "|", 0, &w, &h);
+    draw_text(ren, f, "|", c_gray, right - (float)w, y);
+    right -= (float)w + gap;
+
+    /* WIFI */
+    const char *wifi_lbl = wifi_up ? "WIFI" : "WIFI";
+    SDL_Color wifi_col   = wifi_up ? c_green : c_red;
+    TTF_GetStringSize(f, wifi_lbl, 0, &w, &h);
+    draw_text(ren, f, wifi_lbl, wifi_col, right - (float)w, y);
+    right -= (float)w + gap;
+
+    /* Separador */
+    TTF_GetStringSize(f, "|", 0, &w, &h);
+    draw_text(ren, f, "|", c_gray, right - (float)w, y);
+    right -= (float)w + gap;
+
+    /* HORA */
+    TTF_GetStringSize(f, time_str, 0, &w, &h);
+    draw_text(ren, f, time_str, c_white, right - (float)w, y);
+}
+
+/* Dibuja footer unificado: leyenda izquierda + version derecha */
+static void draw_footer(SDL_Renderer *ren, TTF_Font *f,
+                        const char *legend)
+{
+    SDL_Color c_gray    = COL_GRAY;
+    SDL_Color c_dkgreen = COL_DKGREEN;
+    draw_text(ren, f, legend, c_gray, 20.0f, 448.0f);
+    draw_text_right(ren, f, ARMIGA_VERSION, c_dkgreen, SCREEN_W - 20.0f, 448.0f);
 }
 
 static void apply_timezone(void)
@@ -738,8 +798,9 @@ int main(void)
 
         if (action != ACTION_NONE) {
             if (action == ACTION_SHELL) {
+                /* "Apagar dispositivo" en menu principal */
+                exec_req = EXEC_SHUTDOWN;
                 running = false;
-                exec_req = EXEC_SHELL;
             } else if (action == ACTION_ROMS) {
                 running = false;
                 relaunch_after_retroarch = true;
@@ -787,33 +848,7 @@ int main(void)
         /* Slogan */
         draw_text(ren, f_sm, "68K SOUL, ARM64 HEART.", c_dkgreen, mx + 2.0f, 94.0f);
 
-        /* Indicadores esquina superior derecha: reloj | WIFI | batería */
-        {
-            SDL_Color c_red = COL_RED;
-            float corner_right = SCREEN_W - 20.0f;
-            float corner_y     = 18.0f;
-            float gap          = 14.0f;
-            int wbuf, hbuf;
-            char batt_buf[8];
-
-            if (status_battery >= 0)
-                snprintf(batt_buf, sizeof(batt_buf), "%d%%", status_battery);
-            else
-                strncpy(batt_buf, "--", sizeof(batt_buf));
-
-            TTF_GetStringSize(f_sm, batt_buf, 0, &wbuf, &hbuf);
-            float x_batt = corner_right - (float)wbuf;
-            draw_text(ren, f_sm, batt_buf, c_white, x_batt, corner_y);
-
-            TTF_GetStringSize(f_sm, "WIFI", 0, &wbuf, &hbuf);
-            float x_wifi = x_batt - gap - (float)wbuf;
-            draw_text(ren, f_sm, "WIFI", status_wifi_up ? c_green : c_red,
-                      x_wifi, corner_y);
-
-            TTF_GetStringSize(f_sm, status_time, 0, &wbuf, &hbuf);
-            float x_clock = x_wifi - gap - (float)wbuf;
-            draw_text(ren, f_sm, status_time, c_white, x_clock, corner_y);
-        }
+        draw_statusbar(ren, f_sm, status_time, status_wifi_up, status_battery);
 
         /* Separador horizontal */
         draw_line(ren, mx, sep_y, SCREEN_W - 20.0f, sep_y, c_green);
@@ -839,26 +874,29 @@ int main(void)
             }
         }
 
-        /* Panel derecho */
-        float ry = menu_y0;
-        draw_text(ren, f_sm,  "KERNEL",     c_green, rx, ry);
-        draw_text(ren, f_med, s_kernel,     c_white, rx, ry + 14.0f);
-        ry += 46.0f;
-        draw_text(ren, f_sm,  "MESA",       c_green, rx, ry);
-        draw_text(ren, f_med, s_mesa,       c_white, rx, ry + 14.0f);
-        ry += 46.0f;
-        draw_text(ren, f_sm,  "RETROARCH",  c_green, rx, ry);
-        draw_text(ren, f_med, s_retroarch,  c_white, rx, ry + 14.0f);
-        ry += 46.0f;
-        draw_text(ren, f_sm,  "SDL3",       c_green, rx, ry);
-        draw_text(ren, f_med, s_sdl3,       c_white, rx, ry + 14.0f);
+        /* Panel derecho: contexto de la opcion seleccionada */
+        {
+            draw_text(ren, f_sm, MENU_ITEMS[selected], c_green, rx, menu_y0);
+            /* Descripcion en dos lineas */
+            const char *desc = MENU_DESC[selected];
+            char line1[64] = {0}, line2[64] = {0};
+            const char *nl = strchr(desc, '\n');
+            if (nl) {
+                size_t l1 = (size_t)(nl - desc);
+                if (l1 >= sizeof(line1)) l1 = sizeof(line1) - 1;
+                strncpy(line1, desc, l1);
+                strncpy(line2, nl + 1, sizeof(line2) - 1);
+            } else {
+                strncpy(line1, desc, sizeof(line1) - 1);
+            }
+            draw_text(ren, f_sm, line1, c_gray, rx, menu_y0 + 18.0f);
+            if (line2[0])
+                draw_text(ren, f_sm, line2, c_gray, rx, menu_y0 + 34.0f);
+        }
 
         /* Barra inferior */
         draw_line(ren, mx, 438.0f, SCREEN_W - 20.0f, 438.0f, c_green);
-        draw_text(ren, f_sm, "[A] Seleccionar    [DPAD] Navegar",
-                  c_gray, mx, 448.0f);
-        draw_text_right(ren, f_sm, ARMIGA_VERSION, c_dkgreen,
-                        SCREEN_W - 20.0f, 448.0f);
+        draw_footer(ren, f_sm, "[A] Seleccionar  [DPAD] Navegar");
 
         /* Barra de progreso del hold de modo dev (si se está manteniendo) */
         if (devmode_combo_held && devmode_hold_start != 0) {
@@ -875,6 +913,7 @@ int main(void)
         } else if (state == STATE_DEVMODE) {
             /* Titulo pequeño arriba a la izquierda */
             draw_text(ren, f_sm, "MODO DESARROLLADOR", c_green, mx, 20.0f);
+            draw_statusbar(ren, f_sm, status_time, status_wifi_up, status_battery);
             draw_line(ren, mx, 44.0f, SCREEN_W - 20.0f, 44.0f, c_green);
             draw_line(ren, sep_x, 44.0f, sep_x, 438.0f, c_green);
 
@@ -930,9 +969,7 @@ int main(void)
 
             /* Barra inferior */
             draw_line(ren, mx, 438.0f, SCREEN_W - 20.0f, 438.0f, c_green);
-            draw_text(ren, f_sm, "[A] Seleccionar    [B] Volver", c_gray, mx, 448.0f);
-            draw_text_right(ren, f_sm, ARMIGA_VERSION, c_dkgreen,
-                            SCREEN_W - 20.0f, 448.0f);
+            draw_footer(ren, f_sm, "[A] Seleccionar  [B] Volver");
 
         } else if (state == STATE_CONFIRM) {
             const char *label = (confirm_target == DEV_ACTION_REBOOT)
@@ -966,8 +1003,8 @@ int main(void)
             const float SI_SEP_H2 = SI_Y0 + SI_BLK_H * 2;  /* ~306 */
 
             /* Título y separador superior */
-            draw_text(ren, f_sm, "INFORMACION DEL SISTEMA", c_green, SI_MX, 20.0f);
-            draw_text_right(ren, f_sm, ARMIGA_VERSION, c_dkgreen, SCREEN_W - 20.0f, 20.0f);
+            draw_text(ren, f_sm, "INFORMACIÓN DEL SISTEMA", c_green, SI_MX, 20.0f);
+            draw_statusbar(ren, f_sm, status_time, status_wifi_up, status_battery);
             draw_line(ren, SI_MX, 44.0f, SCREEN_W - 20.0f, 44.0f, c_green);
 
             /* Separador vertical */
@@ -1013,15 +1050,15 @@ int main(void)
             float y = SI_Y0 + 2.0f;
             SI_BLOCK_TITLE(SI_MX, y, "SISTEMA");
             y += 28.0f;
-            SI_ROW(SI_MX, y, SI_MX + SI_CW_L, "Armiga",       "v1.0");          y += SI_ROW_H;
+            SI_ROW(SI_MX, y, SI_MX + SI_CW_L, "Version OS",       "v1.0");          y += SI_ROW_H;
             SI_ROW(SI_MX, y, SI_MX + SI_CW_L, "Kernel",       s_kernel);        y += SI_ROW_H;
             SI_ROW(SI_MX, y, SI_MX + SI_CW_L, "Arquitectura", "aarch64");       y += SI_ROW_H;
-            SI_ROW(SI_MX, y, SI_MX + SI_CW_L, "Build",        sysinfo_build);   y += SI_ROW_H;
+            SI_ROW(SI_MX, y, SI_MX + SI_CW_L, "Compilacion",        sysinfo_build);   y += SI_ROW_H;
             SI_ROW(SI_MX, y, SI_MX + SI_CW_L, "Hostname",     "armiga");
 
             /* ── BLOQUE 1 DER: ESTADO ────────────────────────────────────── */
             y = SI_Y0 + 2.0f;
-            SI_BLOCK_TITLE(SI_RX, y, "ESTADO");
+            SI_BLOCK_TITLE(SI_RX, y, "METRICAS:");
             y += 28.0f;
             {
                 /* RAM: calcular pct */
@@ -1041,8 +1078,8 @@ int main(void)
                 int temp_pct = 0;
                 { int td = 0; if (read_sysfs_int("/sys/class/thermal/thermal_zone0/temp",&td)) temp_pct = td/1000; if(temp_pct>100)temp_pct=100; }
 
-                SI_ROW_BAR(SI_RX, y, SI_RX + SI_CW_R, "CPU Uso",  sysinfo_cpu_usage, sysinfo_cpu_pct); y += SI_ROW_H;
-                SI_ROW_BAR(SI_RX, y, SI_RX + SI_CW_R, "RAM Uso",  dev_ram,           ram_pct);          y += SI_ROW_H;
+                SI_ROW_BAR(SI_RX, y, SI_RX + SI_CW_R, "Carga CPU",  sysinfo_cpu_usage, sysinfo_cpu_pct); y += SI_ROW_H;
+                SI_ROW_BAR(SI_RX, y, SI_RX + SI_CW_R, "Ocupacion RAM",  dev_ram,           ram_pct);          y += SI_ROW_H;
                 SI_ROW_BAR(SI_RX, y, SI_RX + SI_CW_R, "Temp CPU", sysinfo_temp,      temp_pct);         y += SI_ROW_H;
                 SI_ROW    (SI_RX, y, SI_RX + SI_CW_R, "Uptime",   dev_uptime);                          y += SI_ROW_H;
                 SI_ROW    (SI_RX, y, SI_RX + SI_CW_R, "Load Avg", sysinfo_loadavg);
@@ -1050,7 +1087,7 @@ int main(void)
 
             /* ── BLOQUE 2 IZQ: ALMACENAMIENTO ───────────────────────────── */
             y = SI_SEP_H1 + 4.0f;
-            SI_BLOCK_TITLE(SI_MX, y, "ALMACENAMIENTO");
+            SI_BLOCK_TITLE(SI_MX, y, "VOLUMENES:");
             y += 28.0f;
             {
                 /* Disco sistema: pct */
@@ -1062,8 +1099,8 @@ int main(void)
                   if (statvfs("/media/amiga_data", &st) == 0 && st.f_blocks > 0)
                       disk_data_pct = (int)(100 - 100ULL * st.f_bfree / st.f_blocks); }
 
-                SI_ROW_BAR(SI_MX, y, SI_MX + SI_CW_L, "Sistema", sysinfo_disk_root, disk_root_pct); y += SI_ROW_H;
-                SI_ROW_BAR(SI_MX, y, SI_MX + SI_CW_L, "Datos",   sysinfo_disk_data, disk_data_pct); y += SI_ROW_H;
+                SI_ROW_BAR(SI_MX, y, SI_MX + SI_CW_L, "DH0: (Sistema)", sysinfo_disk_root, disk_root_pct); y += SI_ROW_H;
+                SI_ROW_BAR(SI_MX, y, SI_MX + SI_CW_L, "DH1: (Datos)",   sysinfo_disk_data, disk_data_pct); y += SI_ROW_H;
                 /* Libre total en datos */
                 {
                     char free_buf[32] = "--";
@@ -1073,13 +1110,13 @@ int main(void)
                         if (free_mb >= 1024) snprintf(free_buf, sizeof(free_buf), "%.1f GB", free_mb / 1024.0);
                         else                 snprintf(free_buf, sizeof(free_buf), "%llu MB", free_mb);
                     }
-                    SI_ROW(SI_MX, y, SI_MX + SI_CW_L, "Libre Total", free_buf);
+                    SI_ROW(SI_MX, y, SI_MX + SI_CW_L, "Espacio disponible", free_buf);
                 }
             }
 
             /* ── BLOQUE 2 DER: HARDWARE ──────────────────────────────────── */
             y = SI_SEP_H1 + 4.0f;
-            SI_BLOCK_TITLE(SI_RX, y, "HARDWARE");
+            SI_BLOCK_TITLE(SI_RX, y, "ESPECIFICACIONES:");
             y += 28.0f;
             SI_ROW(SI_RX, y, SI_RX + SI_CW_R, "CPU",           "Cortex-A53 @1.51GHz"); y += SI_ROW_H;
             SI_ROW(SI_RX, y, SI_RX + SI_CW_R, "GPU",           "Mali-G31 (Panfrost)"); y += SI_ROW_H;
@@ -1089,7 +1126,7 @@ int main(void)
 
             /* ── BLOQUE 3 IZQ: SOFTWARE ──────────────────────────────────── */
             y = SI_SEP_H2 + 4.0f;
-            SI_BLOCK_TITLE(SI_MX, y, "SOFTWARE");
+            SI_BLOCK_TITLE(SI_MX, y, "MOTOR DE EMULACION:");
             y += 28.0f;
             SI_ROW(SI_MX, y, SI_MX + SI_CW_L, "RetroArch", s_retroarch); y += SI_ROW_H;
             SI_ROW(SI_MX, y, SI_MX + SI_CW_L, "Mesa",      s_mesa);      y += SI_ROW_H;
@@ -1097,11 +1134,11 @@ int main(void)
 
             /* ── BLOQUE 3 DER: RED ───────────────────────────────────────── */
             y = SI_SEP_H2 + 4.0f;
-            SI_BLOCK_TITLE(SI_RX, y, "RED");
+            SI_BLOCK_TITLE(SI_RX, y, "CONECTIVIDAD");
             y += 28.0f;
             SI_ROW    (SI_RX, y, SI_RX + SI_CW_R, "IP",          dev_ip);          y += SI_ROW_H;
             SI_ROW    (SI_RX, y, SI_RX + SI_CW_R, "WiFi",        status_wifi_up ? "Conectado" : "Desconectado"); y += SI_ROW_H;
-            SI_ROW_BAR(SI_RX, y, SI_RX + SI_CW_R, "Senal WiFi",  sysinfo_wifi_sig, sysinfo_wifi_pct >= 0 ? sysinfo_wifi_pct : 0); y += SI_ROW_H;
+            SI_ROW_BAR(SI_RX, y, SI_RX + SI_CW_R, "Intensidad",  sysinfo_wifi_sig, sysinfo_wifi_pct >= 0 ? sysinfo_wifi_pct : 0); y += SI_ROW_H;
             SI_ROW    (SI_RX, y, SI_RX + SI_CW_R, "MAC",         sysinfo_mac);
 
 #undef SI_BLOCK_TITLE
@@ -1110,14 +1147,7 @@ int main(void)
 
             /* Barra inferior */
             draw_line(ren, SI_MX, 438.0f, SCREEN_W - 20.0f, 438.0f, c_green);
-            /* Mensaje de estado: sistema OK o sin red */
-            {
-                const char *status_msg = status_wifi_up
-                    ? "> Sistema funcionando correctamente."
-                    : "> Sin conexion de red.";
-                draw_text(ren, f_sm, status_msg, c_dkgreen, SI_MX, 448.0f);
-            }
-            draw_text_right(ren, f_sm, "[B] Volver", c_gray, SCREEN_W - 20.0f, 448.0f);
+            draw_footer(ren, f_sm, "[B] Volver");
         }
 
         /* Flash blanco al hacer screenshot */
