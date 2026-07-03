@@ -714,8 +714,16 @@ int main(void)
             bool sel = SDL_GetJoystickButton(joy, BTN_SDL_SELECT);
             bool r1  = SDL_GetJoystickButton(joy, BTN_SDL_R1);
             if (sel && r1) {
-                if (take_screenshot(ren, SCREEN_W, SCREEN_H) == 0)
-                    screenshot_flash_until = SDL_GetTicks() + 600;
+                /* Renderizar flash blanco encima del frame actual y presentarlo */
+                SDL_SetRenderDrawBlendMode(ren, SDL_BLENDMODE_BLEND);
+                SDL_SetRenderDrawColor(ren, 255, 255, 255, 180);
+                SDL_FRect flash_rect = {0, 0, (float)SCREEN_W, (float)SCREEN_H};
+                SDL_RenderFillRect(ren, &flash_rect);
+                SDL_SetRenderDrawBlendMode(ren, SDL_BLENDMODE_NONE);
+                SDL_RenderPresent(ren);
+                SDL_Delay(80); /* visible al menos 2 frames */
+                take_screenshot(ren, SCREEN_W, SCREEN_H);
+                screenshot_flash_until = SDL_GetTicks() + 500;
                 /* Esperar a que suelten los botones para evitar disparos multiples */
                 while (SDL_GetJoystickButton(joy, BTN_SDL_SELECT) ||
                        SDL_GetJoystickButton(joy, BTN_SDL_R1)) {
