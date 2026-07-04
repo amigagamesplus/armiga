@@ -831,7 +831,7 @@ int main(void)
                 else if (state == STATE_CONFIRM) state = STATE_DEVMODE;
                 else if (state == STATE_DEVMODE) state = STATE_MENU;
                 else if (state == STATE_SYSINFO) state = STATE_MENU;
-                else if (state == STATE_UPDATE) { if (update_phase != UPD_DOWNLOADING) state = STATE_MENU; }
+                else if (state == STATE_UPDATE) { if (update_phase != UPD_DOWNLOADING && update_phase != UPD_CONFIRM) state = STATE_MENU; }
             }
 
             if (state == STATE_MENU) {
@@ -919,13 +919,12 @@ int main(void)
             }
             else if (state == STATE_UPDATE) {
                 if (ev.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN &&
-                    ev.jbutton.button == BTN_SDL_B &&
-                    update_phase != UPD_DOWNLOADING)
-                    state = STATE_MENU;
-                if (ev.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN &&
-                    ev.jbutton.button == BTN_SDL_B &&
-                    update_phase == UPD_CONFIRM)
-                    update_phase = UPD_DOWNLOADING;
+                    ev.jbutton.button == BTN_SDL_B) {
+                    if (update_phase == UPD_CONFIRM)
+                        update_phase = UPD_DOWNLOADING;
+                    else if (update_phase != UPD_DOWNLOADING)
+                        state = STATE_MENU;
+                }
             }
         }
 
