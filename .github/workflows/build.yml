@@ -5,9 +5,6 @@
 name: Build Armiga
 
 on:
-  push:
-    tags:
-      - 'v*'
   workflow_dispatch:
     inputs:
       release:
