@@ -40,7 +40,8 @@ typedef enum {
     STATE_MENU,
     STATE_DEVMODE,
     STATE_CONFIRM,
-    STATE_SYSINFO
+    STATE_SYSINFO,
+    STATE_UPDATE
 } AppState;
 
 typedef enum {
@@ -224,6 +225,167 @@ static int take_screenshot(SDL_Renderer *ren, int screen_w, int screen_h)
     int ret = SDL_SaveBMP(surf, path) ? 0 : -1;
     SDL_DestroySurface(surf);
     return ret;
+}
+
+
+/* ── Actualización OTA ────────────────────────────────────────────────────── */
+#define GITHUB_API_URL "https://api.github.com/repos/amigagamesplus/armiga/releases/latest"
+#define UPDATE_DIR     "/media/amiga_data/update"
+#define UPDATE_IMG     "/media/amiga_data/update/armiga.img.gz"
+#define UPDATE_SHA256  "/media/amiga_data/update/armiga.img.gz.sha256"
+#define UPDATE_FLAG    "/media/amiga_data/update/pending"
+
+typedef enum {
+    UPD_CHECKING,
+    UPD_NO_UPDATE,
+    UPD_CONFIRM,
+    UPD_DOWNLOADING,
+    UPD_VERIFYING,
+    UPD_READY,
+    UPD_ERROR
+} UpdatePhase;
+
+/* Compara versiones semánticas "1.0" vs "1.1" → -1/0/1 */
+static int semver_cmp(const char *a, const char *b)
+{
+    int ma = 0, mi_a = 0, pa = 0;
+    int mb = 0, mi_b = 0, pb = 0;
+    sscanf(a, "%d.%d.%d", &ma, &mi_a, &pa);
+    sscanf(b, "%d.%d.%d", &mb, &mi_b, &pb);
+    if (ma != mb) return ma > mb ? 1 : -1;
+    if (mi_a != mi_b) return mi_a > mi_b ? 1 : -1;
+    if (pa != pb) return pa > pb ? 1 : -1;
+    return 0;
+}
+
+/* Consulta GitHub API y devuelve versión+URL del asset.
+ * Usa wget para no depender de libcurl. Devuelve 0 si OK. */
+static int check_update(const char *current_ver,
+                        char *new_ver, size_t new_ver_sz,
+                        char *dl_url, size_t dl_url_sz,
+                        char *sha_url, size_t sha_url_sz)
+{
+    strncpy(new_ver, "", new_ver_sz);
+    strncpy(dl_url,  "", dl_url_sz);
+    strncpy(sha_url, "", sha_url_sz);
+
+    /* Descargar JSON de la API a un fichero temporal */
+    const char *tmp = "/tmp/armiga_release.json";
+    char cmd[512];
+    snprintf(cmd, sizeof(cmd),
+             "wget -q --timeout=10 -O %s "
+             "\"" GITHUB_API_URL "\" 2>/dev/null", tmp);
+    if (system(cmd) != 0) return -1;
+
+    FILE *f = fopen(tmp, "r");
+    if (!f) return -1;
+
+    char line[512];
+    char tag[32] = "";
+    char asset_url[512] = "";
+    char sha_asset_url[512] = "";
+    bool in_assets = false;
+    char last_name[128] = "";
+
+    while (fgets(line, sizeof(line), f)) {
+        /* Extraer tag_name */
+        char *p;
+        if ((p = strstr(line, "\"tag_name\""))) {
+            sscanf(p, "\"tag_name\" : \"%31[^\"]\"", tag);
+            if (!tag[0]) sscanf(p, "\"tag_name\":\"%31[^\"]\"", tag);
+        }
+        /* Detectar sección assets */
+        if (strstr(line, "\"assets\"")) in_assets = true;
+        if (in_assets) {
+            if ((p = strstr(line, "\"name\"")))
+                sscanf(p, "\"name\" : \"%127[^\"]\"", last_name),
+                sscanf(p, "\"name\":\"%127[^\"]\"", last_name);
+            if ((p = strstr(line, "\"browser_download_url\""))) {
+                char url[512] = "";
+                sscanf(p, "\"browser_download_url\" : \"%511[^\"]\"", url);
+                if (!url[0]) sscanf(p, "\"browser_download_url\":\"%511[^\"]\"", url);
+                if (strstr(last_name, ".img.gz") && !strstr(last_name, ".sha256"))
+                    strncpy(asset_url, url, sizeof(asset_url)-1);
+                if (strstr(last_name, ".sha256"))
+                    strncpy(sha_asset_url, url, sizeof(sha_asset_url)-1);
+            }
+        }
+    }
+    fclose(f);
+    unlink(tmp);
+
+    if (!tag[0] || !asset_url[0]) return -1;
+
+    /* Normalizar tag: quitar 'v' inicial */
+    const char *ver = tag;
+    if (ver[0] == 'v') ver++;
+    strncpy(new_ver, ver, new_ver_sz-1);
+    strncpy(dl_url,  asset_url,     dl_url_sz-1);
+    strncpy(sha_url, sha_asset_url, sha_url_sz-1);
+
+    return semver_cmp(ver, current_ver) > 0 ? 1 : 0; /* 1=hay update, 0=al día */
+}
+
+/* Descarga el .img.gz con progreso. Ejecuta wget en background y
+ * monitoriza el fichero destino para actualizar la barra. */
+static int download_update(const char *url, float *progress_out)
+{
+    mkdir(UPDATE_DIR, 0755);
+    /* Obtener tamaño esperado */
+    char cmd[512];
+    snprintf(cmd, sizeof(cmd),
+             "wget -q --timeout=30 --show-progress "
+             "-O \"" UPDATE_IMG "\" \"%s\" 2>/tmp/wget_progress &"
+             " echo $! > /tmp/wget_pid", url);
+    if (system(cmd) != 0) return -1;
+    *progress_out = 0.0f;
+    return 0;
+}
+
+static float get_download_progress(const char *url)
+{
+    /* Leer el pid y comprobar si sigue vivo */
+    FILE *f = fopen("/tmp/wget_pid", "r");
+    if (!f) return -1.0f; /* error */
+    int pid = 0;
+    fscanf(f, "%d", &pid);
+    fclose(f);
+
+    /* Comprobar si wget sigue vivo */
+    char proc[32];
+    snprintf(proc, sizeof(proc), "/proc/%d/status", pid);
+    bool running = (access(proc, F_OK) == 0);
+
+    if (!running) {
+        /* Verificar que el fichero existe y tiene tamaño */
+        struct stat st;
+        if (stat(UPDATE_IMG, &st) == 0 && st.st_size > 1024*1024)
+            return 1.0f; /* completado */
+        return -1.0f; /* error */
+    }
+
+    /* Estimar progreso por tamaño del fichero descargado */
+    struct stat st;
+    if (stat(UPDATE_IMG, &st) != 0) return 0.0f;
+    /* Tamaño esperado ~55MB comprimido */
+    float expected = 55.0f * 1024 * 1024;
+    float pct = (float)st.st_size / expected;
+    if (pct > 0.99f) pct = 0.99f;
+    return pct;
+}
+
+static int verify_sha256(void)
+{
+    if (access(UPDATE_SHA256, F_OK) != 0) return 0; /* sin sha, aceptar */
+    /* sha256sum -c verifica el fichero */
+    int ret = system("cd \"" UPDATE_DIR "\" && sha256sum -c armiga.img.gz.sha256 >/dev/null 2>&1");
+    return (ret == 0) ? 0 : -1;
+}
+
+static void write_update_flag(void)
+{
+    FILE *f = fopen(UPDATE_FLAG, "w");
+    if (f) { fprintf(f, "pending\n"); fclose(f); }
 }
 
 static void apply_timezone(void)
@@ -627,6 +789,16 @@ int main(void)
     char sysinfo_mac[24]       = "--";
     char sysinfo_build[24]     = "--";
     Uint64 last_sysinfo_update = 0;
+    /* Variables de actualización OTA */
+    UpdatePhase update_phase   = UPD_CHECKING;
+    bool  update_checked       = false;
+    char  upd_new_ver[32]      = "";
+    char  upd_dl_url[512]      = "";
+    char  upd_sha_url[512]     = "";
+    char  upd_msg[128]         = "";
+    float upd_progress         = 0.0f;
+    Uint64 upd_check_start     = 0;
+
 
     char status_time[8] = "--:--";
     bool status_wifi_up = false;
@@ -656,6 +828,7 @@ int main(void)
                 else if (state == STATE_CONFIRM) state = STATE_DEVMODE;
                 else if (state == STATE_DEVMODE) state = STATE_MENU;
                 else if (state == STATE_SYSINFO) state = STATE_MENU;
+                else if (state == STATE_UPDATE) { if (update_phase != UPD_DOWNLOADING) state = STATE_MENU; }
             }
 
             if (state == STATE_MENU) {
@@ -741,6 +914,16 @@ int main(void)
                     ev.jbutton.button == BTN_SDL_B)
                     state = STATE_MENU;
             }
+            else if (state == STATE_UPDATE) {
+                if (ev.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN &&
+                    ev.jbutton.button == BTN_SDL_B &&
+                    update_phase != UPD_DOWNLOADING)
+                    state = STATE_MENU;
+                if (ev.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN &&
+                    ev.jbutton.button == BTN_SDL_B_OK &&
+                    update_phase == UPD_CONFIRM)
+                    update_phase = UPD_DOWNLOADING;
+            }
         }
 
         /* Deteccion de combo SELECT+START+L1 mantenido 3s (solo desde STATE_MENU) */
@@ -806,6 +989,10 @@ int main(void)
             } else if (action == ACTION_ROMS) {
                 running = false;
                 relaunch_after_retroarch = true;
+            } else if (action == ACTION_UPDATE) {
+                state = STATE_UPDATE;
+                update_phase = UPD_CHECKING;
+                update_checked = false;
             } else if (action == ACTION_INFO) {
                 state = STATE_SYSINFO;
                 last_sysinfo_update = 0; /* forzar refresco inmediato */
@@ -818,6 +1005,58 @@ int main(void)
             update_status(status_time, sizeof(status_time),
                          &status_wifi_up, &status_battery);
             last_status_update = now_ticks;
+        }
+
+        /* Lógica OTA */
+        if (state == STATE_UPDATE) {
+            if (update_phase == UPD_CHECKING && !update_checked) {
+                update_checked = true;
+                upd_check_start = now_ticks;
+                char current_ver[32] = "1.0";
+                /* Leer versión actual */
+                FILE *rf = fopen("/etc/armiga-release", "r");
+                if (rf) {
+                    char ln[128];
+                    while (fgets(ln, sizeof(ln), rf))
+                        if (!strncmp(ln, "ARMIGA_VERSION=", 15))
+                            sscanf(ln+15, "%31s", current_ver);
+                    fclose(rf);
+                }
+                int res = check_update(current_ver,
+                                       upd_new_ver, sizeof(upd_new_ver),
+                                       upd_dl_url,  sizeof(upd_dl_url),
+                                       upd_sha_url, sizeof(upd_sha_url));
+                if (res == 1)       update_phase = UPD_CONFIRM;
+                else if (res == 0)  update_phase = UPD_NO_UPDATE;
+                else { update_phase = UPD_ERROR;
+                       strncpy(upd_msg, "Error al conectar con el servidor.", sizeof(upd_msg)); }
+            }
+            if (update_phase == UPD_DOWNLOADING) {
+                if (upd_progress == 0.0f)
+                    download_update(upd_dl_url, &upd_progress);
+                float p = get_download_progress(upd_dl_url);
+                if (p >= 0.0f) upd_progress = p;
+                if (p == 1.0f) update_phase = UPD_VERIFYING;
+                if (p < 0.0f) { update_phase = UPD_ERROR;
+                    strncpy(upd_msg, "Error en la descarga.", sizeof(upd_msg)); }
+            }
+            if (update_phase == UPD_VERIFYING) {
+                if (verify_sha256() == 0) {
+                    /* Descargar también el .sha256 */
+                    if (upd_sha_url[0]) {
+                        char cmd[512];
+                        snprintf(cmd, sizeof(cmd),
+                                 "wget -q -O \"" UPDATE_SHA256 "\" \"%s\"", upd_sha_url);
+                        system(cmd);
+                    }
+                    write_update_flag();
+                    update_phase = UPD_READY;
+                } else {
+                    update_phase = UPD_ERROR;
+                    strncpy(upd_msg, "Error de verificacion SHA256.", sizeof(upd_msg));
+                    unlink(UPDATE_IMG);
+                }
+            }
         }
 
         if (state == STATE_SYSINFO &&
@@ -1151,6 +1390,75 @@ int main(void)
             draw_line(ren, SI_MX, 438.0f, SCREEN_W - 20.0f, 438.0f, c_green);
             draw_footer(ren, f_sm, "[A] Volver");
         }
+
+
+        } else if (state == STATE_UPDATE) {
+            const float UX = 20.0f;
+            draw_text(ren, f_sm, "ACTUALIZACI\xc3\x93N DE SISTEMA", c_green, UX, 20.0f);
+            draw_statusbar(ren, f_sm, status_time, status_wifi_up, status_battery);
+            draw_line(ren, UX, 44.0f, SCREEN_W - 20.0f, 44.0f, c_green);
+
+            /* Versión actual */
+            {
+                char cur_ver[32] = "1.0";
+                FILE *rf = fopen("/etc/armiga-release", "r");
+                if (rf) {
+                    char ln[128];
+                    while (fgets(ln, sizeof(ln), rf))
+                        if (!strncmp(ln, "ARMIGA_VERSION=", 15))
+                            sscanf(ln+15, "%31s", cur_ver);
+                    fclose(rf);
+                }
+                char buf[64];
+                snprintf(buf, sizeof(buf), "Versión instalada:   %s", cur_ver);
+                draw_text(ren, f_sm, buf, c_gray, UX, 64.0f);
+            }
+
+            if (update_phase == UPD_CHECKING) {
+                draw_text(ren, f_sm, "Comprobando actualizaciones...", c_white, UX, 100.0f);
+
+            } else if (update_phase == UPD_NO_UPDATE) {
+                draw_text(ren, f_sm, "El sistema est\xc3\xa1 actualizado.", c_green, UX, 100.0f);
+
+            } else if (update_phase == UPD_CONFIRM) {
+                char buf[64];
+                snprintf(buf, sizeof(buf), "Nueva versión disponible:   %s", upd_new_ver);
+                draw_text(ren, f_sm, buf, c_green, UX, 100.0f);
+                draw_text(ren, f_sm, "La descarga se realizará en segundo plano.", c_gray, UX, 122.0f);
+                draw_text(ren, f_sm, "El dispositivo se reiniciará al completar.", c_gray, UX, 140.0f);
+                draw_line(ren, UX, 170.0f, SCREEN_W - 20.0f, 170.0f, c_dkgreen);
+                draw_text(ren, f_med, "[B] Descargar e instalar", c_green,  UX,          188.0f);
+                draw_text(ren, f_med, "[A] Cancelar",             c_gray,   UX + 260.0f, 188.0f);
+
+            } else if (update_phase == UPD_DOWNLOADING) {
+                draw_text(ren, f_sm, "Descargando actualizaci\xc3\xb3n...", c_white, UX, 100.0f);
+                /* Barra de progreso */
+                int pct = (int)(upd_progress * 100.0f);
+                char pct_buf[8]; snprintf(pct_buf, sizeof(pct_buf), "%d%%", pct);
+                draw_bar(ren, f_sm, pct, c_green, c_dkgreen, UX, 122.0f, 30);
+                draw_text(ren, f_sm, pct_buf, c_white, UX + 280.0f, 122.0f);
+                draw_text(ren, f_sm, "No apagues el dispositivo durante la descarga.", c_gray, UX, 144.0f);
+
+            } else if (update_phase == UPD_VERIFYING) {
+                draw_text(ren, f_sm, "Verificando integridad...", c_white, UX, 100.0f);
+
+            } else if (update_phase == UPD_READY) {
+                draw_text(ren, f_sm, "Actualización lista. Reiniciando...", c_green, UX, 100.0f);
+                /* Reiniciar automáticamente */
+                SDL_Delay(2000);
+                exec_req = EXEC_REBOOT;
+                running  = false;
+
+            } else if (update_phase == UPD_ERROR) {
+                draw_text(ren, f_sm, "Error:", c_red, UX, 100.0f);
+                draw_text(ren, f_sm, upd_msg,  c_gray, UX, 118.0f);
+            }
+
+            draw_line(ren, UX, 438.0f, SCREEN_W - 20.0f, 438.0f, c_green);
+            if (update_phase != UPD_DOWNLOADING)
+                draw_footer(ren, f_sm, "[A] Volver");
+            else
+                draw_footer(ren, f_sm, "");
 
         /* Flash blanco al hacer screenshot */
         if (screenshot_flash_until > 0 && SDL_GetTicks() < screenshot_flash_until) {

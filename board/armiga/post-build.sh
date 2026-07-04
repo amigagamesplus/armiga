@@ -56,6 +56,11 @@ SDL3_TTF_VERSION=3.2.2
 BUILD_DATE=$BUILD_DATE
 RELEASE_EOF
 
+# --- S43update --------------------------------------------------------------
+mkdir -p "$TARGET_DIR/etc/init.d"
+cp "$(dirname "$0")/rootfs_overlay/etc/init.d/S43update" "$TARGET_DIR/etc/init.d/S43update"
+chmod +x "$TARGET_DIR/etc/init.d/S43update"
+
 echo ">>> Armiga post-build.sh: done"
 
 # --- OS name -----------------------------------------------------------------
