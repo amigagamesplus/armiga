@@ -348,7 +348,7 @@ static float get_download_progress(const char *url)
     FILE *f = fopen("/tmp/wget_pid", "r");
     if (!f) return -1.0f; /* error */
     int pid = 0;
-    fscanf(f, "%d", &pid);
+    (void)fscanf(f, "%d", &pid);
     fclose(f);
 
     /* Comprobar si wget sigue vivo */
@@ -920,7 +920,7 @@ int main(void)
                     update_phase != UPD_DOWNLOADING)
                     state = STATE_MENU;
                 if (ev.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN &&
-                    ev.jbutton.button == BTN_SDL_B_OK &&
+                    ev.jbutton.button == BTN_SDL_B &&
                     update_phase == UPD_CONFIRM)
                     update_phase = UPD_DOWNLOADING;
             }
@@ -1047,7 +1047,7 @@ int main(void)
                         char cmd[512];
                         snprintf(cmd, sizeof(cmd),
                                  "wget -q -O \"" UPDATE_SHA256 "\" \"%s\"", upd_sha_url);
-                        system(cmd);
+                        (void)system(cmd);
                     }
                     write_update_flag();
                     update_phase = UPD_READY;
@@ -1389,9 +1389,6 @@ int main(void)
             /* Barra inferior */
             draw_line(ren, SI_MX, 438.0f, SCREEN_W - 20.0f, 438.0f, c_green);
             draw_footer(ren, f_sm, "[A] Volver");
-        }
-
-
         } else if (state == STATE_UPDATE) {
             const float UX = 20.0f;
             draw_text(ren, f_sm, "ACTUALIZACI\xc3\x93N DE SISTEMA", c_green, UX, 20.0f);
@@ -1450,7 +1447,7 @@ int main(void)
                 running  = false;
 
             } else if (update_phase == UPD_ERROR) {
-                draw_text(ren, f_sm, "Error:", c_red, UX, 100.0f);
+                { SDL_Color _c_red = COL_RED; draw_text(ren, f_sm, "Error:", _c_red, UX, 100.0f); }
                 draw_text(ren, f_sm, upd_msg,  c_gray, UX, 118.0f);
             }
 
