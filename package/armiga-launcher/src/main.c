@@ -1035,13 +1035,19 @@ int main(void)
                        strncpy(upd_msg, "Error al conectar con el servidor.", sizeof(upd_msg)); }
             }
             if (update_phase == UPD_DOWNLOADING) {
-                if (upd_progress == 0.0f)
+                if (upd_progress == 0.0f) {
                     download_update(upd_dl_url, &upd_progress);
-                float p = get_download_progress(upd_dl_url);
-                if (p >= 0.0f) upd_progress = p;
-                if (p == 1.0f) update_phase = UPD_VERIFYING;
-                if (p < 0.0f) { update_phase = UPD_ERROR;
-                    strncpy(upd_msg, "Error en la descarga.", sizeof(upd_msg)); }
+                    /* Dar tiempo a curl para arrancar antes de comprobar progreso */
+                    SDL_Delay(500);
+                } else {
+                    float p = get_download_progress(upd_dl_url);
+                    if (p >= 0.0f) upd_progress = p;
+                    if (p == 1.0f) update_phase = UPD_VERIFYING;
+                    if (p < 0.0f && upd_progress > 0.0f) {
+                        update_phase = UPD_ERROR;
+                        strncpy(upd_msg, "Error en la descarga.", sizeof(upd_msg));
+                    }
+                }
             }
             if (update_phase == UPD_VERIFYING) {
                 if (verify_sha256() == 0) {
