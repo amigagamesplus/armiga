@@ -1457,6 +1457,8 @@ int main(void)
             else
                 draw_footer(ren, f_sm, "");
 
+        } /* end STATE_UPDATE */
+
         /* Flash blanco al hacer screenshot */
         if (screenshot_flash_until > 0 && SDL_GetTicks() < screenshot_flash_until) {
             SDL_SetRenderDrawBlendMode(ren, SDL_BLENDMODE_BLEND);
