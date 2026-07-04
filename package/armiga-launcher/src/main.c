@@ -229,7 +229,7 @@ static int take_screenshot(SDL_Renderer *ren, int screen_w, int screen_h)
 
 
 /* ── Actualización OTA ────────────────────────────────────────────────────── */
-#define GITHUB_API_URL "https://api.github.com/repos/amigagamesplus/armiga/releases/latest"
+#define GITHUB_API_URL "https://api.github.com/repos/amigagamesplus/armiga/releases"
 #define UPDATE_DIR     "/media/amiga_data/update"
 #define UPDATE_IMG     "/media/amiga_data/update/armiga.img.gz"
 #define UPDATE_SHA256  "/media/amiga_data/update/armiga.img.gz.sha256"
