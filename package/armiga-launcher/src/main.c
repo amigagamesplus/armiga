@@ -1036,6 +1036,7 @@ int main(void)
             if (update_phase == UPD_DOWNLOADING) {
                 if (upd_progress == 0.0f) {
                     download_update(upd_dl_url, &upd_progress);
+                    upd_progress = 0.001f; /* centinela: descarga iniciada */
                     /* Dar tiempo a curl para arrancar antes de comprobar progreso */
                     SDL_Delay(500);
                 } else {

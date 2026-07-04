@@ -52,6 +52,15 @@ dd if=/dev/zero of="$AMIGA_DATA_IMG" bs=1M count="$AMIGA_DATA_SIZE_MB" status=no
 # Formatear como exFAT con etiqueta amiga_data
 mkfs.exfat -L "amiga_data" "$AMIGA_DATA_IMG"
 
+# Crear carpetas iniciales en amiga_data
+MOUNT_TMP=$(mktemp -d)
+mount -o loop "$AMIGA_DATA_IMG" "$MOUNT_TMP" 2>/dev/null || true
+if mountpoint -q "$MOUNT_TMP"; then
+    mkdir -p "$MOUNT_TMP/update"
+    umount "$MOUNT_TMP"
+fi
+rmdir "$MOUNT_TMP"
+
 echo ">>> amiga_data.img generada (${AMIGA_DATA_SIZE_MB}M, exFAT)"
 
 # --- Generar imagen SD con genimage ------------------------------------------
