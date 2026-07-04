@@ -308,9 +308,12 @@ static int check_update(const char *current_ver,
                     strncpy(asset_url, url, sizeof(asset_url)-1);
                 if (strstr(last_name, ".sha256"))
                     strncpy(sha_asset_url, url, sizeof(sha_asset_url)-1);
+                /* Parar tras obtener ambos assets de la primera release */
+                if (asset_url[0] && sha_asset_url[0]) goto parse_done;
             }
         }
     }
+    parse_done:
     fclose(f);
     unlink(tmp);
 
