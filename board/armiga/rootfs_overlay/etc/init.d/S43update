@@ -3,79 +3,76 @@
 # Se ejecuta en arranque, antes del launcher. Preserva amiga_data.
 
 UPDATE_FLAG="/media/amiga_data/update/pending"
-UPDATE_IMG="/media/amiga_data/update/armiga.img.gz"
-UPDATE_IMG_RAW="/tmp/armiga_update.img"
+UPDATE_IMG_GZ="/media/amiga_data/update/armiga.img.gz"
+UPDATE_IMG="/media/amiga_data/update/armiga.img"
 LOG="/media/amiga_data/update/update.log"
 
-[ -f "$UPDATE_FLAG" ] || exit 0
-[ -f "$UPDATE_IMG"  ] || { rm -f "$UPDATE_FLAG"; exit 0; }
+[ -f "$UPDATE_FLAG" ]  || exit 0
+[ -f "$UPDATE_IMG_GZ" ] || { rm -f "$UPDATE_FLAG"; exit 0; }
 
 echo "$(date): Iniciando actualización OTA..." >> "$LOG"
 
-# Descomprimir imagen
-echo "$(date): Descomprimiendo..." >> "$LOG"
-gunzip -c "$UPDATE_IMG" > "$UPDATE_IMG_RAW" 2>> "$LOG"
-if [ $? -ne 0 ]; then
-    echo "$(date): ERROR al descomprimir." >> "$LOG"
-    rm -f "$UPDATE_FLAG" "$UPDATE_IMG_RAW"
-    exit 1
-fi
-
-# Detectar dispositivo SD (mmcblk0)
 DEV="/dev/mmcblk0"
 if [ ! -b "$DEV" ]; then
     echo "$(date): ERROR: dispositivo $DEV no encontrado." >> "$LOG"
-    rm -f "$UPDATE_FLAG" "$UPDATE_IMG_RAW"
+    rm -f "$UPDATE_FLAG"
     exit 1
 fi
 
-# Leer offsets reales de las particiones 1 y 2 con sfdisk
-P1_START=$(sfdisk -d "$DEV" 2>/dev/null | awk '/'"$DEV"'p1/{gsub(",",""); for(i=1;i<=NF;i++) if($i~/^start=/){split($i,a,"="); print a[2]; exit}}')
-P1_SIZE=$( sfdisk -d "$DEV" 2>/dev/null | awk '/'"$DEV"'p1/{gsub(",",""); for(i=1;i<=NF;i++) if($i~/^size=/){split($i,a,"="); print a[2]; exit}}')
-P2_START=$(sfdisk -d "$DEV" 2>/dev/null | awk '/'"$DEV"'p2/{gsub(",",""); for(i=1;i<=NF;i++) if($i~/^start=/){split($i,a,"="); print a[2]; exit}}')
-P2_SIZE=$( sfdisk -d "$DEV" 2>/dev/null | awk '/'"$DEV"'p2/{gsub(",",""); for(i=1;i<=NF;i++) if($i~/^size=/){split($i,a,"="); print a[2]; exit}}')
+# Descomprimir a amiga_data (tiene espacio suficiente)
+echo "$(date): Descomprimiendo imagen..." >> "$LOG"
+gunzip -c "$UPDATE_IMG_GZ" > "$UPDATE_IMG" 2>> "$LOG"
+if [ $? -ne 0 ]; then
+    echo "$(date): ERROR al descomprimir." >> "$LOG"
+    rm -f "$UPDATE_FLAG" "$UPDATE_IMG"
+    exit 1
+fi
+
+# Leer offsets con grep+cut (compatible BusyBox)
+SFDISK=$(sfdisk -d "$DEV" 2>/dev/null)
+P1_START=$(echo "$SFDISK" | grep "${DEV}p1" | grep -o 'start=[0-9 ]*' | tr -d ' ' | cut -d= -f2)
+P1_SIZE=$( echo "$SFDISK" | grep "${DEV}p1" | grep -o 'size=[0-9 ]*'  | tr -d ' ' | cut -d= -f2)
+P2_START=$(echo "$SFDISK" | grep "${DEV}p2" | grep -o 'start=[0-9 ]*' | tr -d ' ' | cut -d= -f2)
+P2_SIZE=$( echo "$SFDISK" | grep "${DEV}p2" | grep -o 'size=[0-9 ]*'  | tr -d ' ' | cut -d= -f2)
 
 if [ -z "$P1_START" ] || [ -z "$P2_SIZE" ]; then
-    echo "$(date): ERROR: no se pudieron leer offsets de particiones." >> "$LOG"
-    rm -f "$UPDATE_FLAG" "$UPDATE_IMG_RAW"
+    echo "$(date): ERROR: no se pudieron leer offsets." >> "$LOG"
+    rm -f "$UPDATE_FLAG" "$UPDATE_IMG"
     exit 1
 fi
 
-# Sectores a bytes (sector = 512 bytes)
 P1_SKIP_BYTES=$(( P1_START * 512 ))
 P1_COUNT_BYTES=$(( P1_SIZE  * 512 ))
 P2_SKIP_BYTES=$(( P2_START * 512 ))
 P2_COUNT_BYTES=$(( P2_SIZE  * 512 ))
 
+echo "$(date): p1 offset=$P1_SKIP_BYTES size=$P1_COUNT_BYTES" >> "$LOG"
+echo "$(date): p2 offset=$P2_SKIP_BYTES size=$P2_COUNT_BYTES" >> "$LOG"
+
 echo "$(date): Flasheando p1 (boot)..." >> "$LOG"
-dd if="$UPDATE_IMG_RAW" of="$DEV" bs=4M \
+dd if="$UPDATE_IMG" of="$DEV" bs=4M \
    iflag=skip_bytes,count_bytes oflag=seek_bytes \
    skip=$P1_SKIP_BYTES count=$P1_COUNT_BYTES seek=$P1_SKIP_BYTES \
    conv=fsync 2>> "$LOG"
-
 if [ $? -ne 0 ]; then
     echo "$(date): ERROR al flashear p1." >> "$LOG"
-    rm -f "$UPDATE_FLAG" "$UPDATE_IMG_RAW"
+    rm -f "$UPDATE_FLAG" "$UPDATE_IMG"
     exit 1
 fi
 
 echo "$(date): Flasheando p2 (system)..." >> "$LOG"
-dd if="$UPDATE_IMG_RAW" of="$DEV" bs=4M \
+dd if="$UPDATE_IMG" of="$DEV" bs=4M \
    iflag=skip_bytes,count_bytes oflag=seek_bytes \
    skip=$P2_SKIP_BYTES count=$P2_COUNT_BYTES seek=$P2_SKIP_BYTES \
    conv=fsync 2>> "$LOG"
-
 if [ $? -ne 0 ]; then
     echo "$(date): ERROR al flashear p2." >> "$LOG"
-    rm -f "$UPDATE_FLAG" "$UPDATE_IMG_RAW"
+    rm -f "$UPDATE_FLAG" "$UPDATE_IMG"
     exit 1
 fi
 
 echo "$(date): Actualización completada con éxito." >> "$LOG"
-
-# Limpiar
-rm -f "$UPDATE_FLAG" "$UPDATE_IMG" "$UPDATE_IMG_RAW"
+rm -f "$UPDATE_FLAG" "$UPDATE_IMG_GZ" "$UPDATE_IMG"
 sync
-
 echo "$(date): Reiniciando..." >> "$LOG"
 reboot
