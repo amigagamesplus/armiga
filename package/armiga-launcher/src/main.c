@@ -259,7 +259,7 @@ static int semver_cmp(const char *a, const char *b)
 }
 
 /* Consulta GitHub API y devuelve versión+URL del asset.
- * Usa wget para no depender de libcurl. Devuelve 0 si OK. */
+ * Usa curl para peticiones HTTPS. Devuelve 0 si OK. */
 static int check_update(const char *current_ver,
                         char *new_ver, size_t new_ver_sz,
                         char *dl_url, size_t dl_url_sz,
@@ -273,7 +273,7 @@ static int check_update(const char *current_ver,
     const char *tmp = "/tmp/armiga_release.json";
     char cmd[512];
     snprintf(cmd, sizeof(cmd),
-             "wget -q --timeout=10 -O %s "
+             "curl -s --max-time 10 -L -o %s "
              "\"" GITHUB_API_URL "\" 2>/dev/null", tmp);
     if (system(cmd) != 0) return -1;
 
@@ -326,7 +326,7 @@ static int check_update(const char *current_ver,
     return semver_cmp(ver, current_ver) > 0 ? 1 : 0; /* 1=hay update, 0=al día */
 }
 
-/* Descarga el .img.gz con progreso. Ejecuta wget en background y
+/* Descarga el .img.gz con progreso. Ejecuta curl en background y
  * monitoriza el fichero destino para actualizar la barra. */
 static int download_update(const char *url, float *progress_out)
 {
@@ -334,9 +334,9 @@ static int download_update(const char *url, float *progress_out)
     /* Obtener tamaño esperado */
     char cmd[512];
     snprintf(cmd, sizeof(cmd),
-             "wget -q --timeout=30 --show-progress "
-             "-O \"" UPDATE_IMG "\" \"%s\" 2>/tmp/wget_progress &"
-             " echo $! > /tmp/wget_pid", url);
+             "curl -s --max-time 300 -L "
+             "-o \"" UPDATE_IMG "\" \"%s\" 2>/tmp/curl_progress &"
+             " echo $! > /tmp/curl_pid", url);
     if (system(cmd) != 0) return -1;
     *progress_out = 0.0f;
     return 0;
@@ -345,13 +345,13 @@ static int download_update(const char *url, float *progress_out)
 static float get_download_progress(const char *url)
 {
     /* Leer el pid y comprobar si sigue vivo */
-    FILE *f = fopen("/tmp/wget_pid", "r");
+    FILE *f = fopen("/tmp/curl_pid", "r");
     if (!f) return -1.0f; /* error */
     int pid = 0;
     (void)fscanf(f, "%d", &pid);
     fclose(f);
 
-    /* Comprobar si wget sigue vivo */
+    /* Comprobar si curl sigue vivo */
     char proc[32];
     snprintf(proc, sizeof(proc), "/proc/%d/status", pid);
     bool running = (access(proc, F_OK) == 0);
@@ -1046,7 +1046,7 @@ int main(void)
                     if (upd_sha_url[0]) {
                         char cmd[512];
                         snprintf(cmd, sizeof(cmd),
-                                 "wget -q -O \"" UPDATE_SHA256 "\" \"%s\"", upd_sha_url);
+                                 "curl -s -L -o \"" UPDATE_SHA256 "\" \"%s\"", upd_sha_url);
                         (void)system(cmd);
                     }
                     write_update_flag();
