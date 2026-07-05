@@ -12,24 +12,24 @@ LOG="/media/amiga_data/update/update.log"
 
 fb() { echo "$1" > /dev/tty0; echo "$(date): $1" >> "$LOG"; }
 
-printf "\033[2J\033[H" > /dev/tty0
-fb "============================================"
-fb "  ARMIGA - Actualizacion del sistema"
-fb "============================================"
+printf "\033[2J\033[H\033[32m" > /dev/tty0
+fb "  ARMIGA OS"
+fb "  Actualizacion del sistema"
 fb ""
-fb "NO apagues el dispositivo durante el proceso"
+fb "  No apagues el dispositivo durante este proceso."
 fb ""
-fb "[1/3] Descomprimiendo imagen (~1 min)..."
+fb "  [1/3] Descomprimiendo imagen..."
+
 gunzip -c "$UPDATE_IMG_GZ" > "$UPDATE_IMG" 2>> "$LOG"
 if [ $? -ne 0 ]; then
-    fb "ERROR al descomprimir. Abortando."
+    fb "  ERROR al descomprimir. Abortando."
     rm -f "$UPDATE_FLAG" "$UPDATE_IMG"
     exit 1
 fi
 
 DEV="/dev/mmcblk0"
 if [ ! -b "$DEV" ]; then
-    fb "ERROR: dispositivo no encontrado."
+    fb "  ERROR: dispositivo no encontrado."
     rm -f "$UPDATE_FLAG" "$UPDATE_IMG"
     exit 1
 fi
@@ -41,7 +41,7 @@ P2_START=$(echo "$SFDISK" | grep "${DEV}p2" | grep -o "start=[0-9 ]*" | tr -d " 
 P2_SIZE=$( echo "$SFDISK" | grep "${DEV}p2" | grep -o "size=[0-9 ]*"  | tr -d " " | cut -d= -f2)
 
 if [ -z "$P1_START" ] || [ -z "$P2_SIZE" ]; then
-    fb "ERROR: no se pudieron leer offsets."
+    fb "  ERROR: no se pudieron leer offsets de particiones."
     rm -f "$UPDATE_FLAG" "$UPDATE_IMG"
     exit 1
 fi
@@ -51,30 +51,29 @@ P1_COUNT_BYTES=$(( P1_SIZE  * 512 ))
 P2_SKIP_BYTES=$(( P2_START * 512 ))
 P2_COUNT_BYTES=$(( P2_SIZE  * 512 ))
 
-fb "[2/3] Flasheando particion boot..."
+fb "  [2/3] Flasheando particion boot..."
 dd if="$UPDATE_IMG" of="$DEV" bs=4M \
    iflag=skip_bytes,count_bytes oflag=seek_bytes \
    skip=$P1_SKIP_BYTES count=$P1_COUNT_BYTES seek=$P1_SKIP_BYTES \
    conv=fsync 2>> "$LOG"
 if [ $? -ne 0 ]; then
-    fb "ERROR al flashear boot."
+    fb "  ERROR al flashear boot."
     rm -f "$UPDATE_FLAG" "$UPDATE_IMG"
     exit 1
 fi
 
-fb "[3/3] Flasheando particion sistema (~3 min)..."
+fb "  [3/3] Flasheando particion sistema (~3 min)..."
 dd if="$UPDATE_IMG" of="$DEV" bs=4M \
    iflag=skip_bytes,count_bytes oflag=seek_bytes \
    skip=$P2_SKIP_BYTES count=$P2_COUNT_BYTES seek=$P2_SKIP_BYTES \
    conv=fsync 2>> "$LOG"
 if [ $? -ne 0 ]; then
-    fb "ERROR al flashear sistema."
+    fb "  ERROR al flashear sistema."
     rm -f "$UPDATE_FLAG" "$UPDATE_IMG"
     exit 1
 fi
 
-fb ""
-fb "Actualizacion completada. Reiniciando..."
+fb "  Actualizacion completada. Reiniciando..."
 rm -f "$UPDATE_FLAG" "$UPDATE_IMG_GZ" "$UPDATE_IMG"
 sync
 reboot
