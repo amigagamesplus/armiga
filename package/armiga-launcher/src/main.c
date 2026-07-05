@@ -1050,20 +1050,21 @@ int main(void)
                 }
             }
             if (update_phase == UPD_VERIFYING) {
+                /* Descargar el .sha256 primero */
+                if (upd_sha_url[0]) {
+                    char cmd[512];
+                    snprintf(cmd, sizeof(cmd),
+                             "curl -s -L -o \"" UPDATE_SHA256 "\" \"%s\"", upd_sha_url);
+                    (void)system(cmd);
+                }
                 if (verify_sha256() == 0) {
-                    /* Descargar también el .sha256 */
-                    if (upd_sha_url[0]) {
-                        char cmd[512];
-                        snprintf(cmd, sizeof(cmd),
-                                 "curl -s -L -o \"" UPDATE_SHA256 "\" \"%s\"", upd_sha_url);
-                        (void)system(cmd);
-                    }
                     write_update_flag();
                     update_phase = UPD_READY;
                 } else {
                     update_phase = UPD_ERROR;
                     strncpy(upd_msg, "Error de verificacion SHA256.", sizeof(upd_msg));
                     unlink(UPDATE_IMG);
+                    unlink(UPDATE_SHA256);
                 }
             }
         }
