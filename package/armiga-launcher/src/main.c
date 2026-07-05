@@ -334,7 +334,9 @@ static int check_update(const char *current_ver,
 static int download_update(const char *url, float *progress_out)
 {
     mkdir(UPDATE_DIR, 0755);
-    /* Obtener tamaño esperado */
+    /* Limpiar ficheros de descarga anterior */
+    unlink(UPDATE_IMG);
+    unlink(UPDATE_SHA256);
     char cmd[512];
     snprintf(cmd, sizeof(cmd),
              "curl -s --max-time 300 -L "
