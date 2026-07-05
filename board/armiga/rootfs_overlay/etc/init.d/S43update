@@ -74,6 +74,6 @@ if [ $? -ne 0 ]; then
 fi
 
 fb "  Actualizacion completada. Reiniciando..."
-rm -f "$UPDATE_FLAG" "$UPDATE_IMG_GZ" "$UPDATE_IMG"
+rm -f "$UPDATE_FLAG" "$UPDATE_IMG_GZ" "$UPDATE_IMG" "/media/amiga_data/update/armiga.img.gz.sha256"
 sync
 reboot

@@ -927,6 +927,10 @@ int main(void)
                     else if (update_phase != UPD_DOWNLOADING)
                         state = STATE_MENU;
                 }
+                if (ev.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN &&
+                    ev.jbutton.button == BTN_SDL_B &&
+                    update_phase != UPD_DOWNLOADING)
+                    state = STATE_MENU;
             }
         }
 
