@@ -94,8 +94,8 @@ static const char *DEV_MENU_ITEMS[] = {
 #define DEV_MENU_COUNT 4
 
 /* SDL button indices del H700 (confirmados en hardware, no kernel/evdev) */
-#define BTN_SDL_B      0
-#define BTN_SDL_A      1
+#define BTN_SDL_B      1
+#define BTN_SDL_A      0
 #define BTN_SDL_L1     4
 #define BTN_SDL_R1     5
 #define BTN_SDL_SELECT 8
@@ -921,7 +921,7 @@ int main(void)
             }
             else if (state == STATE_UPDATE) {
                 if (ev.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN &&
-                    ev.jbutton.button == BTN_SDL_B) {
+                    ev.jbutton.button == BTN_SDL_A) {
                     if (update_phase == UPD_CONFIRM)
                         update_phase = UPD_DOWNLOADING;
                     else if (update_phase != UPD_DOWNLOADING)
