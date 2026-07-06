@@ -35,7 +35,7 @@ LABEL Armiga-A
 LABEL Armiga-B
   LINUX /KERNEL
   FDT /dtb.img
-  APPEND root=/dev/mmcblk0p4 rootfstype=ext4 rootwait ro console=ttyS0,115200 net.ifnames=0 quiet loglevel=0 vt.global_cursor_default=0
+  APPEND root=/dev/mmcblk0p3 rootfstype=ext4 rootwait ro console=ttyS0,115200 net.ifnames=0 quiet loglevel=0 vt.global_cursor_default=0
 EOF
 
 # --- Generar amiga_data.img (exFAT) ------------------------------------------
