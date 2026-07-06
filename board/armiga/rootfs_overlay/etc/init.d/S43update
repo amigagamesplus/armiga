@@ -4,7 +4,7 @@
 #
 # ESQUEMA A/B:
 #   - system  (p2) = Armiga-A
-#   - system_b(p4) = Armiga-B
+#   - system_b(p3) = Armiga-B
 #   - Se flashea SIEMPRE la particion INACTIVA (nunca la que esta
 #     montada como / en este arranque). Al terminar, se actualiza
 #     DEFAULT en extlinux.conf (p1) para apuntar al slot recien
@@ -45,10 +45,10 @@ CURRENT_ROOT=$(grep -o 'root=/dev/mmcblk0p[0-9]*' /proc/cmdline | cut -d= -f2)
 case "$CURRENT_ROOT" in
     /dev/mmcblk0p2)
         ACTIVE_LABEL="Armiga-A"
-        TARGET_PART="${DEV}p4"
+        TARGET_PART="${DEV}p3"
         TARGET_LABEL="Armiga-B"
         ;;
-    /dev/mmcblk0p4)
+    /dev/mmcblk0p3)
         ACTIVE_LABEL="Armiga-B"
         TARGET_PART="${DEV}p2"
         TARGET_LABEL="Armiga-A"
@@ -73,10 +73,10 @@ fi
 # --- Leer offsets de la particion SYSTEM (p2) dentro de la imagen -----------
 # La imagen .img siempre trae system en p2 (build normal). Esa es la
 # porcion de bytes que copiamos hacia el slot inactivo, sea cual sea
-# su numero de particion real en el dispositivo (p2 o p4).
+# su numero de particion real en el dispositivo (p2 o p3).
 SFDISK_IMG=$(sfdisk -d "$UPDATE_IMG" 2>/dev/null)
 # La linea de la particion 2 es siempre la 2a linea "start=..." tras
-# el encabezado (boot=p1, system=p2, amiga_data=p3, system_b=p4).
+# el encabezado (boot=p1, system=p2, system_b=p3, amiga_data=p4).
 # Usamos el orden posicional en vez de grep por nombre de fichero,
 # para no depender de que el path contenga literalmente "img2".
 IMG_P2_LINE=$(echo "$SFDISK_IMG" | grep "start=" | sed -n '2p')
