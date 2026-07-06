@@ -25,10 +25,17 @@ cp "$BOARD_DIR/bootloader/dtb.img" "$IMAGES_DIR/dtb.img"
 # --- Crear extlinux.conf -----------------------------------------------------
 echo ">>> Generando extlinux.conf..."
 cat > "$IMAGES_DIR/extlinux.conf" << 'EOF'
-LABEL Armiga
+DEFAULT Armiga-A
+
+LABEL Armiga-A
   LINUX /KERNEL
   FDT /dtb.img
   APPEND root=/dev/mmcblk0p2 rootfstype=ext4 rootwait ro console=ttyS0,115200 net.ifnames=0 quiet loglevel=0 vt.global_cursor_default=0
+
+LABEL Armiga-B
+  LINUX /KERNEL
+  FDT /dtb.img
+  APPEND root=/dev/mmcblk0p4 rootfstype=ext4 rootwait ro console=ttyS0,115200 net.ifnames=0 quiet loglevel=0 vt.global_cursor_default=0
 EOF
 
 # --- Generar amiga_data.img (exFAT) ------------------------------------------
