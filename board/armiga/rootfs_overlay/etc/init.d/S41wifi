@@ -5,7 +5,7 @@
 # =============================================================================
 
 INTERFACE="wlan0"
-WPA_CONF="/etc/wpa_supplicant.conf"
+WPA_CONF="/tmp/wpa_supplicant.conf"
 WIFI_USER_CONF="/media/amiga_data/wifi.conf"
 DEBUG_LOG="/media/amiga_data/wifi_debug.log"
 {
