@@ -71,7 +71,7 @@ do_expand_if_needed() {
              "$AMIGA_DATA_MNT/retroarch/playlists" "$AMIGA_DATA_MNT/retroarch/thumbnails" \
              "$AMIGA_DATA_MNT/retroarch/overlays" "$AMIGA_DATA_MNT/retroarch/assets" \
              "$AMIGA_DATA_MNT/retroarch/cheats" "$AMIGA_DATA_MNT/retroarch/records" \
-             "$AMIGA_DATA_MNT/retroarch/records_config"
+             "$AMIGA_DATA_MNT/retroarch/records_config" "$AMIGA_DATA_MNT/retroarch/config/autoconfig"
     # Comparar version del template con la instalada
     TEMPLATE_VER=$(grep "^# ARMIGA_CFG_VERSION=" /etc/retroarch/retroarch.cfg.template | cut -d= -f2)
     INSTALLED_VER=$(grep "^# ARMIGA_CFG_VERSION=" "$AMIGA_DATA_MNT/retroarch/retroarch.cfg" 2>/dev/null | cut -d= -f2)
@@ -84,6 +84,11 @@ do_expand_if_needed() {
     if [ ! -f "$AMIGA_DATA_MNT/retroarch/config/PUAE 2021/PUAE 2021.opt" ]; then
         mkdir -p "$AMIGA_DATA_MNT/retroarch/config/PUAE 2021"
         cp "/etc/retroarch/PUAE 2021.opt" "$AMIGA_DATA_MNT/retroarch/config/PUAE 2021/PUAE 2021.opt"
+    fi
+    # Copiar autoconfig de mando si no existe
+    if [ ! -f "$AMIGA_DATA_MNT/retroarch/config/autoconfig/H700 Gamepad.cfg" ]; then
+        mkdir -p "$AMIGA_DATA_MNT/retroarch/config/autoconfig"
+        cp "/etc/retroarch/autoconfig/H700 Gamepad.cfg" "$AMIGA_DATA_MNT/retroarch/config/autoconfig/H700 Gamepad.cfg"
     fi
     # Crear wifi.conf de ejemplo si no existe
     if [ ! -f "$AMIGA_DATA_MNT/wifi.conf" ]; then
@@ -102,6 +107,15 @@ case "$1" in
         do_expand_if_needed
         if [ -b "$AMIGA_DATA_DEV" ]; then
             mount -t exfat "$AMIGA_DATA_DEV" "$AMIGA_DATA_MNT" 2>/dev/null && echo -n "amiga_data "
+            # Copiar PUAE 2021.opt y autoconfig de mando si faltan (autorreparacion)
+            if [ ! -f "$AMIGA_DATA_MNT/retroarch/config/PUAE 2021/PUAE 2021.opt" ]; then
+                mkdir -p "$AMIGA_DATA_MNT/retroarch/config/PUAE 2021"
+                cp "/etc/retroarch/PUAE 2021.opt" "$AMIGA_DATA_MNT/retroarch/config/PUAE 2021/PUAE 2021.opt"
+            fi
+            if [ ! -f "$AMIGA_DATA_MNT/retroarch/config/autoconfig/H700 Gamepad.cfg" ]; then
+                mkdir -p "$AMIGA_DATA_MNT/retroarch/config/autoconfig"
+                cp "/etc/retroarch/autoconfig/H700 Gamepad.cfg" "$AMIGA_DATA_MNT/retroarch/config/autoconfig/H700 Gamepad.cfg"
+            fi
             mkdir -p "$AMIGA_DATA_MNT/kickstarts" \
                      "$AMIGA_DATA_MNT/roms/adf" "$AMIGA_DATA_MNT/roms/ipf" \
                      "$AMIGA_DATA_MNT/roms/whdload" "$AMIGA_DATA_MNT/roms/hdf" \
@@ -112,7 +126,7 @@ case "$1" in
                      "$AMIGA_DATA_MNT/retroarch/playlists" "$AMIGA_DATA_MNT/retroarch/thumbnails" \
                      "$AMIGA_DATA_MNT/retroarch/overlays" "$AMIGA_DATA_MNT/retroarch/assets" \
                      "$AMIGA_DATA_MNT/retroarch/cheats" "$AMIGA_DATA_MNT/retroarch/records" \
-                     "$AMIGA_DATA_MNT/retroarch/records_config"
+                     "$AMIGA_DATA_MNT/retroarch/records_config" "$AMIGA_DATA_MNT/retroarch/config/autoconfig"
         fi
         echo "OK"
         ;;
