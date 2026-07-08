@@ -7,6 +7,14 @@
 INTERFACE="wlan0"
 WPA_CONF="/etc/wpa_supplicant.conf"
 WIFI_USER_CONF="/media/amiga_data/wifi.conf"
+DEBUG_LOG="/media/amiga_data/wifi_debug.log"
+{
+    echo "=== $(date) S41wifi start ==="
+    echo "lsmod:"; lsmod | grep -iE "8821|rtl|wifi|sdio"
+    echo "rfkill:"; rfkill list 2>&1
+    echo "ip link:"; ip link show 2>&1
+    echo "dmesg wifi:"; dmesg | grep -iE "8821|rtl|wlan|sdio|wifi" | tail -40
+} >> "$DEBUG_LOG" 2>&1
 
 # Generar wpa_supplicant.conf desde wifi.conf si existe
 if [ -f "$WIFI_USER_CONF" ]; then
