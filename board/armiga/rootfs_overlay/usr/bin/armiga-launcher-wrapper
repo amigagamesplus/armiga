@@ -1,0 +1,6 @@
+#!/bin/sh
+export HOME=/media/amiga_data
+export XDG_CACHE_HOME=/media/amiga_data/.cache
+export MESA_SHADER_CACHE_DIR=/media/amiga_data/.cache/mesa_shader_cache
+mkdir -p "$MESA_SHADER_CACHE_DIR"
+exec setsid /usr/bin/armiga-launcher
