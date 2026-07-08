@@ -66,7 +66,12 @@ do_expand_if_needed() {
              "$AMIGA_DATA_MNT/roms/whdload" "$AMIGA_DATA_MNT/roms/hdf" \
              "$AMIGA_DATA_MNT/shaders" \
              "$AMIGA_DATA_MNT/retroarch/saves" "$AMIGA_DATA_MNT/retroarch/states" \
-             "$AMIGA_DATA_MNT/retroarch/screenshots" "$AMIGA_DATA_MNT/retroarch/config"
+             "$AMIGA_DATA_MNT/retroarch/screenshots" "$AMIGA_DATA_MNT/retroarch/config" \
+             "$AMIGA_DATA_MNT/retroarch/config/remaps" "$AMIGA_DATA_MNT/retroarch/downloads" \
+             "$AMIGA_DATA_MNT/retroarch/playlists" "$AMIGA_DATA_MNT/retroarch/thumbnails" \
+             "$AMIGA_DATA_MNT/retroarch/overlays" "$AMIGA_DATA_MNT/retroarch/assets" \
+             "$AMIGA_DATA_MNT/retroarch/cheats" "$AMIGA_DATA_MNT/retroarch/records" \
+             "$AMIGA_DATA_MNT/retroarch/records_config"
     # Comparar version del template con la instalada
     TEMPLATE_VER=$(grep "^# ARMIGA_CFG_VERSION=" /etc/retroarch/retroarch.cfg.template | cut -d= -f2)
     INSTALLED_VER=$(grep "^# ARMIGA_CFG_VERSION=" "$AMIGA_DATA_MNT/retroarch/retroarch.cfg" 2>/dev/null | cut -d= -f2)
@@ -97,6 +102,17 @@ case "$1" in
         do_expand_if_needed
         if [ -b "$AMIGA_DATA_DEV" ]; then
             mount -t exfat "$AMIGA_DATA_DEV" "$AMIGA_DATA_MNT" 2>/dev/null && echo -n "amiga_data "
+            mkdir -p "$AMIGA_DATA_MNT/kickstarts" \
+                     "$AMIGA_DATA_MNT/roms/adf" "$AMIGA_DATA_MNT/roms/ipf" \
+                     "$AMIGA_DATA_MNT/roms/whdload" "$AMIGA_DATA_MNT/roms/hdf" \
+                     "$AMIGA_DATA_MNT/shaders" \
+                     "$AMIGA_DATA_MNT/retroarch/saves" "$AMIGA_DATA_MNT/retroarch/states" \
+                     "$AMIGA_DATA_MNT/retroarch/screenshots" "$AMIGA_DATA_MNT/retroarch/config" \
+                     "$AMIGA_DATA_MNT/retroarch/config/remaps" "$AMIGA_DATA_MNT/retroarch/downloads" \
+                     "$AMIGA_DATA_MNT/retroarch/playlists" "$AMIGA_DATA_MNT/retroarch/thumbnails" \
+                     "$AMIGA_DATA_MNT/retroarch/overlays" "$AMIGA_DATA_MNT/retroarch/assets" \
+                     "$AMIGA_DATA_MNT/retroarch/cheats" "$AMIGA_DATA_MNT/retroarch/records" \
+                     "$AMIGA_DATA_MNT/retroarch/records_config"
         fi
         echo "OK"
         ;;
