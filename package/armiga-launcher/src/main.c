@@ -15,6 +15,7 @@
 #include <ifaddrs.h>
 #include <arpa/inet.h>
 #include <sys/ioctl.h>
+#include <termios.h>
 #include <linux/kd.h>
 #include "logo.h"
 
@@ -119,6 +120,13 @@ static bool redirect_stdio_to_local_console(void)
         fprintf(stderr, "armiga-launcher: no se pudo abrir %s: %s\n",
                 LOCAL_CONSOLE_PATH, strerror(errno));
         return false;
+    }
+    /* Forzar tty0 como terminal de control de esta sesion. Sin esto,
+     * la shell interactiva (/bin/sh -i) no tiene control de trabajos
+     * ("can't access tty; job control turned off") tras el setsid -w
+     * del wrapper, que desvincula al launcher de cualquier ctty previo. */
+    if (ioctl(fd, TIOCSCTTY, 1) < 0) {
+        fprintf(stderr, "armiga-launcher: TIOCSCTTY fallo: %s\n", strerror(errno));
     }
     dup2(fd, STDIN_FILENO);
     dup2(fd, STDOUT_FILENO);
