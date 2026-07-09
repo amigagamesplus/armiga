@@ -1535,6 +1535,15 @@ int main(void)
         }
 
         SDL_RenderPresent(ren);
+        /* Confirmar arranque exitoso ante el mecanismo de rollback A/B,
+         * una sola vez, tras el primer frame realmente dibujado en
+         * pantalla (prueba de que SDL/DRM y el launcher arrancaron bien,
+         * no solo que los scripts init.d terminaron sin error). */
+        static bool boot_confirmed = false;
+        if (!boot_confirmed) {
+            system("/etc/init.d/S02bootcheck confirm >/dev/null 2>&1 &");
+            boot_confirmed = true;
+        }
     }
 
     if (logo_tex) SDL_DestroyTexture(logo_tex);

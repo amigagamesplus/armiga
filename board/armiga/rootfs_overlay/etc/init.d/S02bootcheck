@@ -1,0 +1,122 @@
+#!/bin/sh
+# =============================================================================
+# S02bootcheck — Rollback automatico esquema A/B
+#
+# Detecta si el slot activo (system/system_b) esta en bucle de fallo de
+# arranque (crash del launcher antes de renderizar el primer frame, tras
+# MAX_ATTEMPTS intentos consecutivos sin confirmacion) y revierte
+# automaticamente al ultimo slot conocido como bueno, editando el
+# DEFAULT de extlinux.conf y reiniciando.
+#
+# Debe ejecutarse MUY pronto (S02, antes que cualquier otro servicio),
+# para minimizar el tiempo perdido en un slot roto antes de revertir.
+#
+# Accion "confirm": la llama el propio launcher tras renderizar su primer
+# frame con exito (prueba real de que el sistema arranco bien, no solo
+# que los scripts init.d terminaron). Resetea el contador y marca este
+# slot como el ultimo bueno conocido.
+# =============================================================================
+BOOT_DEV="/dev/mmcblk0p1"
+BOOT_MNT="/tmp/boot_check"
+STATE_FILE="$BOOT_MNT/armiga_boot_state"
+MAX_ATTEMPTS=3
+
+get_real_slot() {
+    case "$(cat /proc/cmdline)" in
+        *root=/dev/mmcblk0p2*) echo "A" ;;
+        *root=/dev/mmcblk0p3*) echo "B" ;;
+        *) echo "?" ;;
+    esac
+}
+
+slot_to_label() {
+    [ "$1" = "A" ] && echo "Armiga-A" || echo "Armiga-B"
+}
+
+do_start() {
+    REAL_SLOT=$(get_real_slot)
+    if [ "$REAL_SLOT" = "?" ]; then
+        exit 0
+    fi
+
+    mkdir -p "$BOOT_MNT"
+    mount -t vfat -o rw "$BOOT_DEV" "$BOOT_MNT" 2>/dev/null
+    if ! mountpoint -q "$BOOT_MNT"; then
+        exit 0
+    fi
+
+    if [ ! -f "$STATE_FILE" ]; then
+        printf 'ACTIVE_SLOT=%s\nATTEMPTS=1\nLAST_GOOD_SLOT=%s\n' \
+            "$REAL_SLOT" "$REAL_SLOT" > "$STATE_FILE"
+        umount "$BOOT_MNT"
+        exit 0
+    fi
+
+    . "$STATE_FILE"
+    LAST_GOOD_SLOT="${LAST_GOOD_SLOT:-$REAL_SLOT}"
+
+    if [ "$REAL_SLOT" != "$ACTIVE_SLOT" ]; then
+        printf 'ACTIVE_SLOT=%s\nATTEMPTS=1\nLAST_GOOD_SLOT=%s\n' \
+            "$REAL_SLOT" "$LAST_GOOD_SLOT" > "$STATE_FILE"
+        umount "$BOOT_MNT"
+        exit 0
+    fi
+
+    ATTEMPTS=$((ATTEMPTS + 1))
+
+    if [ "$ATTEMPTS" -ge "$MAX_ATTEMPTS" ]; then
+        if [ "$LAST_GOOD_SLOT" != "$REAL_SLOT" ]; then
+            TARGET_LABEL=$(slot_to_label "$LAST_GOOD_SLOT")
+            sed -i "s/^DEFAULT .*/DEFAULT $TARGET_LABEL/" \
+                "$BOOT_MNT/extlinux/extlinux.conf" 2>/dev/null
+            printf 'ACTIVE_SLOT=%s\nATTEMPTS=1\nLAST_GOOD_SLOT=%s\n' \
+                "$LAST_GOOD_SLOT" "$LAST_GOOD_SLOT" > "$STATE_FILE"
+            sync
+            umount "$BOOT_MNT"
+            echo "Armiga: slot $REAL_SLOT no arranca tras $MAX_ATTEMPTS intentos." > /dev/tty0 2>/dev/null
+            echo "Revirtiendo a slot $LAST_GOOD_SLOT y reiniciando..." > /dev/tty0 2>/dev/null
+            sleep 3
+            reboot -f
+            exit 0
+        else
+            printf 'ACTIVE_SLOT=%s\nATTEMPTS=%s\nLAST_GOOD_SLOT=%s\n' \
+                "$REAL_SLOT" "$ATTEMPTS" "$LAST_GOOD_SLOT" > "$STATE_FILE"
+            umount "$BOOT_MNT"
+            echo "Armiga: slot $REAL_SLOT fallando repetidamente, sin slot alternativo confirmado." > /dev/tty0 2>/dev/null
+            exit 0
+        fi
+    fi
+
+    printf 'ACTIVE_SLOT=%s\nATTEMPTS=%s\nLAST_GOOD_SLOT=%s\n' \
+        "$REAL_SLOT" "$ATTEMPTS" "$LAST_GOOD_SLOT" > "$STATE_FILE"
+    umount "$BOOT_MNT"
+}
+
+do_confirm() {
+    REAL_SLOT=$(get_real_slot)
+    [ "$REAL_SLOT" = "?" ] && exit 0
+
+    mkdir -p "$BOOT_MNT"
+    mount -t vfat -o rw "$BOOT_DEV" "$BOOT_MNT" 2>/dev/null
+    if ! mountpoint -q "$BOOT_MNT"; then
+        exit 0
+    fi
+    printf 'ACTIVE_SLOT=%s\nATTEMPTS=0\nLAST_GOOD_SLOT=%s\n' \
+        "$REAL_SLOT" "$REAL_SLOT" > "$STATE_FILE"
+    umount "$BOOT_MNT"
+}
+
+case "$1" in
+    start)
+        do_start
+        ;;
+    confirm)
+        do_confirm
+        ;;
+    stop)
+        ;;
+    *)
+        echo "Usage: $0 {start|confirm|stop}"
+        exit 1
+        ;;
+esac
