@@ -721,6 +721,40 @@ static void draw_rect_filled(SDL_Renderer *r, float x, float y,
     SDL_RenderFillRect(r, &rect);
 }
 
+/* Rectangulo relleno con esquinas redondeadas, via barrido por filas:
+ * en las franjas superior/inferior de altura 'radius', cada fila recorta
+ * su ancho segun la ecuacion del circulo (esquina), el resto de filas se
+ * dibujan a ancho completo. SDL3 no tiene primitiva nativa para esto. */
+static void draw_rounded_rect_filled(SDL_Renderer *r, float x, float y,
+                                      float w, float h, float radius,
+                                      SDL_Color c)
+{
+    if (radius <= 0.0f || radius * 2.0f > h || radius * 2.0f > w) {
+        draw_rect_filled(r, x, y, w, h, c);
+        return;
+    }
+    SDL_SetRenderDrawColor(r, c.r, c.g, c.b, c.a);
+    int rows = (int)h;
+    for (int row = 0; row < rows; row++) {
+        float dy = (float)row;
+        float inset = 0.0f;
+        /* Distancia vertical al centro de la esquina mas cercana
+         * (arriba o abajo), solo relevante dentro de la franja radius. */
+        float corner_dy = -1.0f;
+        if (dy < radius) {
+            corner_dy = radius - dy - 0.5f;
+        } else if (dy > h - radius - 1.0f) {
+            corner_dy = dy - (h - radius) + 0.5f;
+        }
+        if (corner_dy >= 0.0f && corner_dy <= radius) {
+            float dx2 = radius * radius - corner_dy * corner_dy;
+            inset = radius - (dx2 > 0.0f ? SDL_sqrtf(dx2) : 0.0f);
+        }
+        SDL_FRect line_rect = {x + inset, y + dy, w - inset * 2.0f, 1.0f};
+        if (line_rect.w > 0.0f) SDL_RenderFillRect(r, &line_rect);
+    }
+}
+
 static void draw_line(SDL_Renderer *r, float x1, float y1,
                       float x2, float y2, SDL_Color c)
 {
@@ -1131,8 +1165,8 @@ int main(void)
         for (int i = 0; i < MENU_COUNT; i++) {
             float iy = menu_y0 + i * item_h;
             if (i == selected) {
-                draw_rect_filled(ren, mx - 4.0f, iy - 4.0f,
-                                 mw, item_h - 2.0f, c_selbg);
+                draw_rounded_rect_filled(ren, mx - 4.0f, iy - 4.0f,
+                                 mw, item_h - 2.0f, 8.0f, c_selbg);
                 draw_rect_filled(ren, mx - 4.0f, iy - 4.0f,
                                  4.0f, item_h - 2.0f, c_green);
                 draw_text(ren, f_med, MENU_ICONS[i], c_green, mx + 8.0f, iy);
@@ -1195,8 +1229,8 @@ int main(void)
             for (int i = 0; i < DEV_MENU_COUNT; i++) {
                 float iy = dev_y0 + i * dev_item_h;
                 if (i == dev_selected) {
-                    draw_rect_filled(ren, mx - 4.0f, iy - 4.0f,
-                                     mw, dev_item_h - 2.0f, c_selbg);
+                    draw_rounded_rect_filled(ren, mx - 4.0f, iy - 4.0f,
+                                     mw, dev_item_h - 2.0f, 8.0f, c_selbg);
                     draw_rect_filled(ren, mx - 4.0f, iy - 4.0f,
                                      4.0f, dev_item_h - 2.0f, c_green);
                     draw_text(ren, f_sm, DEV_MENU_ITEMS[i], c_green, mx + 8.0f, iy);
