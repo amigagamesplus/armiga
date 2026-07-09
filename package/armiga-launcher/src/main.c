@@ -1431,7 +1431,7 @@ int main(void)
 
             /* ── BLOQUE 3 IZQ: SOFTWARE ──────────────────────────────────── */
             y = SI_SEP_H2 + 4.0f;
-            SI_BLOCK_TITLE(SI_MX, y, "MOTOR DE EMULACION:");
+            SI_BLOCK_TITLE(SI_MX, y, "MOTOR DE EMULACIÓN:");
             y += 28.0f;
             SI_ROW(SI_MX, y, SI_MX + SI_CW_L, "RetroArch", s_retroarch); y += SI_ROW_H;
             SI_ROW(SI_MX, y, SI_MX + SI_CW_L, "Mesa",      s_mesa);      y += SI_ROW_H;
