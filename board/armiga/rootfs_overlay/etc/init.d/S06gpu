@@ -1,0 +1,32 @@
+#!/bin/sh
+# =============================================================================
+# S06gpu — Forzar governor de GPU (Mali-G31/Panfrost) a "performance"
+# El governor "simple_ondemand" por defecto no escala la frecuencia bajo
+# carga real (Panfrost no reporta correctamente la utilizacion a devfreq
+# en este kernel), quedandose fijo en el minimo (420MHz) incluso en
+# juegos exigentes. La tabla OPP soporta hasta 648MHz; "performance"
+# fuerza ese maximo siempre, evitando depender de un governor que no
+# funciona correctamente en este SoC/driver.
+# =============================================================================
+GPU_DEVFREQ="/sys/class/devfreq/1800000.gpu"
+
+case "$1" in
+    start)
+        printf "Setting GPU governor to performance: "
+        if [ -d "$GPU_DEVFREQ" ]; then
+            echo performance > "$GPU_DEVFREQ/governor" 2>/dev/null
+            echo "OK ($(cat "$GPU_DEVFREQ/cur_freq" 2>/dev/null))"
+        else
+            echo "SKIP (no $GPU_DEVFREQ)"
+        fi
+        ;;
+    stop)
+        ;;
+    restart)
+        "$0" start
+        ;;
+    *)
+        echo "Usage: $0 {start|stop|restart}"
+        exit 1
+        ;;
+esac
