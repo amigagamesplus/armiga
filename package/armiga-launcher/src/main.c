@@ -134,6 +134,12 @@ static bool redirect_stdio_to_local_console(void)
     /* SDL/DRM deja la consola en KD_GRAPHICS; sin esto el shell corre
      * pero no se ve nada en pantalla (cursor parpadeando, sin texto). */
     ioctl(fd, KDSETMODE, KD_TEXT);
+    /* El kernel arranca con vt.global_cursor_default=0 (cursor oculto
+     * globalmente, para que el launcher grafico no muestre cursor de
+     * texto de fondo). Lo reactivamos aqui solo para esta sesion de
+     * terminal/btop; al volver al launcher (modo grafico via SDL/DRM)
+     * el cursor de texto deja de ser relevante, no hace falta desactivarlo. */
+    write(fd, "\033[?25h", 6);
     if (fd > STDERR_FILENO) close(fd);
     return true;
 }
