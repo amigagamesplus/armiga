@@ -35,7 +35,6 @@
 #define COL_SEL_BG   { 42,  42,  42, 255}
 #define COL_RED      {200,  40,  40, 255}
 
-#define ARMIGA_VERSION "armiga v1.0"
 
 typedef enum {
     STATE_MENU,
@@ -502,13 +501,14 @@ static void update_status(char *time_str, size_t time_str_sz,
 }
 
 static void read_release(char *kernel, char *mesa, char *retroarch, char *sdl3,
-                         char *build_date)
+                         char *build_date, char *version)
 {
     strncpy(kernel,     "?", 32);
     strncpy(mesa,       "?", 32);
     strncpy(retroarch,  "?", 32);
     strncpy(sdl3,       "?", 32);
     if (build_date) strncpy(build_date, "?", 24);
+    if (version) strncpy(version, "1.0", 32);
     FILE *f = fopen("/etc/armiga-release", "r");
     if (!f) return;
     char line[128];
@@ -520,6 +520,7 @@ static void read_release(char *kernel, char *mesa, char *retroarch, char *sdl3,
             if (!strcmp(key, "RETROARCH_VERSION")) strncpy(retroarch, val, 32);
             if (!strcmp(key, "SDL3_VERSION"))      strncpy(sdl3,      val, 32);
             if (build_date && !strcmp(key, "BUILD_DATE")) strncpy(build_date, val, 24);
+            if (version && !strcmp(key, "ARMIGA_VERSION")) strncpy(version, val, 32);
         }
     }
     fclose(f);
@@ -599,12 +600,12 @@ static void draw_statusbar(SDL_Renderer *ren, TTF_Font *f,
 
 /* Dibuja footer unificado: leyenda izquierda + version derecha */
 static void draw_footer(SDL_Renderer *ren, TTF_Font *f,
-                        const char *legend)
+                        const char *legend, const char *version)
 {
     SDL_Color c_gray    = COL_GRAY;
     SDL_Color c_dkgreen = COL_DKGREEN;
     draw_text(ren, f, legend, c_gray, 20.0f, 448.0f);
-    draw_text_right(ren, f, ARMIGA_VERSION, c_dkgreen, SCREEN_W - 20.0f, 448.0f);
+    draw_text_right(ren, f, version, c_dkgreen, SCREEN_W - 20.0f, 448.0f);
 }
 
 
@@ -839,8 +840,8 @@ int main(void)
     }
 
     /* Leer versiones */
-    char s_kernel[32], s_mesa[32], s_retroarch[32], s_sdl3[32], s_build_date[24];
-    read_release(s_kernel, s_mesa, s_retroarch, s_sdl3, s_build_date);
+    char s_kernel[32], s_mesa[32], s_retroarch[32], s_sdl3[32], s_build_date[24], s_version[32];
+    read_release(s_kernel, s_mesa, s_retroarch, s_sdl3, s_build_date, s_version);
 
     /* Joystick */
     SDL_Joystick *joy = NULL;
@@ -1108,17 +1109,7 @@ int main(void)
             if (update_phase == UPD_CHECKING && !update_checked) {
                 update_checked = true;
                 upd_check_start = now_ticks;
-                char current_ver[32] = "1.0";
-                /* Leer versión actual */
-                FILE *rf = fopen("/etc/armiga-release", "r");
-                if (rf) {
-                    char ln[128];
-                    while (fgets(ln, sizeof(ln), rf))
-                        if (!strncmp(ln, "ARMIGA_VERSION=", 15))
-                            sscanf(ln+15, "%31s", current_ver);
-                    fclose(rf);
-                }
-                int res = check_update(current_ver,
+                int res = check_update(s_version,
                                        upd_new_ver, sizeof(upd_new_ver),
                                        upd_dl_url,  sizeof(upd_dl_url),
                                        upd_sha_url, sizeof(upd_sha_url));
@@ -1241,7 +1232,7 @@ int main(void)
 
         /* Barra inferior */
         draw_line(ren, mx, 438.0f, SCREEN_W - 20.0f, 438.0f, c_green);
-        draw_footer(ren, f_sm, tr("[B] Seleccionar  [DPAD] Navegar  [L1] Idioma", "[B] Select  [DPAD] Navigate  [L1] Language"));
+        draw_footer(ren, f_sm, tr("[B] Seleccionar  [DPAD] Navegar  [L1] Idioma", "[B] Select  [DPAD] Navigate  [L1] Language"), s_version);
 
         /* Barra de progreso del hold de modo dev (si se está manteniendo) */
         if (devmode_combo_held && devmode_hold_start != 0) {
@@ -1314,7 +1305,7 @@ int main(void)
 
             /* Barra inferior */
             draw_line(ren, mx, 438.0f, SCREEN_W - 20.0f, 438.0f, c_green);
-            draw_footer(ren, f_sm, tr("[B] Seleccionar  [A] Volver", "[B] Select  [A] Back"));
+            draw_footer(ren, f_sm, tr("[B] Seleccionar  [A] Volver", "[B] Select  [A] Back"), s_version);
 
         } else if (state == STATE_CONFIRM) {
             const char *label = (confirm_target == DEV_ACTION_REBOOT)
@@ -1492,7 +1483,7 @@ int main(void)
 
             /* Barra inferior */
             draw_line(ren, SI_MX, 438.0f, SCREEN_W - 20.0f, 438.0f, c_green);
-            draw_footer(ren, f_sm, tr("[A] Volver", "[A] Back"));
+            draw_footer(ren, f_sm, tr("[A] Volver", "[A] Back"), s_version);
         } else if (state == STATE_UPDATE) {
             const float UX = 20.0f;
             draw_text(ren, f_sm, tr("ACTUALIZACIÓN DE SISTEMA", "SYSTEM UPDATE"), c_green, UX, 20.0f);
@@ -1501,17 +1492,8 @@ int main(void)
 
             /* Versión actual */
             {
-                char cur_ver[32] = "1.0";
-                FILE *rf = fopen("/etc/armiga-release", "r");
-                if (rf) {
-                    char ln[128];
-                    while (fgets(ln, sizeof(ln), rf))
-                        if (!strncmp(ln, "ARMIGA_VERSION=", 15))
-                            sscanf(ln+15, "%31s", cur_ver);
-                    fclose(rf);
-                }
                 char buf[64];
-                snprintf(buf, sizeof(buf), "Versión instalada:   %s", cur_ver);
+                snprintf(buf, sizeof(buf), "Versión instalada:   %s", s_version);
                 draw_text(ren, f_sm, buf, c_gray, UX, 64.0f);
             }
 
@@ -1557,9 +1539,9 @@ int main(void)
 
             draw_line(ren, UX, 438.0f, SCREEN_W - 20.0f, 438.0f, c_green);
             if (update_phase != UPD_DOWNLOADING)
-                draw_footer(ren, f_sm, tr("[A] Volver", "[A] Back"));
+                draw_footer(ren, f_sm, tr("[A] Volver", "[A] Back"), s_version);
             else
-                draw_footer(ren, f_sm, "");
+                draw_footer(ren, f_sm, "", s_version);
 
         } /* end STATE_UPDATE */
 
