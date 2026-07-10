@@ -60,7 +60,7 @@ do_expand_if_needed() {
     # hay riesgo de pérdida de datos reales de usuario aquí.
     mkfs.exfat -n "amiga_data" "$AMIGA_DATA_DEV" >/dev/null 2>&1
 
-    mount -t exfat "$AMIGA_DATA_DEV" "$AMIGA_DATA_MNT"
+    mount -t exfat -o noatime "$AMIGA_DATA_DEV" "$AMIGA_DATA_MNT"
     mkdir -p "$AMIGA_DATA_MNT/kickstarts" \
              "$AMIGA_DATA_MNT/roms/adf" "$AMIGA_DATA_MNT/roms/ipf" \
              "$AMIGA_DATA_MNT/roms/whdload" "$AMIGA_DATA_MNT/roms/hdf" \
@@ -106,7 +106,7 @@ case "$1" in
         mkdir -p "$AMIGA_DATA_MNT"
         do_expand_if_needed
         if [ -b "$AMIGA_DATA_DEV" ]; then
-            mount -t exfat "$AMIGA_DATA_DEV" "$AMIGA_DATA_MNT" 2>/dev/null && echo -n "amiga_data "
+            mount -t exfat -o noatime "$AMIGA_DATA_DEV" "$AMIGA_DATA_MNT" 2>/dev/null && echo -n "amiga_data "
             # Copiar PUAE 2021.opt y autoconfig de mando si faltan (autorreparacion)
             if [ ! -f "$AMIGA_DATA_MNT/retroarch/config/PUAE 2021/PUAE 2021.opt" ]; then
                 mkdir -p "$AMIGA_DATA_MNT/retroarch/config/PUAE 2021"
