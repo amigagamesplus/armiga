@@ -1,60 +1,69 @@
 # Armiga
 
-Distribución Linux mínima basada en **Buildroot** para la consola **Anbernic RG40XX H** (Allwinner H700).  
-Objetivo final: arranque directo en **Amiberry** para emulación nativa de Commodore Amiga.
+Distribución Linux mínima basada en **Buildroot** para la consola **Anbernic RG40XX H** (Allwinner H700), enfocada en emulación de Commodore Amiga vía **RetroArch + núcleo PUAE**.
 
 ## Hardware
 
 | Componente | Detalle |
 |---|---|
-| SoC | Allwinner H700 (ARM64, Cortex-A53 x4) |
-| GPU | Mali-G31 MP2 |
-| RAM | 1 GB DDR3 |
-| WiFi/BT | RTL8821CS (SDIO + UART) |
-| Pantalla | 640×480 DSI |
+| SoC | Allwinner H700 (ARM64, Cortex-A53 x4 @ 1.51GHz) |
+| GPU | Mali-G31 MP2 (Panfrost) |
+| RAM | 1 GB LPDDR4 |
+| WiFi/BT | RTL8821CS (SDIO) |
+| Pantalla | 640×480 |
 | Almacenamiento | MicroSD (mmcblk0) |
 
 ## Estado actual
 
-**Hito:** Amiberry 8.2.0 arranca en hardware. DPAD resuelto en kernel. Ejes analógicos pendientes.  
-**Rama activa:** `feature/amiberry`
+**Rama activa:** `feature/squashfs-rootfs-v2`
 
 ### Componentes funcionales
 
-- ✅ Arranque (U-Boot + kernel 7.0.2-armiga + DTB)
-- ✅ Pantalla DSI 640×480
-- ✅ WiFi RTL8821CS (módulos `=m`, carga automática)
-- ✅ SSH con Dropbear (alias `ssh armiga`)
-- ✅ Teclado español desde arranque
-- ✅ CPU governor en performance
-- ✅ Particiones `kickstarts` y `roms` montadas como exFAT
-- ✅ Autoexpansión de `roms` en primer arranque
-- ✅ Panfrost built-in (Mali-G31 @ 432MHz, DRM inicializado)
-- ✅ `libdrm 2.4.131` instalado
-- ✅ SDL3 3.4.10 con backend `kmsdrm`
-- ✅ Mesa 26.1.2 — GBM + Panfrost (`.so` stripped en `rootfs_overlay`)
-- ✅ Stack gráfico completo verificado en hardware (`kmsdrm_test`: `opengles2 / OK`)
-- ✅ H700 Gamepad (`/dev/input/event6`) con DPAD como `ABS_HAT0X/Y`
-- ✅ Amiberry 8.2.0 arrancando con `SDL_VIDEO_DRIVER=kmsdrm amiberry`
-- ⚠️ Ejes analógicos ABS_X/Y/RX/RY con rango ±1800 (pendiente → ±32767 via `button-adc-scale` en DTS)
-- ⚠️ Daemon `h700-normalize` en imagen como solución temporal para ejes (eliminar cuando se resuelva en kernel)
-- ⚠️ Botones X/Y invertidos en DTS (BTN_NORTH / BTN_WEST) — fix pendiente
+- ✅ Arranque (U-Boot + kernel 7.0.11-armiga + DTB)
+- ✅ Esquema de particiones **A/B** con rollback automático (ver más abajo)
+- ✅ Rootfs en **SquashFS + zstd** (system/system_b, 300MB por slot, ro)
+- ✅ WiFi RTL8821CS (`wpa_supplicant` + `udhcpc`, config generada en `/tmp` — `/etc` es ro)
+- ✅ SSH (root, puerto 22)
+- ✅ CPU governor en `performance`
+- ✅ GPU governor forzado a `performance` (648MHz fijo — `simple_ondemand` no escalaba bien bajo carga real)
+- ✅ ZRAM swap (512MB, LZ4, `swappiness=100`)
+- ✅ Partición `amiga_data` (exFAT, autoexpansión al 100% de la SD en primer arranque)
+- ✅ Stack gráfico: SDL3 3.4.12 (kmsdrm) + Mesa 26.1.4 (GBM + Panfrost, `.so` stripped en overlay)
+- ✅ Launcher propio en C/SDL3 (`armiga-launcher`), interfaz bilingüe **Español/English** (toggle `L1`, persistente)
+- ✅ RetroArch 1.22.2 + núcleo PUAE 2021
+- ✅ Sistema de actualización OTA (GitHub Releases → descarga → verificación SHA256 → flasheo del slot inactivo)
+- ✅ Rollback automático A/B ante fallo de arranque (contador de intentos + reversión de slot)
+- ✅ Modo desarrollador (terminal, btop) accesible con combo `SELECT+START+L1`
+
+### Particiones (MBR, nunca GPT) — esquema A/B
+
+| # | Etiqueta | FS | Tamaño | Contenido | Montaje |
+|---|---|---|---|---|---|
+| 1 | boot | FAT32 | 64 MB | Kernel, dtb.img, extlinux.conf (labels Armiga-A/B) | `/boot` (bajo demanda) |
+| 2 | system | squashfs | 300 MB | Rootfs — slot A | `/` (ro) si `DEFAULT=Armiga-A` |
+| 3 | system_b | squashfs | 300 MB | Rootfs — slot B (copia idéntica en cada build) | `/` (ro) si `DEFAULT=Armiga-B` |
+| 4 | amiga_data | exFAT | resto del disco | Kickstarts, ROMs, configs, saves | `/media/amiga_data` |
+
+`amiga_data` **siempre** debe ser la última partición física, para que la auto-expansión al 100% del disco funcione en SD de cualquier tamaño.
+
+### Rollback automático A/B
+
+Al arrancar, `S02bootcheck` compara el slot activo (leído de `/proc/cmdline`) contra un contador de intentos persistido en `p1`. Si el launcher no confirma un arranque exitoso (primer frame SDL renderizado) en 3 intentos consecutivos, el sistema revierte automáticamente `DEFAULT` en `extlinux.conf` al último slot conocido como bueno y reinicia — sin intervención del usuario.
 
 ### Stack gráfico
 
 ```
-Amiberry 8.2.0
-    └── SDL3 3.4.10 (backend: kmsdrm)
-        ├── libgbm.so.1.0.0 (Mesa 26.1.2)
-        │   └── dri_gbm.so → libgallium-26.1.2.so (Panfrost)
+armiga-launcher / RetroArch (PUAE)
+    └── SDL3 3.4.12 (backend: kmsdrm)
+        ├── libgbm.so.1.0.0 (Mesa 26.1.4)
+        │   └── dri_gbm.so → libgallium-26.1.4.so (Panfrost)
         ├── libEGL.so.1.0.0
         ├── libGLESv2.so.2.0.0
-        └── libdrm 2.4.131
-            └── DRM/KMS kernel (sun4i-drm + Panfrost, Mali-G31 @ 432MHz)
+        └── libdrm
+            └── DRM/KMS kernel (Panfrost, Mali-G31 @ 648MHz fijo)
 ```
 
-> **Nota Mesa 25+:** `panfrost_dri.so` ya no existe. El driver Panfrost está en
-> `libgallium-<version>.so`, cargado vía `dri_gbm.so`. No buscar `/usr/lib/dri/`.
+> **Nota Mesa 25+:** `panfrost_dri.so` ya no existe. El driver Panfrost está en `libgallium-<version>.so`, cargado vía `dri_gbm.so`. No buscar en `/usr/lib/dri/`.
 
 ## Estructura del repositorio
 
@@ -62,45 +71,28 @@ Amiberry 8.2.0
 armiga/
 ├── .github/workflows/
 │   ├── build.yml              # CI principal — imagen Buildroot completa
-│   └── build-mesa.yml         # CI Mesa 26.1.2 (misión cumplida, .so commiteados)
+│   └── build-mesa.yml         # CI Mesa (cross-compile GBM+Panfrost, .so commiteados)
 ├── board/armiga/
 │   ├── bootloader/            # Kernel, DTB y U-Boot precompilados (commiteados)
-│   ├── linux/
-│   │   ├── dts/               # DTS propios (rg40xx-h, v2-panel)
-│   │   └── patches/           # Parches al kernel 7.0.2
+│   ├── linux/dts/             # DTS propios (rg40xx-h, v2-panel)
 │   ├── rootfs_overlay/
-│   │   ├── usr/lib/           # Mesa 26.1.2 .so (stripped)
-│   │   ├── usr/share/amiberry/controllers/   # gamecontrollerdb.txt
-│   │   ├── root/.config/amiberry/            # amiberry.conf
-│   │   ├── etc/init.d/        # Scripts de inicio
-│   │   └── etc/udev/rules.d/  # Reglas udev
-│   ├── tests/                 # kmsdrm_test.c, sdl_joystick_info.c
-│   ├── post-build.sh
-│   ├── post-image.sh
+│   │   ├── usr/lib/           # Mesa .so (stripped)
+│   │   ├── usr/bin/           # armiga-launcher-wrapper, retroarch (wrapper)
+│   │   ├── etc/retroarch/     # retroarch.cfg.template, armiga.cfg, autoconfig/
+│   │   ├── etc/init.d/        # Scripts de arranque (S02bootcheck, S06gpu, S07zram, S40partitions, S41wifi, S43update, ...)
+│   │   └── media/amiga_data/  # Mountpoint estático (necesario: rootfs es ro)
+│   ├── post-build.sh          # Genera /etc/armiga-release
+│   ├── post-image.sh          # Genera extlinux.conf, amiga_data.img, invoca genimage
 │   └── genimage.cfg
 ├── configs/armiga_defconfig
 ├── package/
 │   ├── sdl3/
-│   ├── sdl3_image/
-│   ├── kmsdrm-test/
-│   ├── amiberry/
-│   ├── sdl-joystick-info/
-│   ├── h700-normalize/        # Daemon normalización H700 Gamepad (temporal)
-│   └── fastfetch/
+│   ├── sdl3_ttf/
+│   └── armiga-launcher/       # Launcher propio (C + SDL3)
 ├── Config.in
 ├── external.mk
 └── external.desc
 ```
-
-## Particiones SD
-
-| # | Etiqueta | FS | Tamaño | Contenido |
-|---|---|---|---|---|
-| — | raw | — | 8K–2MB | U-Boot SPL |
-| 1 | boot | FAT32 | 64 MB | Image, dtb.img, extlinux.conf |
-| 2 | system | ext4 | 1100 MB | Rootfs |
-| 3 | kickstarts | exFAT | 250 MB | Kickstart ROMs |
-| 4 | roms | exFAT | resto | Juegos |
 
 ## Build
 
@@ -111,8 +103,8 @@ armiga/
 
 ### Build en GitHub Actions
 
-Trigger manual en Actions → Build → Run workflow.  
-Tiempo estimado: ~38 min. Artefactos: `armiga-sdcard-N` (N = run number).
+Trigger manual (`workflow_dispatch`) en Actions → Build Armiga → Run workflow. **Verificar que la rama seleccionada en "Use workflow from" sea la correcta** antes de lanzar.
+Tiempo estimado: 30-40 min (~1h+ si se modifica `configs/armiga_defconfig`, invalida la cache de ccache/toolchain).
 
 ### Build local
 
@@ -121,56 +113,27 @@ make BR2_EXTERNAL=$PWD -C buildroot-2026.02.2 O=$PWD/output armiga_defconfig
 make -C output -j$(nproc)
 ```
 
-> ⚠️ Buildroot **no está en el repositorio** — solo disponible en CI. No ejecutar grep local sobre sus fuentes.
-
 ### Flashear SD
 
+Herramienta interna `flash.sh` (no versionada, contiene credenciales WiFi — uso exclusivo de desarrollo):
+
 ```bash
-cp ~/Descargas/armiga-sdcard-N/sdcard.img /ruta/local/armiga/sdcard.img
-sudo bash /ruta/local/armiga/flash.sh /dev/sdX
+sudo bash flash.sh /dev/sdX
 ```
 
-## Ramas
-
-| Rama | Estado |
-|---|---|
-| `main` | Estable — stack gráfico verificado en hardware |
-| `feature/amiberry` | Amiberry 8.2.0 + fix DPAD en kernel, ejes analógicos pendientes |
-
-## Fases
-
-- **Fase 1** ✅ Base estable: boot, WiFi, BT, SSH, teclado ES
-- **Fase 2** ✅ Pantalla: driver DSI 640×480 operativo
-- **Fase 3** ✅ Gráficos: Mesa 26.1.2/Panfrost, SDL3 KMS/DRM
-- **Fase 4** 🔧 Amiberry: arranca en hardware, input en progreso
-- **Fase 5** — Audio ALSA
-- **Fase 6** — Polish: splash, arranque silencioso, overclock
-
-## Próximos pasos
-
-- [ ] Resolver ejes analógicos ±1800 → ±32767 via `button-adc-scale` en DTS
-- [ ] Eliminar daemon `h700-normalize` cuando ejes funcionen en kernel
-- [ ] Actualizar `gamecontrollerdb.txt` con GUID raw si se elimina el daemon
-- [ ] Merge `feature/amiberry` → `main`
-- [ ] ALSA — configurar audio
-- [ ] Fix botones X/Y invertidos en DTS (BTN_NORTH / BTN_WEST)
-- [ ] Splash screen / arranque silencioso
-
-## Kernel
-
-Binario precompilado (7.0.2-armiga) commiteado en `board/armiga/bootloader/`.  
-El CI lo copia sin recompilar. Los cambios en `.dts` solo requieren recompilar el DTB.
+Dos modos: **Actualización** (boot+system+system_b, preserva `amiga_data`) e **Imagen completa** (destructivo, reparticiona todo). El usuario final flashea con Rufus/balenaEtcher o recibe actualizaciones vía OTA — nunca usa `flash.sh`.
 
 ## Notas críticas
 
-- **WiFi en mmc1** (4021000), NO mmc2.
-- **RTW88 como módulos** (`=m`), nunca built-in (`=y`).
-- **U-Boot siempre en offset 8K** (`seek=16` con `bs=512`). Siempre MBR, nunca GPT.
-- **YAML en CI**: usar scripts Python para modificar, nunca `sed` con caracteres especiales de Makefile.
-- **`.so` grandes**: siempre `aarch64-linux-gnu-strip --strip-unneeded` antes de commitear (límite GitHub: 100MB). `libgallium` sin strip pesa ~112MB; stripped ~23MB.
-- **Paquetes locales Buildroot**: incrementar `VERSION` en el `.mk` cuando cambie el código fuente.
-- **Amiberry runtime**: lanzar siempre con `SDL_VIDEO_DRIVER=kmsdrm`.
-- **`sdl_joystick_info`**: ejecutar con `SDL_VIDEO_DRIVER=kmsdrm sdl_joystick_info` para obtener GUIDs reales.
+- **Rootfs es SquashFS de solo lectura.** Cualquier código que escriba en tiempo de ejecución debe apuntar a `/media/amiga_data` o a tmpfs (`/tmp`, `/var/*`), nunca a rutas de rootfs. Esto incluye configs generadas (`wpa_supplicant.conf`), caches (shader cache de Mesa), y mountpoints (deben existir ya en el overlay, no crearse con `mkdir` en runtime).
+- **`amiga_data` es siempre la última partición física** (hoy p4) — necesario para que la auto-expansión funcione.
+- **`rootfstype=` en `extlinux.conf` debe coincidir siempre con el filesystem real** de system/system_b. Un desajuste causa fallo de arranque silencioso.
+- **Bit ejecutable en git**: usar siempre `git update-index --chmod=+x` tras añadir un script nuevo; verificar con `git ls-files -s` (debe mostrar `100755`). No asumir que `chmod +x` local se preserva en el commit.
+- **`.so` grandes**: siempre `aarch64-linux-gnu-strip --strip-unneeded` antes de commitear. `libgallium` sin stripar pesa ~110-120MB; stripped, ~23MB.
+- **`dd` sobre el dispositivo es destructivo** — verificar siempre offsets (`sfdisk -d`, posicional) antes de flashear.
+- **GitHub API `/releases/latest` no devuelve prereleases** — el launcher usa `/releases`.
+- **BusyBox awk no soporta `match()` con array** — usar `grep`+`cut` para parsear `sfdisk -d`.
+- **Nunca parchear el squashfs manualmente en la SD** (`unsquashfs`/`mksquashfs` a mano) — no preserva atributos extendidos de forma fiable. Cualquier cambio se recompila desde Buildroot.
 
 ## Licencia
 
