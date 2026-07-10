@@ -501,7 +501,7 @@ static void update_status(char *time_str, size_t time_str_sz,
 }
 
 static void read_release(char *kernel, char *mesa, char *retroarch, char *sdl3,
-                         char *build_date, char *version)
+                         char *build_date, char *version, char *build_number)
 {
     strncpy(kernel,     "?", 32);
     strncpy(mesa,       "?", 32);
@@ -509,6 +509,7 @@ static void read_release(char *kernel, char *mesa, char *retroarch, char *sdl3,
     strncpy(sdl3,       "?", 32);
     if (build_date) strncpy(build_date, "?", 24);
     if (version) strncpy(version, "1.0", 32);
+    if (build_number) strncpy(build_number, "?", 16);
     FILE *f = fopen("/etc/armiga-release", "r");
     if (!f) return;
     char line[128];
@@ -521,6 +522,7 @@ static void read_release(char *kernel, char *mesa, char *retroarch, char *sdl3,
             if (!strcmp(key, "SDL3_VERSION"))      strncpy(sdl3,      val, 32);
             if (build_date && !strcmp(key, "BUILD_DATE")) strncpy(build_date, val, 24);
             if (version && !strcmp(key, "ARMIGA_VERSION")) strncpy(version, val, 32);
+            if (build_number && !strcmp(key, "BUILD_NUMBER")) strncpy(build_number, val, 16);
         }
     }
     fclose(f);
@@ -840,8 +842,8 @@ int main(void)
     }
 
     /* Leer versiones */
-    char s_kernel[32], s_mesa[32], s_retroarch[32], s_sdl3[32], s_build_date[24], s_version[32];
-    read_release(s_kernel, s_mesa, s_retroarch, s_sdl3, s_build_date, s_version);
+    char s_kernel[32], s_mesa[32], s_retroarch[32], s_sdl3[32], s_build_date[24], s_version[32], s_build_number[16];
+    read_release(s_kernel, s_mesa, s_retroarch, s_sdl3, s_build_date, s_version, s_build_number);
 
     /* Joystick */
     SDL_Joystick *joy = NULL;
@@ -876,7 +878,7 @@ int main(void)
     char sysinfo_wifi_sig[32]  = "--";
     int  sysinfo_wifi_pct      = -1;
     char sysinfo_mac[24]       = "--";
-    char sysinfo_build[24]     = "--";
+    char sysinfo_build[32]     = "--";
     Uint64 last_sysinfo_update = 0;
     /* Variables de actualización OTA */
     UpdatePhase update_phase   = UPD_CHECKING;
@@ -1168,7 +1170,7 @@ int main(void)
             read_loadavg(sysinfo_loadavg, sizeof(sysinfo_loadavg));
             read_wifi_signal(sysinfo_wifi_sig, sizeof(sysinfo_wifi_sig), &sysinfo_wifi_pct);
             read_mac_address(sysinfo_mac, sizeof(sysinfo_mac));
-            strncpy(sysinfo_build, s_build_date, sizeof(sysinfo_build));
+            snprintf(sysinfo_build, sizeof(sysinfo_build), "%s (%s)", s_build_date, s_build_number);
             last_sysinfo_update = now_ticks;
         }
 
