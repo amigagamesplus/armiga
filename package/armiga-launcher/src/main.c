@@ -922,7 +922,9 @@ int main(void)
 
             if (state == STATE_MENU) {
                 if (ev.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN &&
-                    ev.jbutton.button == BTN_SDL_L1) {
+                    ev.jbutton.button == BTN_SDL_L1 &&
+                    !(joy && SDL_GetJoystickButton(joy, BTN_SDL_SELECT) &&
+                             SDL_GetJoystickButton(joy, BTN_SDL_START))) {
                     current_lang = (current_lang == LANG_ES) ? LANG_EN : LANG_ES;
                     save_lang_config();
                 }
