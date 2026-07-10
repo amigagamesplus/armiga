@@ -46,7 +46,7 @@ KVER="7.0.11-armiga"
 depmod -a -b "$TARGET_DIR" "$KVER" || true
 # --- armiga-release ----------------------------------------------------------
 BUILD_DATE=$(date -u +"%Y-%m-%d %H:%M")
-ARMIGA_VERSION=$(git -C "${1:-$(pwd)}" describe --tags --always --dirty 2>/dev/null || echo "1.0")
+ARMIGA_VERSION=$(git -C "${1:-$(pwd)}" describe --tags --abbrev=0 2>/dev/null || echo "1.0")
 cat > "$TARGET_DIR/etc/armiga-release" << RELEASE_EOF
 ARMIGA_VERSION=$ARMIGA_VERSION
 KERNEL_VERSION=7.0.11-armiga
