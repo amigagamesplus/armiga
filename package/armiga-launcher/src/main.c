@@ -1348,7 +1348,7 @@ int main(void)
             const float SI_SEP_H2 = SI_Y0 + SI_BLK_H * 2;  /* ~306 */
 
             /* Título y separador superior */
-            draw_text(ren, f_sm, tr("INFORMACIÓN DEL SISTEMA", "SYSTEM INFORMATION"), c_green, SI_MX, 20.0f);
+            draw_text(ren, f_sm, tr("DIAGNÓSTICO DEL SISTEMA", "SYSTEM DIAGNOSTICS"), c_green, SI_MX, 20.0f);
             draw_statusbar(ren, f_sm, status_time, status_wifi_up, status_battery);
             draw_line(ren, SI_MX, 44.0f, SCREEN_W - 20.0f, 44.0f, c_green);
 
