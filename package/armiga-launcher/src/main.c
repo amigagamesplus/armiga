@@ -67,17 +67,21 @@ static const char *MENU_ICONS[] = {
     "[O]",
 };
 
-static const char *MENU_ITEMS[] = {
-    "Catálogo Amiga",
-    "Actualización de sistema",
-    "Diagnóstico del sistema",
-    "Apagar dispositivo",
+static const char *MENU_ITEMS[][2] = {
+    {"Catálogo Amiga",              "Amiga Catalog"},
+    {"Actualización de sistema",    "System Update"},
+    {"Diagnóstico del sistema",     "System Diagnostics"},
+    {"Apagar dispositivo",          "Power Off"},
 };
-static const char *MENU_DESC[] = {
-    "Explora y lanza juegos\n" "Amiga desde tu biblioteca.",
-    "Descarga e instala la\n" "ultima version de Armiga.",
-    "Revisa el estado del\n" "hardware y el sistema.",
-    "Apaga el dispositivo\n" "de forma segura.",
+static const char *MENU_DESC[][2] = {
+    {"Explora y lanza juegos\n" "Amiga desde tu biblioteca.",
+     "Browse and launch Amiga\n" "games from your library."},
+    {"Descarga e instala la\n" "ultima version de Armiga.",
+     "Download and install the\n" "latest version of Armiga."},
+    {"Revisa el estado del\n" "hardware y el sistema.",
+     "Check the status of the\n" "hardware and system."},
+    {"Apaga el dispositivo\n" "de forma segura.",
+     "Shut down the device\n" "safely."},
 };
 #define MENU_COUNT 4
 
@@ -105,6 +109,12 @@ static const char *DEV_MENU_ITEMS[] = {
 #define DEVMODE_HOLD_MS 3000
 
 #define ARMIGA_CONFIG_PATH "/media/amiga_data/armiga.cfg"
+typedef enum { LANG_ES = 0, LANG_EN = 1 } Lang;
+static Lang current_lang = LANG_ES;
+static const char *tr(const char *es, const char *en)
+{
+    return (current_lang == LANG_EN) ? en : es;
+}
 
 #define LOCAL_CONSOLE_PATH "/dev/tty0"
 
@@ -419,10 +429,35 @@ static void apply_timezone(void)
             if (!strcmp(key, "TZ")) {
                 setenv("TZ", val, 1);
                 tzset();
-                break;
+            } else if (!strcmp(key, "LANG")) {
+                current_lang = (!strcmp(val, "EN")) ? LANG_EN : LANG_ES;
             }
         }
     }
+    fclose(f);
+}
+/* Guarda el idioma actual en armiga.cfg, preservando el resto de claves
+ * (ej. TZ) linea a linea. */
+static void save_lang_config(void)
+{
+    char lines[32][128];
+    int n = 0;
+    FILE *f = fopen(ARMIGA_CONFIG_PATH, "r");
+    if (f) {
+        while (n < 32 && fgets(lines[n], sizeof(lines[n]), f)) {
+            char key[32], val[96];
+            if (sscanf(lines[n], "%31[^=]=%95s", key, val) == 2 &&
+                !strcmp(key, "LANG")) {
+                continue; /* se reescribe al final, no duplicar */
+            }
+            n++;
+        }
+        fclose(f);
+    }
+    f = fopen(ARMIGA_CONFIG_PATH, "w");
+    if (!f) return;
+    for (int i = 0; i < n; i++) fputs(lines[i], f);
+    fprintf(f, "LANG=%s\n", (current_lang == LANG_EN) ? "EN" : "ES");
     fclose(f);
 }
 
@@ -885,6 +920,11 @@ int main(void)
             }
 
             if (state == STATE_MENU) {
+                if (ev.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN &&
+                    ev.jbutton.button == BTN_SDL_L1) {
+                    current_lang = (current_lang == LANG_ES) ? LANG_EN : LANG_ES;
+                    save_lang_config();
+                }
                 if (ev.type == SDL_EVENT_KEY_DOWN) {
                     if (ev.key.key == SDLK_UP)
                         selected = (selected - 1 + MENU_COUNT) % MENU_COUNT;
@@ -1170,20 +1210,20 @@ int main(void)
                 draw_rect_filled(ren, mx - 4.0f, iy - 4.0f,
                                  4.0f, item_h - 2.0f, c_green);
                 draw_text(ren, f_med, MENU_ICONS[i], c_green, mx + 8.0f, iy);
-                draw_text(ren, f_med, MENU_ITEMS[i], c_green, mx + 46.0f, iy);
+                draw_text(ren, f_med, MENU_ITEMS[i][current_lang], c_green, mx + 46.0f, iy);
                 draw_text(ren, f_med, ">", c_green, mx + mw - 20.0f, iy);
             } else {
                 draw_text(ren, f_med, MENU_ICONS[i], c_gray, mx + 8.0f, iy);
-                draw_text(ren, f_med, MENU_ITEMS[i], c_gray, mx + 46.0f, iy);
+                draw_text(ren, f_med, MENU_ITEMS[i][current_lang], c_gray, mx + 46.0f, iy);
                 draw_text(ren, f_med, ">", c_gray, mx + mw - 20.0f, iy);
             }
         }
 
         /* Panel derecho: contexto de la opcion seleccionada */
         {
-            draw_text(ren, f_sm, MENU_ITEMS[selected], c_green, rx, menu_y0);
+            draw_text(ren, f_sm, MENU_ITEMS[selected][current_lang], c_green, rx, menu_y0);
             /* Descripcion en dos lineas */
-            const char *desc = MENU_DESC[selected];
+            const char *desc = MENU_DESC[selected][current_lang];
             char line1[64] = {0}, line2[64] = {0};
             const char *nl = strchr(desc, '\n');
             if (nl) {
@@ -1201,7 +1241,7 @@ int main(void)
 
         /* Barra inferior */
         draw_line(ren, mx, 438.0f, SCREEN_W - 20.0f, 438.0f, c_green);
-        draw_footer(ren, f_sm, "[B] Seleccionar  [DPAD] Navegar");
+        draw_footer(ren, f_sm, tr("[B] Seleccionar  [DPAD] Navegar  [L1] Idioma", "[B] Select  [DPAD] Navigate  [L1] Language"));
 
         /* Barra de progreso del hold de modo dev (si se está manteniendo) */
         if (devmode_combo_held && devmode_hold_start != 0) {
@@ -1217,7 +1257,7 @@ int main(void)
 
         } else if (state == STATE_DEVMODE) {
             /* Titulo pequeño arriba a la izquierda */
-            draw_text(ren, f_sm, "MODO DESARROLLADOR", c_green, mx, 20.0f);
+            draw_text(ren, f_sm, tr("MODO DESARROLLADOR", "DEVELOPER MODE"), c_green, mx, 20.0f);
             draw_statusbar(ren, f_sm, status_time, status_wifi_up, status_battery);
             draw_line(ren, mx, 44.0f, SCREEN_W - 20.0f, 44.0f, c_green);
             draw_line(ren, sep_x, 44.0f, sep_x, 438.0f, c_green);
@@ -1250,7 +1290,7 @@ int main(void)
             draw_text(ren, f_sm,  "RAM",        c_green, rx, ry);
             draw_text(ren, f_med, dev_ram,      c_white, rx, ry + 14.0f);
             ry += 40.0f;
-            draw_text(ren, f_sm,  "BATERIA",    c_green, rx, ry);
+            draw_text(ren, f_sm,  tr("BATERÍA", "BATTERY"),    c_green, rx, ry);
             {
                 char batt_buf[8];
                 if (status_battery >= 0)
@@ -1274,7 +1314,7 @@ int main(void)
 
             /* Barra inferior */
             draw_line(ren, mx, 438.0f, SCREEN_W - 20.0f, 438.0f, c_green);
-            draw_footer(ren, f_sm, "[B] Seleccionar  [A] Volver");
+            draw_footer(ren, f_sm, tr("[B] Seleccionar  [A] Volver", "[B] Select  [A] Back"));
 
         } else if (state == STATE_CONFIRM) {
             const char *label = (confirm_target == DEV_ACTION_REBOOT)
@@ -1282,7 +1322,7 @@ int main(void)
                                  : "Apagar el dispositivo?";
             draw_text_centered(ren, f_med, label, c_white,
                                SCREEN_W / 2.0f, SCREEN_H / 2.0f - 30.0f);
-            draw_text_centered(ren, f_med, "[B] Si        [A] No", c_green,
+            draw_text_centered(ren, f_med, tr("[B] Si        [A] No", "[B] Yes       [A] No"), c_green,
                                SCREEN_W / 2.0f, SCREEN_H / 2.0f + 10.0f);
 
         } else if (state == STATE_SYSINFO) {
@@ -1308,7 +1348,7 @@ int main(void)
             const float SI_SEP_H2 = SI_Y0 + SI_BLK_H * 2;  /* ~306 */
 
             /* Título y separador superior */
-            draw_text(ren, f_sm, "INFORMACIÓN DEL SISTEMA", c_green, SI_MX, 20.0f);
+            draw_text(ren, f_sm, tr("INFORMACIÓN DEL SISTEMA", "SYSTEM INFORMATION"), c_green, SI_MX, 20.0f);
             draw_statusbar(ren, f_sm, status_time, status_wifi_up, status_battery);
             draw_line(ren, SI_MX, 44.0f, SCREEN_W - 20.0f, 44.0f, c_green);
 
@@ -1353,17 +1393,17 @@ int main(void)
 
             /* ── BLOQUE 1 IZQ: SISTEMA ───────────────────────────────────── */
             float y = SI_Y0 + 2.0f;
-            SI_BLOCK_TITLE(SI_MX, y, "SISTEMA");
+            SI_BLOCK_TITLE(SI_MX, y, tr("SISTEMA", "SYSTEM"));
             y += 28.0f;
-            SI_ROW(SI_MX, y, SI_MX + SI_CW_L, "Version OS",       "v1.0");          y += SI_ROW_H;
+            SI_ROW(SI_MX, y, SI_MX + SI_CW_L, tr("Version OS", "OS Version"),       "v1.0");          y += SI_ROW_H;
             SI_ROW(SI_MX, y, SI_MX + SI_CW_L, "Kernel",       s_kernel);        y += SI_ROW_H;
-            SI_ROW(SI_MX, y, SI_MX + SI_CW_L, "Arquitectura", "aarch64");       y += SI_ROW_H;
-            SI_ROW(SI_MX, y, SI_MX + SI_CW_L, "Compilación",        sysinfo_build);   y += SI_ROW_H;
+            SI_ROW(SI_MX, y, SI_MX + SI_CW_L, tr("Arquitectura", "Architecture"), "aarch64");       y += SI_ROW_H;
+            SI_ROW(SI_MX, y, SI_MX + SI_CW_L, tr("Compilación", "Build"),        sysinfo_build);   y += SI_ROW_H;
             SI_ROW(SI_MX, y, SI_MX + SI_CW_L, "Hostname",     "armiga");
 
             /* ── BLOQUE 1 DER: ESTADO ────────────────────────────────────── */
             y = SI_Y0 + 2.0f;
-            SI_BLOCK_TITLE(SI_RX, y, "MÉTRICAS:");
+            SI_BLOCK_TITLE(SI_RX, y, tr("MÉTRICAS:", "METRICS:"));
             y += 28.0f;
             {
                 /* RAM: calcular pct */
@@ -1392,7 +1432,7 @@ int main(void)
 
             /* ── BLOQUE 2 IZQ: ALMACENAMIENTO ───────────────────────────── */
             y = SI_SEP_H1 + 4.0f;
-            SI_BLOCK_TITLE(SI_MX, y, "VOLÚMENES:");
+            SI_BLOCK_TITLE(SI_MX, y, tr("VOLÚMENES:", "VOLUMES:"));
             y += 28.0f;
             {
                 /* Disco sistema: pct */
@@ -1415,23 +1455,23 @@ int main(void)
                         if (free_mb >= 1024) snprintf(free_buf, sizeof(free_buf), "%.1f GB", free_mb / 1024.0);
                         else                 snprintf(free_buf, sizeof(free_buf), "%llu MB", free_mb);
                     }
-                    SI_ROW(SI_MX, y, SI_MX + SI_CW_L, "Espacio disponible", free_buf);
+                    SI_ROW(SI_MX, y, SI_MX + SI_CW_L, tr("Espacio disponible", "Free space"), free_buf);
                 }
             }
 
             /* ── BLOQUE 2 DER: HARDWARE ──────────────────────────────────── */
             y = SI_SEP_H1 + 4.0f;
-            SI_BLOCK_TITLE(SI_RX, y, "ESPECIFICACIONES:");
+            SI_BLOCK_TITLE(SI_RX, y, tr("ESPECIFICACIONES:", "SPECIFICATIONS:"));
             y += 28.0f;
             SI_ROW(SI_RX, y, SI_RX + SI_CW_R, "CPU",           "Cortex-A53 @1.51GHz"); y += SI_ROW_H;
             SI_ROW(SI_RX, y, SI_RX + SI_CW_R, "GPU",           "Mali-G31 (Panfrost)"); y += SI_ROW_H;
             SI_ROW(SI_RX, y, SI_RX + SI_CW_R, "RAM",           "1 GB LPDDR4");         y += SI_ROW_H;
-            SI_ROW(SI_RX, y, SI_RX + SI_CW_R, "Almacenamiento","microSD");              y += SI_ROW_H;
-            SI_ROW(SI_RX, y, SI_RX + SI_CW_R, "Resolución",    "640x480 @ 60Hz");
+            SI_ROW(SI_RX, y, SI_RX + SI_CW_R, tr("Almacenamiento", "Storage"),"microSD");              y += SI_ROW_H;
+            SI_ROW(SI_RX, y, SI_RX + SI_CW_R, tr("Resolución", "Resolution"),    "640x480 @ 60Hz");
 
             /* ── BLOQUE 3 IZQ: SOFTWARE ──────────────────────────────────── */
             y = SI_SEP_H2 + 4.0f;
-            SI_BLOCK_TITLE(SI_MX, y, "MOTOR DE EMULACIÓN:");
+            SI_BLOCK_TITLE(SI_MX, y, tr("MOTOR DE EMULACIÓN:", "EMULATION ENGINE:"));
             y += 28.0f;
             SI_ROW(SI_MX, y, SI_MX + SI_CW_L, "RetroArch", s_retroarch); y += SI_ROW_H;
             SI_ROW(SI_MX, y, SI_MX + SI_CW_L, "Mesa",      s_mesa);      y += SI_ROW_H;
@@ -1439,7 +1479,7 @@ int main(void)
 
             /* ── BLOQUE 3 DER: RED ───────────────────────────────────────── */
             y = SI_SEP_H2 + 4.0f;
-            SI_BLOCK_TITLE(SI_RX, y, "CONECTIVIDAD");
+            SI_BLOCK_TITLE(SI_RX, y, tr("CONECTIVIDAD", "CONNECTIVITY"));
             y += 28.0f;
             SI_ROW    (SI_RX, y, SI_RX + SI_CW_R, "IP",          dev_ip);          y += SI_ROW_H;
             SI_ROW    (SI_RX, y, SI_RX + SI_CW_R, "WiFi",        status_wifi_up ? "Conectado" : "Desconectado"); y += SI_ROW_H;
@@ -1452,10 +1492,10 @@ int main(void)
 
             /* Barra inferior */
             draw_line(ren, SI_MX, 438.0f, SCREEN_W - 20.0f, 438.0f, c_green);
-            draw_footer(ren, f_sm, "[A] Volver");
+            draw_footer(ren, f_sm, tr("[A] Volver", "[A] Back"));
         } else if (state == STATE_UPDATE) {
             const float UX = 20.0f;
-            draw_text(ren, f_sm, "ACTUALIZACI\xc3\x93N DE SISTEMA", c_green, UX, 20.0f);
+            draw_text(ren, f_sm, tr("ACTUALIZACIÓN DE SISTEMA", "SYSTEM UPDATE"), c_green, UX, 20.0f);
             draw_statusbar(ren, f_sm, status_time, status_wifi_up, status_battery);
             draw_line(ren, UX, 44.0f, SCREEN_W - 20.0f, 44.0f, c_green);
 
@@ -1476,35 +1516,35 @@ int main(void)
             }
 
             if (update_phase == UPD_CHECKING) {
-                draw_text(ren, f_sm, "Comprobando actualizaciones...", c_white, UX, 100.0f);
+                draw_text(ren, f_sm, tr("Comprobando actualizaciones...", "Checking for updates..."), c_white, UX, 100.0f);
 
             } else if (update_phase == UPD_NO_UPDATE) {
-                draw_text(ren, f_sm, "El sistema est\xc3\xa1 actualizado.", c_green, UX, 100.0f);
+                draw_text(ren, f_sm, tr("El sistema está actualizado.", "System is up to date."), c_green, UX, 100.0f);
 
             } else if (update_phase == UPD_CONFIRM) {
                 char buf[64];
                 snprintf(buf, sizeof(buf), "Nueva versión disponible:   %s", upd_new_ver);
                 draw_text(ren, f_sm, buf, c_green, UX, 100.0f);
-                draw_text(ren, f_sm, "La descarga se realizará en segundo plano.", c_gray, UX, 122.0f);
-                draw_text(ren, f_sm, "El dispositivo se reiniciará al completar.", c_gray, UX, 140.0f);
+                draw_text(ren, f_sm, tr("La descarga se realizará en segundo plano.", "The download will run in the background."), c_gray, UX, 122.0f);
+                draw_text(ren, f_sm, tr("El dispositivo se reiniciará al completar.", "The device will restart when finished."), c_gray, UX, 140.0f);
                 draw_line(ren, UX, 170.0f, SCREEN_W - 20.0f, 170.0f, c_dkgreen);
-                draw_text(ren, f_med, "[B] Descargar e instalar", c_green,  UX,          188.0f);
-                draw_text(ren, f_med, "[A] Cancelar",             c_gray,   UX + 260.0f, 188.0f);
+                draw_text(ren, f_med, tr("[B] Descargar e instalar", "[B] Download and install"), c_green,  UX,          188.0f);
+                draw_text(ren, f_med, tr("[A] Cancelar", "[A] Cancel"),             c_gray,   UX + 260.0f, 188.0f);
 
             } else if (update_phase == UPD_DOWNLOADING) {
-                draw_text(ren, f_sm, "Descargando actualizaci\xc3\xb3n...", c_white, UX, 100.0f);
+                draw_text(ren, f_sm, tr("Descargando actualización...", "Downloading update..."), c_white, UX, 100.0f);
                 /* Barra de progreso */
                 int pct = (int)(upd_progress * 100.0f);
                 char pct_buf[8]; snprintf(pct_buf, sizeof(pct_buf), "%d%%", pct);
                 draw_bar(ren, f_sm, pct, c_green, c_dkgreen, UX, 122.0f, 30);
                 draw_text(ren, f_sm, pct_buf, c_white, UX + 280.0f, 122.0f);
-                draw_text(ren, f_sm, "No apagues el dispositivo durante la descarga.", c_gray, UX, 144.0f);
+                draw_text(ren, f_sm, tr("No apagues el dispositivo durante la descarga.", "Do not turn off the device during download."), c_gray, UX, 144.0f);
 
             } else if (update_phase == UPD_VERIFYING) {
-                draw_text(ren, f_sm, "Verificando integridad...", c_white, UX, 100.0f);
+                draw_text(ren, f_sm, tr("Verificando integridad...", "Verifying integrity..."), c_white, UX, 100.0f);
 
             } else if (update_phase == UPD_READY) {
-                draw_text(ren, f_sm, "Actualización lista. Reiniciando...", c_green, UX, 100.0f);
+                draw_text(ren, f_sm, tr("Actualización lista. Reiniciando...", "Update ready. Restarting..."), c_green, UX, 100.0f);
                 /* Reiniciar automáticamente */
                 SDL_Delay(2000);
                 exec_req = EXEC_REBOOT;
@@ -1517,7 +1557,7 @@ int main(void)
 
             draw_line(ren, UX, 438.0f, SCREEN_W - 20.0f, 438.0f, c_green);
             if (update_phase != UPD_DOWNLOADING)
-                draw_footer(ren, f_sm, "[A] Volver");
+                draw_footer(ren, f_sm, tr("[A] Volver", "[A] Back"));
             else
                 draw_footer(ren, f_sm, "");
 
