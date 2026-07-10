@@ -1,4 +1,4 @@
-# ARMIGA_CFG_VERSION=1
+# ARMIGA_CFG_VERSION=2
 accessibility_enable = "false"
 accessibility_narrator_speech_speed = "5"
 ai_service_enable = "false"
@@ -2853,7 +2853,7 @@ input_streaming_toggle_btn = "nul"
 input_streaming_toggle_mbtn = "nul"
 input_toggle_fast_forward = "space"
 input_toggle_fast_forward_axis = "nul"
-input_toggle_fast_forward_btn = "nul"
+input_toggle_fast_forward_btn = "6"
 input_toggle_fast_forward_mbtn = "nul"
 input_toggle_fullscreen = "f"
 input_toggle_fullscreen_axis = "nul"
