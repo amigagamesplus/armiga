@@ -41,7 +41,8 @@ typedef enum {
     STATE_DEVMODE,
     STATE_CONFIRM,
     STATE_SYSINFO,
-    STATE_UPDATE
+    STATE_UPDATE,
+    STATE_SETTINGS
 } AppState;
 
 typedef enum {
@@ -58,6 +59,7 @@ typedef enum {
 #define ACTION_UPDATE  2
 #define ACTION_INFO    3
 #define ACTION_SHELL   4
+#define ACTION_SETTINGS 5
 
 static const char *MENU_ICONS[] = {
     "[>]",
@@ -70,6 +72,7 @@ static const char *MENU_ITEMS[][2] = {
     {"Catálogo Amiga",              "Amiga Catalog"},
     {"Actualización de sistema",    "System Update"},
     {"Diagnóstico del sistema",     "System Diagnostics"},
+    {"Configuración",               "Settings"},
     {"Apagar dispositivo",          "Power Off"},
 };
 static const char *MENU_DESC[][2] = {
@@ -79,10 +82,17 @@ static const char *MENU_DESC[][2] = {
      "Download and install the\n" "latest version of Armiga."},
     {"Revisa el estado del\n" "hardware y el sistema.",
      "Check the status of the\n" "hardware and system."},
+    {"Ajustes del sistema:\n" "red inalambrica y mas.",
+     "System settings:\n" "wireless network and more."},
     {"Apaga el dispositivo\n" "de forma segura.",
      "Shut down the device\n" "safely."},
 };
-#define MENU_COUNT 4
+#define MENU_COUNT 5
+
+static const char *SETTINGS_MENU_ITEMS[][2] = {
+    {"Red inalámbrica",             "Wireless Network"},
+};
+#define SETTINGS_MENU_COUNT 1
 
 #define DEV_ACTION_TERMINAL 0
 #define DEV_ACTION_BTOP     1
@@ -855,6 +865,7 @@ int main(void)
     int selected = 0;
     int dev_selected = 0;
     int confirm_target = DEV_ACTION_REBOOT; /* cual de los dos confirm. */
+    int settings_selected = 0;
     AppState state = STATE_MENU;
     ExecRequest exec_req = EXEC_NONE;
     int action   = ACTION_NONE;
@@ -920,6 +931,7 @@ int main(void)
                 else if (state == STATE_DEVMODE) state = STATE_MENU;
                 else if (state == STATE_SYSINFO) state = STATE_MENU;
                 else if (state == STATE_UPDATE) { if (update_phase != UPD_DOWNLOADING && update_phase != UPD_CONFIRM) state = STATE_MENU; }
+                else if (state == STATE_SETTINGS) state = STATE_MENU;
             }
 
             if (state == STATE_MENU) {
@@ -990,6 +1002,23 @@ int main(void)
                         confirm_target = DEV_ACTION_SHUTDOWN;
                         state = STATE_CONFIRM;
                     }
+                }
+                if (ev.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN &&
+                    ev.jbutton.button == BTN_SDL_B)
+                    state = STATE_MENU;
+            }
+            else if (state == STATE_SETTINGS) {
+                if (ev.type == SDL_EVENT_KEY_DOWN) {
+                    if (ev.key.key == SDLK_UP)
+                        settings_selected = (settings_selected - 1 + SETTINGS_MENU_COUNT) % SETTINGS_MENU_COUNT;
+                    if (ev.key.key == SDLK_DOWN)
+                        settings_selected = (settings_selected + 1) % SETTINGS_MENU_COUNT;
+                }
+                if (ev.type == SDL_EVENT_JOYSTICK_HAT_MOTION) {
+                    if (ev.jhat.value == SDL_HAT_UP)
+                        settings_selected = (settings_selected - 1 + SETTINGS_MENU_COUNT) % SETTINGS_MENU_COUNT;
+                    else if (ev.jhat.value == SDL_HAT_DOWN)
+                        settings_selected = (settings_selected + 1) % SETTINGS_MENU_COUNT;
                 }
                 if (ev.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN &&
                     ev.jbutton.button == BTN_SDL_B)
@@ -1097,6 +1126,9 @@ int main(void)
             } else if (action == ACTION_INFO) {
                 state = STATE_SYSINFO;
                 last_sysinfo_update = 0; /* forzar refresco inmediato */
+            } else if (action == ACTION_SETTINGS) {
+                state = STATE_SETTINGS;
+                settings_selected = 0;
             }
             action = ACTION_NONE;
         }
@@ -1249,6 +1281,29 @@ int main(void)
             draw_rect_filled(ren, bar_x, bar_y, bar_w, 4.0f, c_gray);
             draw_rect_filled(ren, bar_x, bar_y, bar_w * frac, 4.0f, c_green);
         }
+
+        } else if (state == STATE_SETTINGS) {
+            draw_text(ren, f_sm, tr("CONFIGURACIÓN", "SETTINGS"), c_green, mx, 20.0f);
+            draw_statusbar(ren, f_sm, status_time, status_wifi_up, status_battery);
+            draw_line(ren, mx, 44.0f, SCREEN_W - 20.0f, 44.0f, c_green);
+
+            float settings_y0 = 64.0f;
+            float settings_item_h = 30.0f;
+            for (int i = 0; i < SETTINGS_MENU_COUNT; i++) {
+                float iy = settings_y0 + i * settings_item_h;
+                if (i == settings_selected) {
+                    draw_rounded_rect_filled(ren, mx - 4.0f, iy - 4.0f,
+                                     mw, settings_item_h - 2.0f, 8.0f, c_selbg);
+                    draw_rect_filled(ren, mx - 4.0f, iy - 4.0f,
+                                     4.0f, settings_item_h - 2.0f, c_green);
+                    draw_text(ren, f_med, SETTINGS_MENU_ITEMS[i][current_lang], c_green, mx + 8.0f, iy);
+                } else {
+                    draw_text(ren, f_med, SETTINGS_MENU_ITEMS[i][current_lang], c_gray, mx + 8.0f, iy);
+                }
+            }
+
+            draw_line(ren, mx, 438.0f, SCREEN_W - 20.0f, 438.0f, c_green);
+            draw_footer(ren, f_sm, tr("[B] Volver", "[B] Back"), s_version);
 
         } else if (state == STATE_DEVMODE) {
             /* Titulo pequeño arriba a la izquierda */
