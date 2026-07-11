@@ -49,7 +49,8 @@ jobs:
             gdisk \
             libconfuse-dev \
             nlohmann-json3-dev \
-            cmake
+            cmake \
+            squashfs-tools
           wget -q https://github.com/pengutronix/genimage/releases/download/v17/genimage-17.tar.xz
           tar xf genimage-17.tar.xz
           cd genimage-17
@@ -144,22 +145,78 @@ jobs:
           compression-level: 9
           retention-days: 30
 
+      - name: Prepare release assets
+        if: github.event.inputs.release == 'true' || startsWith(github.ref, 'refs/tags/v')
+        run: |
+          cd "${BR_OUTPUT}/images"
+          gzip -k -9 armiga.img
+          sha256sum armiga.img.gz > armiga.img.gz.sha256
+          echo "=== Release assets ==="
+          ls -lh armiga.img.gz armiga.img.gz.sha256
+          cat armiga.img.gz.sha256
+
+      - name: Extract release info
+        if: github.event.inputs.release == 'true' || startsWith(github.ref, 'refs/tags/v')
+        run: |
+          RELEASE_TXT=$(unsquashfs -cat "${BR_OUTPUT}/images/rootfs.squashfs" etc/armiga-release 2>/dev/null || echo "")
+          ARMIGA_VER=$(echo "$RELEASE_TXT" | grep '^ARMIGA_VERSION=' | cut -d= -f2)
+          KERNEL_VER=$(echo "$RELEASE_TXT" | grep '^KERNEL_VERSION=' | cut -d= -f2)
+          MESA_VER=$(echo "$RELEASE_TXT" | grep '^MESA_VERSION=' | cut -d= -f2)
+          RETROARCH_VER=$(echo "$RELEASE_TXT" | grep '^RETROARCH_VERSION=' | cut -d= -f2)
+          SDL3_VER=$(echo "$RELEASE_TXT" | grep '^SDL3_VERSION=' | cut -d= -f2)
+          echo "ARMIGA_VER=${ARMIGA_VER:-unknown}" >> "$GITHUB_ENV"
+          echo "KERNEL_VER=${KERNEL_VER:-unknown}" >> "$GITHUB_ENV"
+          echo "MESA_VER=${MESA_VER:-unknown}" >> "$GITHUB_ENV"
+          echo "RETROARCH_VER=${RETROARCH_VER:-unknown}" >> "$GITHUB_ENV"
+          echo "SDL3_VER=${SDL3_VER:-unknown}" >> "$GITHUB_ENV"
+          LAST_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
+          if [ -n "$LAST_TAG" ]; then
+            CHANGELOG=$(git log "${LAST_TAG}..HEAD" --pretty=format:'- %s (%h)' --no-merges | head -20)
+          else
+            CHANGELOG=$(git log --pretty=format:'- %s (%h)' --no-merges -10)
+          fi
+          if [ -z "$CHANGELOG" ]; then
+            CHANGELOG="- Sin cambios de commits registrados"
+          fi
+          {
+            echo "CHANGELOG<<CHANGELOG_EOF"
+            echo "$CHANGELOG"
+            echo "CHANGELOG_EOF"
+          } >> "$GITHUB_ENV"
+
       - name: Create Release
-        if: github.event.inputs.release == 'true'
+        if: github.event.inputs.release == 'true' || startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: build-${{ github.run_number }}
-          name: "Armiga Build #${{ github.run_number }}"
+          tag_name: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || format('build-{0}', github.run_number) }}
+          name: "${{ startsWith(github.ref, 'refs/tags/') && format('Armiga {0}', github.ref_name) || format('Armiga Build #{0}', github.run_number) }}"
           body: |
-            ## Armiga Build #${{ github.run_number }}
-
+            - Versión: ${{ env.ARMIGA_VER }}
+            - Kernel: ${{ env.KERNEL_VER }}
+            - Mesa: ${{ env.MESA_VER }}
+            - RetroArch: ${{ env.RETROARCH_VER }}
+            - SDL3: ${{ env.SDL3_VER }}
             - Buildroot: ${{ env.BR_VERSION }}
-            - Kernel: 7.0.2-armiga
             - Commit: ${{ github.sha }}
 
-            ### Flash
+            ### Cambios desde el release anterior
+            ${{ env.CHANGELOG }}
+
+            ### Instalación
+            ```
             sudo bash flash.sh /dev/sdX
-            (escribe solo boot+system; preserva kickstarts/roms en amiga_data)
-          files: output/images/armiga.img
+            ```
+            Escribe solo boot+system, preserva amiga_data (kickstarts, roms, configs).
+
+            ### Actualización OTA
+            Disponible desde el launcher: Actualización de sistema.
+
+            ### Verificación
+            ```
+            sha256sum -c armiga.img.gz.sha256
+            ```
+          files: |
+            output/images/armiga.img.gz
+            output/images/armiga.img.gz.sha256
           draft: false
-          prerelease: true
+          prerelease: ${{ !startsWith(github.ref, 'refs/tags/v') }}

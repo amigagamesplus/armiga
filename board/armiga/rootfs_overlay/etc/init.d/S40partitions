@@ -1,11 +1,19 @@
 #!/bin/sh
 # =============================================================================
 # S40partitions — Montaje de la partición amiga_data
-# Monta p3 (amiga_data, exFAT: kickstarts + roms + configs persistentes)
-# En primer arranque, expande p3 al resto de la SD
+# Monta p4 (amiga_data, exFAT: kickstarts + roms + configs persistentes)
+# En primer arranque, expande p4 al resto de la SD
+#
+# CAMBIO (esquema A/B):
+#   amiga_data pasa de p3 a p4. Motivo: con la nueva particion system_b
+#   (p3, slot B del esquema A/B), amiga_data debe seguir siendo la
+#   ULTIMA particion fisica del disco — es la unica forma de que el
+#   resize al 100% funcione igual en SD de 16GB, 32GB, 64GB o 128GB+,
+#   sin necesidad de calcular limites ni reservar tamanos fijos.
+#   Orden fisico final: boot(p1) system(p2) system_b(p3) amiga_data(p4).
 #
 # CAMBIO (versión intermedia particionado):
-#   kickstarts (p3) + roms (p4) fusionadas en una única amiga_data (p3).
+#   kickstarts + roms fusionadas en una única amiga_data.
 #   La expansión SOLO se ejecuta si la partición no ha sido expandida antes
 #   (EXPAND_FLAG). A diferencia de la versión anterior, NO se reformatea
 #   la partición si ya contiene datos — mkfs.exfat solo se ejecuta la
@@ -15,13 +23,13 @@
 #   EXPAND_FLAG ya no existe en RAM/tmpfs pero la partición física SÍ
 #   conserva los datos — por eso NO volvemos a formatear, solo remontamos.
 # =============================================================================
-AMIGA_DATA_DEV="/dev/mmcblk0p3"
+AMIGA_DATA_DEV="/dev/mmcblk0p4"
 AMIGA_DATA_MNT="/media/amiga_data"
 EXPAND_FLAG="/media/amiga_data/.armiga_expanded"
 
 do_expand_if_needed() {
     # El flag vive DENTRO de amiga_data, no en rootfs: así sobrevive a un
-    # reflash de boot+system (flash.sh no toca p3) y no se repite el
+    # reflash de boot+system (flash.sh no toca p4) y no se repite el
     # resize/format en cada actualización del sistema.
     if [ -b "$AMIGA_DATA_DEV" ]; then
         # Montar primero en modo lectura para comprobar si ya está expandida
@@ -37,8 +45,11 @@ do_expand_if_needed() {
 
     echo -n "Expanding amiga_data partition (first boot)... "
 
-    # Expandir p3 usando todo el espacio disponible de la SD
-    parted -s /dev/mmcblk0 resizepart 3 100% >/dev/null 2>&1
+    # Expandir p4 usando todo el espacio disponible de la SD.
+    # Seguro porque amiga_data es SIEMPRE la ultima particion fisica
+    # del disco (ver nota de cabecera) — no hay nada despues que pueda
+    # ser invadido por este resize, sea cual sea el tamano real de la SD.
+    parted -s /dev/mmcblk0 resizepart 4 100% >/dev/null 2>&1
 
     # Re-leer la tabla de particiones
     partprobe /dev/mmcblk0 2>/dev/null || partx -u /dev/mmcblk0 >/dev/null 2>&1
@@ -49,13 +60,18 @@ do_expand_if_needed() {
     # hay riesgo de pérdida de datos reales de usuario aquí.
     mkfs.exfat -n "amiga_data" "$AMIGA_DATA_DEV" >/dev/null 2>&1
 
-    mount -t exfat "$AMIGA_DATA_DEV" "$AMIGA_DATA_MNT"
+    mount -t exfat -o noatime "$AMIGA_DATA_DEV" "$AMIGA_DATA_MNT"
     mkdir -p "$AMIGA_DATA_MNT/kickstarts" \
              "$AMIGA_DATA_MNT/roms/adf" "$AMIGA_DATA_MNT/roms/ipf" \
              "$AMIGA_DATA_MNT/roms/whdload" "$AMIGA_DATA_MNT/roms/hdf" \
              "$AMIGA_DATA_MNT/shaders" \
              "$AMIGA_DATA_MNT/retroarch/saves" "$AMIGA_DATA_MNT/retroarch/states" \
-             "$AMIGA_DATA_MNT/retroarch/screenshots" "$AMIGA_DATA_MNT/retroarch/config"
+             "$AMIGA_DATA_MNT/retroarch/screenshots" "$AMIGA_DATA_MNT/retroarch/config" \
+             "$AMIGA_DATA_MNT/retroarch/config/remaps" "$AMIGA_DATA_MNT/retroarch/downloads" \
+             "$AMIGA_DATA_MNT/retroarch/playlists" "$AMIGA_DATA_MNT/retroarch/thumbnails" \
+             "$AMIGA_DATA_MNT/retroarch/overlays" "$AMIGA_DATA_MNT/retroarch/assets" \
+             "$AMIGA_DATA_MNT/retroarch/cheats" "$AMIGA_DATA_MNT/retroarch/records" \
+             "$AMIGA_DATA_MNT/retroarch/records_config" "$AMIGA_DATA_MNT/retroarch/config/autoconfig"
     # Comparar version del template con la instalada
     TEMPLATE_VER=$(grep "^# ARMIGA_CFG_VERSION=" /etc/retroarch/retroarch.cfg.template | cut -d= -f2)
     INSTALLED_VER=$(grep "^# ARMIGA_CFG_VERSION=" "$AMIGA_DATA_MNT/retroarch/retroarch.cfg" 2>/dev/null | cut -d= -f2)
@@ -68,6 +84,11 @@ do_expand_if_needed() {
     if [ ! -f "$AMIGA_DATA_MNT/retroarch/config/PUAE 2021/PUAE 2021.opt" ]; then
         mkdir -p "$AMIGA_DATA_MNT/retroarch/config/PUAE 2021"
         cp "/etc/retroarch/PUAE 2021.opt" "$AMIGA_DATA_MNT/retroarch/config/PUAE 2021/PUAE 2021.opt"
+    fi
+    # Copiar autoconfig de mando si no existe
+    if [ ! -f "$AMIGA_DATA_MNT/retroarch/config/autoconfig/H700 Gamepad.cfg" ]; then
+        mkdir -p "$AMIGA_DATA_MNT/retroarch/config/autoconfig"
+        cp "/etc/retroarch/autoconfig/H700 Gamepad.cfg" "$AMIGA_DATA_MNT/retroarch/config/autoconfig/H700 Gamepad.cfg"
     fi
     # Crear wifi.conf de ejemplo si no existe
     if [ ! -f "$AMIGA_DATA_MNT/wifi.conf" ]; then
@@ -85,7 +106,27 @@ case "$1" in
         mkdir -p "$AMIGA_DATA_MNT"
         do_expand_if_needed
         if [ -b "$AMIGA_DATA_DEV" ]; then
-            mount -t exfat "$AMIGA_DATA_DEV" "$AMIGA_DATA_MNT" 2>/dev/null && echo -n "amiga_data "
+            mount -t exfat -o noatime "$AMIGA_DATA_DEV" "$AMIGA_DATA_MNT" 2>/dev/null && echo -n "amiga_data "
+            # Copiar PUAE 2021.opt y autoconfig de mando si faltan (autorreparacion)
+            if [ ! -f "$AMIGA_DATA_MNT/retroarch/config/PUAE 2021/PUAE 2021.opt" ]; then
+                mkdir -p "$AMIGA_DATA_MNT/retroarch/config/PUAE 2021"
+                cp "/etc/retroarch/PUAE 2021.opt" "$AMIGA_DATA_MNT/retroarch/config/PUAE 2021/PUAE 2021.opt"
+            fi
+            if [ ! -f "$AMIGA_DATA_MNT/retroarch/config/autoconfig/H700 Gamepad.cfg" ]; then
+                mkdir -p "$AMIGA_DATA_MNT/retroarch/config/autoconfig"
+                cp "/etc/retroarch/autoconfig/H700 Gamepad.cfg" "$AMIGA_DATA_MNT/retroarch/config/autoconfig/H700 Gamepad.cfg"
+            fi
+            mkdir -p "$AMIGA_DATA_MNT/kickstarts" \
+                     "$AMIGA_DATA_MNT/roms/adf" "$AMIGA_DATA_MNT/roms/ipf" \
+                     "$AMIGA_DATA_MNT/roms/whdload" "$AMIGA_DATA_MNT/roms/hdf" \
+                     "$AMIGA_DATA_MNT/shaders" \
+                     "$AMIGA_DATA_MNT/retroarch/saves" "$AMIGA_DATA_MNT/retroarch/states" \
+                     "$AMIGA_DATA_MNT/retroarch/screenshots" "$AMIGA_DATA_MNT/retroarch/config" \
+                     "$AMIGA_DATA_MNT/retroarch/config/remaps" "$AMIGA_DATA_MNT/retroarch/downloads" \
+                     "$AMIGA_DATA_MNT/retroarch/playlists" "$AMIGA_DATA_MNT/retroarch/thumbnails" \
+                     "$AMIGA_DATA_MNT/retroarch/overlays" "$AMIGA_DATA_MNT/retroarch/assets" \
+                     "$AMIGA_DATA_MNT/retroarch/cheats" "$AMIGA_DATA_MNT/retroarch/records" \
+                     "$AMIGA_DATA_MNT/retroarch/records_config" "$AMIGA_DATA_MNT/retroarch/config/autoconfig"
         fi
         echo "OK"
         ;;

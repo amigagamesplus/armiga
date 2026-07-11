@@ -1,0 +1,44 @@
+#!/bin/sh
+# =============================================================================
+# S07zram — ZRAM swap
+# SoC H700, 1GB RAM fisica. Usa RAM comprimida (LZ4) como swap para
+# absorber picos de memoria sin recurrir a swap en la SD (lento, desgasta
+# la tarjeta). Se ejecuta manualmente aqui (no via el "swapon -a" del
+# inittab, que corre ANTES de rcS/init.d y por tanto antes de que zram
+# exista).
+# =============================================================================
+ZRAM_DEV="/dev/zram0"
+ZRAM_SIZE="512M"
+ZRAM_ALGO="lz4"
+
+case "$1" in
+    start)
+        printf "Starting ZRAM swap: "
+        modprobe zram num_devices=1 2>/dev/null
+        if [ ! -b "$ZRAM_DEV" ]; then
+            echo "FAIL (no $ZRAM_DEV)"
+            exit 1
+        fi
+        echo "$ZRAM_ALGO" > /sys/block/zram0/comp_algorithm 2>/dev/null
+        echo "$ZRAM_SIZE" > /sys/block/zram0/disksize
+        mkswap "$ZRAM_DEV" >/dev/null 2>&1
+        swapon "$ZRAM_DEV"
+        sysctl -w vm.swappiness=100 >/dev/null 2>&1
+        sysctl -w vm.page-cluster=0 >/dev/null 2>&1
+        echo "OK ($ZRAM_SIZE, $ZRAM_ALGO)"
+        ;;
+    stop)
+        printf "Stopping ZRAM swap: "
+        swapoff "$ZRAM_DEV" 2>/dev/null
+        echo 1 > /sys/block/zram0/reset 2>/dev/null
+        echo "OK"
+        ;;
+    restart)
+        "$0" stop
+        "$0" start
+        ;;
+    *)
+        echo "Usage: $0 {start|stop|restart}"
+        exit 1
+        ;;
+esac

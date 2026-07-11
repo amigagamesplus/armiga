@@ -1,0 +1,138 @@
+#!/bin/sh
+# S43update - Aplica actualizacion OTA pendiente (esquema A/B)
+# Se ejecuta en arranque, antes del launcher. Preserva amiga_data.
+#
+# ESQUEMA A/B:
+#   - system  (p2) = Armiga-A
+#   - system_b(p3) = Armiga-B
+#   - Se flashea SIEMPRE la particion INACTIVA (nunca la que esta
+#     montada como / en este arranque). Al terminar, se actualiza
+#     DEFAULT en extlinux.conf (p1) para apuntar al slot recien
+#     flasheado, y se reinicia.
+#   - Si el nuevo slot falla al arrancar, el slot anterior sigue
+#     intacto: basta con revertir DEFAULT manualmente (o via futuro
+#     mecanismo de rollback) para volver atras.
+
+UPDATE_FLAG="/media/amiga_data/update/pending"
+UPDATE_IMG_GZ="/media/amiga_data/update/armiga.img.gz"
+UPDATE_IMG="/media/amiga_data/update/armiga.img"
+LOG="/media/amiga_data/update/update.log"
+BOOT_DEV="/dev/mmcblk0p1"
+BOOT_MNT="/tmp/boot_ota"
+DEV="/dev/mmcblk0"
+
+[ -f "$UPDATE_FLAG" ]   || exit 0
+[ -f "$UPDATE_IMG_GZ" ] || { rm -f "$UPDATE_FLAG"; exit 0; }
+
+fb() { echo "$1" > /dev/tty0; echo "$(date): $1" >> "$LOG"; }
+
+cleanup_fail() {
+    fb "  $1"
+    umount "$BOOT_MNT" 2>/dev/null
+    rm -f "$UPDATE_FLAG" "$UPDATE_IMG"
+    exit 1
+}
+
+printf "\033[2J\033[H\033[32m" > /dev/tty0
+fb "  ARMIGA OS"
+fb "  Actualizacion del sistema (A/B)"
+fb ""
+fb "  No apagues el dispositivo durante este proceso."
+fb ""
+
+# --- Determinar slot activo actual vía /proc/cmdline ------------------------
+CURRENT_ROOT=$(grep -o 'root=/dev/mmcblk0p[0-9]*' /proc/cmdline | cut -d= -f2)
+case "$CURRENT_ROOT" in
+    /dev/mmcblk0p2)
+        ACTIVE_LABEL="Armiga-A"
+        TARGET_PART="${DEV}p3"
+        TARGET_LABEL="Armiga-B"
+        ;;
+    /dev/mmcblk0p3)
+        ACTIVE_LABEL="Armiga-B"
+        TARGET_PART="${DEV}p2"
+        TARGET_LABEL="Armiga-A"
+        ;;
+    *)
+        cleanup_fail "ERROR: no se pudo determinar el slot activo ($CURRENT_ROOT)."
+        ;;
+esac
+fb "  Slot activo: $ACTIVE_LABEL  ->  Flasheando: $TARGET_LABEL"
+
+# --- Descomprimir imagen -----------------------------------------------------
+fb "  [1/4] Descomprimiendo imagen..."
+gunzip -c "$UPDATE_IMG_GZ" > "$UPDATE_IMG" 2>> "$LOG"
+if [ $? -ne 0 ]; then
+    cleanup_fail "ERROR al descomprimir. Abortando."
+fi
+
+if [ ! -b "$DEV" ]; then
+    cleanup_fail "ERROR: dispositivo no encontrado."
+fi
+
+# --- Leer offsets de la particion SYSTEM (p2) dentro de la imagen -----------
+# La imagen .img siempre trae system en p2 (build normal). Esa es la
+# porcion de bytes que copiamos hacia el slot inactivo, sea cual sea
+# su numero de particion real en el dispositivo (p2 o p3).
+SFDISK_IMG=$(sfdisk -d "$UPDATE_IMG" 2>/dev/null)
+# La linea de la particion 2 es siempre la 2a linea "start=..." tras
+# el encabezado (boot=p1, system=p2, system_b=p3, amiga_data=p4).
+# Usamos el orden posicional en vez de grep por nombre de fichero,
+# para no depender de que el path contenga literalmente "img2".
+IMG_P2_LINE=$(echo "$SFDISK_IMG" | grep "start=" | sed -n '2p')
+IMG_P2_START=$(echo "$IMG_P2_LINE" | grep -o "start=[0-9 ]*" | tr -d " " | cut -d= -f2)
+IMG_P2_SIZE=$( echo "$IMG_P2_LINE" | grep -o "size=[0-9 ]*"  | tr -d " " | cut -d= -f2)
+
+if [ -z "$IMG_P2_START" ] || [ -z "$IMG_P2_SIZE" ]; then
+    cleanup_fail "ERROR: no se pudieron leer offsets de la imagen origen."
+fi
+
+IMG_P2_SKIP_BYTES=$(( IMG_P2_START * 512 ))
+IMG_P2_COUNT_BYTES=$(( IMG_P2_SIZE  * 512 ))
+
+# --- Leer offset del slot INACTIVO en el dispositivo real -------------------
+SFDISK_DEV=$(sfdisk -d "$DEV" 2>/dev/null)
+TARGET_PNAME=$(basename "$TARGET_PART")
+DEV_START=$(echo "$SFDISK_DEV" | grep "$TARGET_PNAME" | grep -o "start=[0-9 ]*" | tr -d " " | cut -d= -f2)
+
+if [ -z "$DEV_START" ]; then
+    cleanup_fail "ERROR: no se pudo leer el offset del slot inactivo ($TARGET_PART)."
+fi
+
+DEV_SEEK_BYTES=$(( DEV_START * 512 ))
+
+# --- Flashear SOLO la particion inactiva -------------------------------------
+# IMPORTANTE: $TARGET_PART nunca esta montada en este momento (es el
+# slot inactivo), por lo que este dd es seguro sin necesidad de
+# desmontar nada ni salir del rootfs activo.
+fb "  [2/4] Flasheando slot inactivo ($TARGET_LABEL, ~3 min)..."
+dd if="$UPDATE_IMG" of="$DEV" bs=4M \
+   iflag=skip_bytes,count_bytes oflag=seek_bytes \
+   skip=$IMG_P2_SKIP_BYTES count=$IMG_P2_COUNT_BYTES seek=$DEV_SEEK_BYTES \
+   conv=fsync 2>> "$LOG"
+if [ $? -ne 0 ]; then
+    cleanup_fail "ERROR al flashear el slot inactivo."
+fi
+
+# --- Actualizar DEFAULT en extlinux.conf (p1) --------------------------------
+fb "  [3/4] Actualizando configuracion de arranque..."
+mkdir -p "$BOOT_MNT"
+mount "$BOOT_DEV" "$BOOT_MNT" 2>> "$LOG"
+if [ $? -ne 0 ]; then
+    cleanup_fail "ERROR: no se pudo montar la particion de arranque."
+fi
+
+EXTLINUX_CONF="$BOOT_MNT/extlinux/extlinux.conf"
+if [ ! -f "$EXTLINUX_CONF" ]; then
+    cleanup_fail "ERROR: extlinux.conf no encontrado en boot."
+fi
+
+sed -i "s/^DEFAULT .*/DEFAULT $TARGET_LABEL/" "$EXTLINUX_CONF"
+sync
+umount "$BOOT_MNT"
+
+# --- Limpieza y reinicio ------------------------------------------------------
+fb "  [4/4] Actualizacion completada. Reiniciando a $TARGET_LABEL..."
+rm -f "$UPDATE_FLAG" "$UPDATE_IMG_GZ" "$UPDATE_IMG" "/media/amiga_data/update/armiga.img.gz.sha256"
+sync
+reboot
