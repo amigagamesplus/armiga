@@ -340,7 +340,7 @@ static int check_update(const char *current_ver,
     fclose(f);
     unlink(tmp);
 
-    if (!tag[0] || !asset_url[0]) return -1;
+    if (!tag[0] || !asset_url[0]) return 0; /* peticion OK pero sin releases publicadas: no hay update */
 
     /* Normalizar tag: quitar 'v' inicial */
     const char *ver = tag;
