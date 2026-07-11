@@ -70,13 +70,13 @@ typedef enum {
    para que la navegacion no salte al cambiar de modo. */
 static const char *KB_LOWER[KB_ROWS][KB_MAX_COLS] = {
     {"q","w","e","r","t","y","u","i","o","p"},
-    {"a","s","d","f","g","h","j","k","l", NULL},
+    {"a","s","d","f","g","h","j","k","l","ñ"},
     {"z","x","c","v","b","n","m","-","_", NULL},
     {NULL},
 };
 static const char *KB_UPPER[KB_ROWS][KB_MAX_COLS] = {
     {"Q","W","E","R","T","Y","U","I","O","P"},
-    {"A","S","D","F","G","H","J","K","L", NULL},
+    {"A","S","D","F","G","H","J","K","L","Ñ"},
     {"Z","X","C","V","B","N","M","-","_", NULL},
     {NULL},
 };
