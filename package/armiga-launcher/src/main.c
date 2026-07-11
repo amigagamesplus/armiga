@@ -42,7 +42,8 @@ typedef enum {
     STATE_CONFIRM,
     STATE_SYSINFO,
     STATE_UPDATE,
-    STATE_SETTINGS
+    STATE_SETTINGS,
+    STATE_WIFI_CONFIG
 } AppState;
 
 typedef enum {
@@ -511,6 +512,31 @@ static void update_status(char *time_str, size_t time_str_sz,
     *battery_pct = cap;
 }
 
+#define WIFI_CONF_PATH "/media/amiga_data/wifi.conf"
+static void read_wifi_conf(char *ssid, size_t ssid_sz, char *password, size_t password_sz)
+{
+    strncpy(ssid, "", ssid_sz);
+    strncpy(password, "", password_sz);
+    FILE *f = fopen(WIFI_CONF_PATH, "r");
+    if (!f) return;
+    char line[256];
+    while (fgets(line, sizeof(line), f)) {
+        line[strcspn(line, "\r\n")] = 0;
+        if (!strncmp(line, "SSID=", 5))
+            strncpy(ssid, line + 5, ssid_sz - 1);
+        else if (!strncmp(line, "PASSWORD=", 9))
+            strncpy(password, line + 9, password_sz - 1);
+    }
+    fclose(f);
+}
+static bool save_wifi_conf(const char *ssid, const char *password)
+{
+    FILE *f = fopen(WIFI_CONF_PATH, "w");
+    if (!f) return false;
+    fprintf(f, "SSID=%s\nPASSWORD=%s\n", ssid, password);
+    fclose(f);
+    return true;
+}
 static void read_release(char *kernel, char *mesa, char *retroarch, char *sdl3,
                          char *build_date, char *version, char *build_number)
 {
@@ -867,6 +893,10 @@ int main(void)
     int dev_selected = 0;
     int confirm_target = DEV_ACTION_REBOOT; /* cual de los dos confirm. */
     int settings_selected = 0;
+    char wifi_ssid[64] = "";
+    char wifi_password[64] = "";
+    int wifi_field_selected = 0;
+    bool wifi_show_password = false;
     AppState state = STATE_MENU;
     ExecRequest exec_req = EXEC_NONE;
     int action   = ACTION_NONE;
@@ -1014,6 +1044,12 @@ int main(void)
                         settings_selected = (settings_selected - 1 + SETTINGS_MENU_COUNT) % SETTINGS_MENU_COUNT;
                     if (ev.key.key == SDLK_DOWN)
                         settings_selected = (settings_selected + 1) % SETTINGS_MENU_COUNT;
+                    if (ev.key.key == SDLK_RETURN && settings_selected == 0) {
+                        read_wifi_conf(wifi_ssid, sizeof(wifi_ssid), wifi_password, sizeof(wifi_password));
+                        wifi_field_selected = 0;
+                        wifi_show_password = false;
+                        state = STATE_WIFI_CONFIG;
+                    }
                 }
                 if (ev.type == SDL_EVENT_JOYSTICK_HAT_MOTION) {
                     if (ev.jhat.value == SDL_HAT_UP)
@@ -1022,8 +1058,41 @@ int main(void)
                         settings_selected = (settings_selected + 1) % SETTINGS_MENU_COUNT;
                 }
                 if (ev.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN &&
-                    ev.jbutton.button == BTN_SDL_B)
+                    ev.jbutton.button == BTN_SDL_B && settings_selected == 0) {
+                    read_wifi_conf(wifi_ssid, sizeof(wifi_ssid), wifi_password, sizeof(wifi_password));
+                    wifi_field_selected = 0;
+                    wifi_show_password = false;
+                    state = STATE_WIFI_CONFIG;
+                }
+                if (ev.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN &&
+                    ev.jbutton.button == BTN_SDL_A)
                     state = STATE_MENU;
+            }
+            else if (state == STATE_WIFI_CONFIG) {
+                if (ev.type == SDL_EVENT_KEY_DOWN) {
+                    if (ev.key.key == SDLK_UP)
+                        wifi_field_selected = (wifi_field_selected - 1 + 2) % 2;
+                    if (ev.key.key == SDLK_DOWN)
+                        wifi_field_selected = (wifi_field_selected + 1) % 2;
+                }
+                if (ev.type == SDL_EVENT_JOYSTICK_HAT_MOTION) {
+                    if (ev.jhat.value == SDL_HAT_UP)
+                        wifi_field_selected = (wifi_field_selected - 1 + 2) % 2;
+                    else if (ev.jhat.value == SDL_HAT_DOWN)
+                        wifi_field_selected = (wifi_field_selected + 1) % 2;
+                }
+                if (ev.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN &&
+                    ev.jbutton.button == BTN_SDL_SELECT)
+                    wifi_show_password = !wifi_show_password;
+                if (ev.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN &&
+                    ev.jbutton.button == BTN_SDL_B) {
+                    /* TODO fase 3: abrir teclado virtual para editar el campo wifi_field_selected */
+                }
+                if (ev.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN &&
+                    ev.jbutton.button == BTN_SDL_A) {
+                    save_wifi_conf(wifi_ssid, wifi_password);
+                    state = STATE_SETTINGS;
+                }
             }
             else if (state == STATE_CONFIRM) {
                 if ((ev.type == SDL_EVENT_KEY_DOWN && ev.key.key == SDLK_RETURN) ||
@@ -1304,7 +1373,58 @@ int main(void)
             }
 
             draw_line(ren, mx, 438.0f, SCREEN_W - 20.0f, 438.0f, c_green);
-            draw_footer(ren, f_sm, tr("[B] Volver", "[B] Back"), s_version);
+            draw_footer(ren, f_sm, tr("[B] Seleccionar  [A] Volver", "[B] Select  [A] Back"), s_version);
+
+        } else if (state == STATE_WIFI_CONFIG) {
+            draw_text(ren, f_sm, tr("RED INALÁMBRICA", "WIRELESS NETWORK"), c_green, mx, 20.0f);
+            draw_statusbar(ren, f_sm, status_time, status_wifi_up, status_battery);
+            draw_line(ren, mx, 44.0f, SCREEN_W - 20.0f, 44.0f, c_green);
+
+            float wifi_y0 = 64.0f;
+            float wifi_item_h = 44.0f;
+
+            {
+                float iy = wifi_y0;
+                bool sel = (wifi_field_selected == 0);
+                SDL_Color labelc = sel ? c_green : c_gray;
+                if (sel) {
+                    draw_rounded_rect_filled(ren, mx - 4.0f, iy - 4.0f,
+                                     mw, wifi_item_h - 6.0f, 8.0f, c_selbg);
+                    draw_rect_filled(ren, mx - 4.0f, iy - 4.0f,
+                                     4.0f, wifi_item_h - 6.0f, c_green);
+                }
+                draw_text(ren, f_sm, "SSID", labelc, mx + 8.0f, iy);
+                draw_text(ren, f_med, wifi_ssid[0] ? wifi_ssid : "--", c_white, mx + 8.0f, iy + 16.0f);
+            }
+
+            {
+                float iy = wifi_y0 + wifi_item_h;
+                bool sel = (wifi_field_selected == 1);
+                SDL_Color labelc = sel ? c_green : c_gray;
+                if (sel) {
+                    draw_rounded_rect_filled(ren, mx - 4.0f, iy - 4.0f,
+                                     mw, wifi_item_h - 6.0f, 8.0f, c_selbg);
+                    draw_rect_filled(ren, mx - 4.0f, iy - 4.0f,
+                                     4.0f, wifi_item_h - 6.0f, c_green);
+                }
+                draw_text(ren, f_sm, tr("CONTRASEÑA", "PASSWORD"), labelc, mx + 8.0f, iy);
+                char masked[64];
+                if (wifi_show_password || !wifi_password[0]) {
+                    strncpy(masked, wifi_password[0] ? wifi_password : "--", sizeof(masked) - 1);
+                    masked[sizeof(masked)-1] = 0;
+                } else {
+                    size_t len = strlen(wifi_password);
+                    if (len >= sizeof(masked)) len = sizeof(masked) - 1;
+                    for (size_t k = 0; k < len; k++) masked[k] = '*';
+                    masked[len] = 0;
+                }
+                draw_text(ren, f_med, masked, c_white, mx + 8.0f, iy + 16.0f);
+            }
+
+            draw_line(ren, mx, 438.0f, SCREEN_W - 20.0f, 438.0f, c_green);
+            draw_footer(ren, f_sm,
+                tr("[B] Editar  [SELECT] Ver/Ocultar  [A] Guardar", "[B] Edit  [SELECT] Show/Hide  [A] Save"),
+                s_version);
 
         } else if (state == STATE_DEVMODE) {
             /* Titulo pequeño arriba a la izquierda */
