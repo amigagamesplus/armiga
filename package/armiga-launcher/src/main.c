@@ -1058,14 +1058,14 @@ int main(void)
                         settings_selected = (settings_selected + 1) % SETTINGS_MENU_COUNT;
                 }
                 if (ev.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN &&
-                    ev.jbutton.button == BTN_SDL_B && settings_selected == 0) {
+                    ev.jbutton.button == BTN_SDL_A && settings_selected == 0) {
                     read_wifi_conf(wifi_ssid, sizeof(wifi_ssid), wifi_password, sizeof(wifi_password));
                     wifi_field_selected = 0;
                     wifi_show_password = false;
                     state = STATE_WIFI_CONFIG;
                 }
                 if (ev.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN &&
-                    ev.jbutton.button == BTN_SDL_A)
+                    ev.jbutton.button == BTN_SDL_B)
                     state = STATE_MENU;
             }
             else if (state == STATE_WIFI_CONFIG) {
@@ -1085,11 +1085,11 @@ int main(void)
                     ev.jbutton.button == BTN_SDL_SELECT)
                     wifi_show_password = !wifi_show_password;
                 if (ev.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN &&
-                    ev.jbutton.button == BTN_SDL_B) {
+                    ev.jbutton.button == BTN_SDL_A) {
                     /* TODO fase 3: abrir teclado virtual para editar el campo wifi_field_selected */
                 }
                 if (ev.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN &&
-                    ev.jbutton.button == BTN_SDL_A) {
+                    ev.jbutton.button == BTN_SDL_B) {
                     save_wifi_conf(wifi_ssid, wifi_password);
                     state = STATE_SETTINGS;
                 }
