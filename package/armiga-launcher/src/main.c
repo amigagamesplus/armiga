@@ -43,7 +43,8 @@ typedef enum {
     STATE_SYSINFO,
     STATE_UPDATE,
     STATE_SETTINGS,
-    STATE_WIFI_CONFIG
+    STATE_WIFI_CONFIG,
+    STATE_KEYBOARD
 } AppState;
 
 typedef enum {
@@ -61,6 +62,47 @@ typedef enum {
 #define ACTION_INFO    3
 #define ACTION_SETTINGS 4
 #define ACTION_SHELL   5
+
+#define KB_ROWS 4
+#define KB_MAX_COLS 10
+/* Filas de letras, min y mayus intercambiables por modo. Los indices de
+   fila/columna coinciden entre minusculas, mayusculas y numeros/simbolos
+   para que la navegacion no salte al cambiar de modo. */
+static const char *KB_LOWER[KB_ROWS][KB_MAX_COLS] = {
+    {"q","w","e","r","t","y","u","i","o","p"},
+    {"a","s","d","f","g","h","j","k","l", NULL},
+    {"z","x","c","v","b","n","m","-","_", NULL},
+    {NULL},
+};
+static const char *KB_UPPER[KB_ROWS][KB_MAX_COLS] = {
+    {"Q","W","E","R","T","Y","U","I","O","P"},
+    {"A","S","D","F","G","H","J","K","L", NULL},
+    {"Z","X","C","V","B","N","M","-","_", NULL},
+    {NULL},
+};
+static const char *KB_SYMBOLS[KB_ROWS][KB_MAX_COLS] = {
+    {"1","2","3","4","5","6","7","8","9","0"},
+    {"!","@","#","$","%","^","&","*","(", ")"},
+    {".",",","/","\\",":",";","+","=", NULL, NULL},
+    {NULL},
+};
+#define KB_MODE_LOWER   0
+#define KB_MODE_UPPER   1
+#define KB_MODE_SYMBOLS 2
+
+static const char *kb_key_at(int mode, int row, int col)
+{
+    if (row < 0 || row >= KB_ROWS || col < 0 || col >= KB_MAX_COLS) return NULL;
+    if (mode == KB_MODE_UPPER)   return KB_UPPER[row][col];
+    if (mode == KB_MODE_SYMBOLS) return KB_SYMBOLS[row][col];
+    return KB_LOWER[row][col];
+}
+static int kb_row_len(int mode, int row)
+{
+    int c = 0;
+    while (c < KB_MAX_COLS && kb_key_at(mode, row, c) != NULL) c++;
+    return c;
+}
 
 static const char *MENU_ICONS[] = {
     "[>]",
@@ -897,6 +939,11 @@ int main(void)
     char wifi_password[64] = "";
     int wifi_field_selected = 0;
     bool wifi_show_password = false;
+    char kb_buffer[64] = "";
+    int  kb_row = 0;
+    int  kb_col = 0;
+    int  kb_mode = KB_MODE_LOWER;
+    AppState kb_return_state = STATE_WIFI_CONFIG;
     AppState state = STATE_MENU;
     ExecRequest exec_req = EXEC_NONE;
     int action   = ACTION_NONE;
@@ -1086,12 +1133,79 @@ int main(void)
                     wifi_show_password = !wifi_show_password;
                 if (ev.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN &&
                     ev.jbutton.button == BTN_SDL_A) {
-                    /* TODO fase 3: abrir teclado virtual para editar el campo wifi_field_selected */
+                    if (wifi_field_selected == 0)
+                        strncpy(kb_buffer, wifi_ssid, sizeof(kb_buffer) - 1);
+                    else
+                        strncpy(kb_buffer, wifi_password, sizeof(kb_buffer) - 1);
+                    kb_buffer[sizeof(kb_buffer) - 1] = 0;
+                    kb_row = 0;
+                    kb_col = 0;
+                    kb_mode = KB_MODE_LOWER;
+                    kb_return_state = STATE_WIFI_CONFIG;
+                    state = STATE_KEYBOARD;
                 }
                 if (ev.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN &&
                     ev.jbutton.button == BTN_SDL_B) {
                     save_wifi_conf(wifi_ssid, wifi_password);
                     state = STATE_SETTINGS;
+                }
+            }
+            else if (state == STATE_KEYBOARD) {
+                int row_len = kb_row_len(kb_mode, kb_row);
+                if (ev.type == SDL_EVENT_KEY_DOWN || ev.type == SDL_EVENT_JOYSTICK_HAT_MOTION) {
+                    int dir_up = 0, dir_down = 0, dir_left = 0, dir_right = 0;
+                    if (ev.type == SDL_EVENT_KEY_DOWN) {
+                        dir_up    = (ev.key.key == SDLK_UP);
+                        dir_down  = (ev.key.key == SDLK_DOWN);
+                        dir_left  = (ev.key.key == SDLK_LEFT);
+                        dir_right = (ev.key.key == SDLK_RIGHT);
+                    } else {
+                        dir_up    = (ev.jhat.value == SDL_HAT_UP);
+                        dir_down  = (ev.jhat.value == SDL_HAT_DOWN);
+                        dir_left  = (ev.jhat.value == SDL_HAT_LEFT);
+                        dir_right = (ev.jhat.value == SDL_HAT_RIGHT);
+                    }
+                    if (dir_up)    kb_row = (kb_row - 1 + KB_ROWS) % KB_ROWS;
+                    if (dir_down)  kb_row = (kb_row + 1) % KB_ROWS;
+                    if (dir_left)  kb_col = (kb_col - 1 + row_len) % row_len;
+                    if (dir_right) kb_col = (kb_col + 1) % row_len;
+                    /* al cambiar de fila, si la columna actual no existe en la nueva fila, recolocar */
+                    int new_row_len = kb_row_len(kb_mode, kb_row);
+                    if (new_row_len > 0 && kb_col >= new_row_len) kb_col = new_row_len - 1;
+                }
+                if (ev.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN &&
+                    ev.jbutton.button == BTN_SDL_B) {
+                    const char *k = kb_key_at(kb_mode, kb_row, kb_col);
+                    if (k) {
+                        size_t len = strlen(kb_buffer);
+                        if (len + strlen(k) < sizeof(kb_buffer) - 1) {
+                            strcat(kb_buffer, k);
+                        }
+                    }
+                }
+                if (ev.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN &&
+                    ev.jbutton.button == BTN_SDL_L1) {
+                    size_t len = strlen(kb_buffer);
+                    if (len > 0) kb_buffer[len - 1] = 0;
+                }
+                if (ev.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN &&
+                    ev.jbutton.button == BTN_SDL_R1) {
+                    if (wifi_field_selected == 0)
+                        strncpy(wifi_ssid, kb_buffer, sizeof(wifi_ssid) - 1);
+                    else
+                        strncpy(wifi_password, kb_buffer, sizeof(wifi_password) - 1);
+                    state = kb_return_state;
+                }
+                if (ev.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN &&
+                    ev.jbutton.button == BTN_SDL_A) {
+                    state = kb_return_state;
+                }
+                if (ev.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN &&
+                    ev.jbutton.button == BTN_SDL_SELECT) {
+                    kb_mode = (kb_mode == KB_MODE_LOWER) ? KB_MODE_UPPER :
+                              (kb_mode == KB_MODE_UPPER) ? KB_MODE_SYMBOLS : KB_MODE_LOWER;
+                    int nl = kb_row_len(kb_mode, kb_row);
+                    if (nl > 0 && kb_col >= nl) kb_col = nl - 1;
                 }
             }
             else if (state == STATE_CONFIRM) {
@@ -1424,6 +1538,43 @@ int main(void)
             draw_line(ren, mx, 438.0f, SCREEN_W - 20.0f, 438.0f, c_green);
             draw_footer(ren, f_sm,
                 tr("[B] Editar  [SELECT] Ver/Ocultar  [A] Guardar", "[B] Edit  [SELECT] Show/Hide  [A] Save"),
+                s_version);
+
+        } else if (state == STATE_KEYBOARD) {
+            draw_text(ren, f_sm,
+                wifi_field_selected == 0 ? "SSID" : tr("CONTRASEÑA", "PASSWORD"),
+                c_green, mx, 20.0f);
+            draw_statusbar(ren, f_sm, status_time, status_wifi_up, status_battery);
+            draw_line(ren, mx, 44.0f, SCREEN_W - 20.0f, 44.0f, c_green);
+
+            draw_rect_filled(ren, mx, 56.0f, SCREEN_W - 40.0f, 30.0f, c_selbg);
+            draw_text(ren, f_med, kb_buffer[0] ? kb_buffer : "", c_white, mx + 8.0f, 62.0f);
+
+            float kb_x0 = mx;
+            float kb_y0 = 110.0f;
+            float key_w = 34.0f;
+            float key_h = 30.0f;
+            float key_gap = 4.0f;
+            for (int r = 0; r < KB_ROWS; r++) {
+                int rlen = kb_row_len(kb_mode, r);
+                for (int c = 0; c < rlen; c++) {
+                    const char *k = kb_key_at(kb_mode, r, c);
+                    if (!k) continue;
+                    float kx = kb_x0 + c * (key_w + key_gap);
+                    float ky = kb_y0 + r * (key_h + key_gap);
+                    bool sel = (r == kb_row && c == kb_col);
+                    if (sel) {
+                        draw_rounded_rect_filled(ren, kx, ky, key_w, key_h, 4.0f, c_selbg);
+                        draw_text_centered(ren, f_sm, k, c_green, kx + key_w/2.0f, ky + 8.0f);
+                    } else {
+                        draw_text_centered(ren, f_sm, k, c_gray, kx + key_w/2.0f, ky + 8.0f);
+                    }
+                }
+            }
+
+            draw_line(ren, mx, 438.0f, SCREEN_W - 20.0f, 438.0f, c_green);
+            draw_footer(ren, f_sm,
+                tr("[B] Insertar [L1] Borrar [R1] Aceptar [A] Cancelar [SELECT] Mayus/Num", "[B] Insert [L1] Delete [R1] Accept [A] Cancel [SELECT] Caps/Num"),
                 s_version);
 
         } else if (state == STATE_DEVMODE) {
