@@ -58,8 +58,8 @@ typedef enum {
 #define ACTION_ROMS    1
 #define ACTION_UPDATE  2
 #define ACTION_INFO    3
-#define ACTION_SHELL   4
-#define ACTION_SETTINGS 5
+#define ACTION_SETTINGS 4
+#define ACTION_SHELL   5
 
 static const char *MENU_ICONS[] = {
     "[>]",
