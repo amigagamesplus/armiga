@@ -155,6 +155,35 @@ jobs:
           ls -lh armiga.img.gz armiga.img.gz.sha256
           cat armiga.img.gz.sha256
 
+      - name: Extract release info
+        if: github.event.inputs.release == 'true' || startsWith(github.ref, 'refs/tags/v')
+        run: |
+          RELEASE_TXT=$(unsquashfs -cat "${BR_OUTPUT}/images/rootfs.squashfs" etc/armiga-release 2>/dev/null || echo "")
+          ARMIGA_VER=$(echo "$RELEASE_TXT" | grep '^ARMIGA_VERSION=' | cut -d= -f2)
+          KERNEL_VER=$(echo "$RELEASE_TXT" | grep '^KERNEL_VERSION=' | cut -d= -f2)
+          MESA_VER=$(echo "$RELEASE_TXT" | grep '^MESA_VERSION=' | cut -d= -f2)
+          RETROARCH_VER=$(echo "$RELEASE_TXT" | grep '^RETROARCH_VERSION=' | cut -d= -f2)
+          SDL3_VER=$(echo "$RELEASE_TXT" | grep '^SDL3_VERSION=' | cut -d= -f2)
+          echo "ARMIGA_VER=${ARMIGA_VER:-unknown}" >> "$GITHUB_ENV"
+          echo "KERNEL_VER=${KERNEL_VER:-unknown}" >> "$GITHUB_ENV"
+          echo "MESA_VER=${MESA_VER:-unknown}" >> "$GITHUB_ENV"
+          echo "RETROARCH_VER=${RETROARCH_VER:-unknown}" >> "$GITHUB_ENV"
+          echo "SDL3_VER=${SDL3_VER:-unknown}" >> "$GITHUB_ENV"
+          LAST_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
+          if [ -n "$LAST_TAG" ]; then
+            CHANGELOG=$(git log "${LAST_TAG}..HEAD" --pretty=format:'- %s (%h)' --no-merges | head -20)
+          else
+            CHANGELOG=$(git log --pretty=format:'- %s (%h)' --no-merges -10)
+          fi
+          if [ -z "$CHANGELOG" ]; then
+            CHANGELOG="- Sin cambios de commits registrados"
+          fi
+          {
+            echo "CHANGELOG<<CHANGELOG_EOF"
+            echo "$CHANGELOG"
+            echo "CHANGELOG_EOF"
+          } >> "$GITHUB_ENV"
+
       - name: Create Release
         if: github.event.inputs.release == 'true' || startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
@@ -162,11 +191,16 @@ jobs:
           tag_name: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || format('build-{0}', github.run_number) }}
           name: "${{ startsWith(github.ref, 'refs/tags/') && format('Armiga {0}', github.ref_name) || format('Armiga Build #{0}', github.run_number) }}"
           body: |
-            ## ${{ startsWith(github.ref, 'refs/tags/') && format('Armiga {0}', github.ref_name) || format('Armiga Build #{0}', github.run_number) }}
-
+            - Versión: ${{ env.ARMIGA_VER }}
+            - Kernel: ${{ env.KERNEL_VER }}
+            - Mesa: ${{ env.MESA_VER }}
+            - RetroArch: ${{ env.RETROARCH_VER }}
+            - SDL3: ${{ env.SDL3_VER }}
             - Buildroot: ${{ env.BR_VERSION }}
-            - Kernel: 7.0.11-armiga
             - Commit: ${{ github.sha }}
+
+            ### Cambios desde el release anterior
+            ${{ env.CHANGELOG }}
 
             ### Instalación
             ```
