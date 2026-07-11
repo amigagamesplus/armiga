@@ -65,6 +65,7 @@ static const char *MENU_ICONS[] = {
     "[>]",
     "[~]",
     "[i]",
+    "[#]",
     "[O]",
 };
 
