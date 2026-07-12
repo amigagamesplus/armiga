@@ -73,19 +73,19 @@ static const char *KB_LOWER[KB_ROWS][KB_MAX_COLS] = {
     {"q","w","e","r","t","y","u","i","o","p"},
     {"a","s","d","f","g","h","j","k","l","ñ"},
     {"z","x","c","v","b","n","m","-","_", NULL},
-    {NULL},
+    {" ", NULL},
 };
 static const char *KB_UPPER[KB_ROWS][KB_MAX_COLS] = {
     {"Q","W","E","R","T","Y","U","I","O","P"},
     {"A","S","D","F","G","H","J","K","L","Ñ"},
     {"Z","X","C","V","B","N","M","-","_", NULL},
-    {NULL},
+    {" ", NULL},
 };
 static const char *KB_SYMBOLS[KB_ROWS][KB_MAX_COLS] = {
     {"1","2","3","4","5","6","7","8","9","0"},
     {"!","@","#","$","%","^","&","*","(", ")"},
     {".",",","/","\\",":",";","+","=", NULL, NULL},
-    {NULL},
+    {" ", NULL},
 };
 #define KB_MODE_LOWER   0
 #define KB_MODE_UPPER   1
@@ -1560,24 +1560,29 @@ int main(void)
 
             SDL_Color c_keybg = COL_KEY_BG;
             float kb_x0 = mx;
-            float kb_y0 = 110.0f;
-            float key_w = 34.0f;
-            float key_h = 30.0f;
-            float key_gap = 4.0f;
+            float kb_y0 = 130.0f;
+            float key_w = 48.0f;
+            float key_h = 42.0f;
+            float key_gap = 6.0f;
+            float space_w = 6.0f * key_w + 5.0f * key_gap;
+            float space_x0 = kb_x0 + 2.0f * (key_w + key_gap);
             for (int r = 0; r < KB_ROWS; r++) {
                 int rlen = kb_row_len(kb_mode, r);
                 for (int c = 0; c < rlen; c++) {
                     const char *k = kb_key_at(kb_mode, r, c);
                     if (!k) continue;
-                    float kx = kb_x0 + c * (key_w + key_gap);
+                    bool is_space_row = (r == 3);
+                    float kx = is_space_row ? space_x0 : kb_x0 + c * (key_w + key_gap);
+                    float kw = is_space_row ? space_w : key_w;
                     float ky = kb_y0 + r * (key_h + key_gap);
                     bool sel = (r == kb_row && c == kb_col);
+                    const char *label = is_space_row ? tr("ESPACIO", "SPACE") : k;
                     if (sel) {
-                        draw_rounded_rect_filled(ren, kx, ky, key_w, key_h, 4.0f, c_selbg);
-                        draw_text_centered(ren, f_sm, k, c_green, kx + key_w/2.0f, ky + 8.0f);
+                        draw_rounded_rect_filled(ren, kx, ky, kw, key_h, 4.0f, c_selbg);
+                        draw_text_centered(ren, f_sm, label, c_green, kx + kw/2.0f, ky + key_h/2.0f - 6.0f);
                     } else {
-                        draw_rounded_rect_filled(ren, kx, ky, key_w, key_h, 4.0f, c_keybg);
-                        draw_text_centered(ren, f_sm, k, c_gray, kx + key_w/2.0f, ky + 8.0f);
+                        draw_rounded_rect_filled(ren, kx, ky, kw, key_h, 4.0f, c_keybg);
+                        draw_text_centered(ren, f_sm, label, c_gray, kx + kw/2.0f, ky + key_h/2.0f - 6.0f);
                     }
                 }
             }
