@@ -1552,11 +1552,13 @@ int main(void)
             draw_text(ren, f_med, kb_buffer[0] ? kb_buffer : "", c_white, mx + 8.0f, 62.0f);
 
             SDL_Color c_keybg = COL_KEY_BG;
-            float kb_x0 = mx;
             float kb_y0 = 130.0f;
             float key_w = 48.0f;
             float key_h = 42.0f;
             float key_gap = 6.0f;
+            float kb_grid_w = 10.0f * key_w + 9.0f * key_gap;
+            float kb_area_w = SCREEN_W - 40.0f;
+            float kb_x0 = mx + (kb_area_w - kb_grid_w) / 2.0f;
             float space_w = 6.0f * key_w + 5.0f * key_gap;
             float space_x0 = kb_x0 + 2.0f * (key_w + key_gap);
             for (int r = 0; r < KB_ROWS; r++) {
