@@ -1174,7 +1174,7 @@ int main(void)
                     if (new_row_len > 0 && kb_col >= new_row_len) kb_col = new_row_len - 1;
                 }
                 if (ev.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN &&
-                    ev.jbutton.button == BTN_SDL_B) {
+                    ev.jbutton.button == BTN_SDL_A) {
                     const char *k = kb_key_at(kb_mode, kb_row, kb_col);
                     if (k) {
                         size_t len = strlen(kb_buffer);
@@ -1197,7 +1197,7 @@ int main(void)
                     state = kb_return_state;
                 }
                 if (ev.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN &&
-                    ev.jbutton.button == BTN_SDL_A) {
+                    ev.jbutton.button == BTN_SDL_B) {
                     state = kb_return_state;
                 }
                 if (ev.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN &&
@@ -1574,7 +1574,7 @@ int main(void)
 
             draw_line(ren, mx, 438.0f, SCREEN_W - 20.0f, 438.0f, c_green);
             draw_footer(ren, f_sm,
-                tr("[B] Insertar [L1] Borrar [R1] Aceptar [A] Cancelar [SELECT] Mayus/Num", "[B] Insert [L1] Delete [R1] Accept [A] Cancel [SELECT] Caps/Num"),
+                tr("[A] Insertar [L1] Borrar [R1] Aceptar [B] Cancelar [SELECT] Mayus/Num", "[A] Insert [L1] Delete [R1] Accept [B] Cancel [SELECT] Caps/Num"),
                 s_version);
 
         } else if (state == STATE_DEVMODE) {
