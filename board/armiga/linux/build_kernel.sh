@@ -9,7 +9,7 @@
 
 set -e
 
-KERNEL_VERSION="7.0.11"
+KERNEL_VERSION="7.0.14"
 LINUX_DIR="linux-${KERNEL_VERSION}"
 BOARD_DIR="$(cd "$(dirname "$0")" && pwd)"
 BOOTLOADER_DIR="$(dirname "$BOARD_DIR")/bootloader"
@@ -82,7 +82,7 @@ echo "Módulos listos en $MODULES_DIR (Cópialos después a la partición rootfs
 
 echo "=== Copiando binarios al directorio bootloader ==="
 mkdir -p "$BOOTLOADER_DIR"
-cp arch/arm64/boot/Image "$BOOTLOADER_DIR/Image"
+cp arch/arm64/boot/Image "$BOOTLOADER_DIR/KERNEL"
 
 # El dtb específico del H700 (RG40XX H)
 DTB_FILE="arch/arm64/boot/dts/allwinner/sun50i-h700-anbernic-rg40xx-h.dtb"

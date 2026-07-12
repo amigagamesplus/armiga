@@ -34,6 +34,7 @@
 #define COL_GRAY     {136, 136, 136, 255}
 #define COL_SEL_BG   { 42,  42,  42, 255}
 #define COL_RED      {200,  40,  40, 255}
+#define COL_KEY_BG   { 22,  22,  22, 255}
 
 
 typedef enum {
@@ -41,7 +42,12 @@ typedef enum {
     STATE_DEVMODE,
     STATE_CONFIRM,
     STATE_SYSINFO,
-    STATE_UPDATE
+    STATE_UPDATE,
+    STATE_SETTINGS,
+    STATE_WIFI_CONFIG,
+    STATE_KEYBOARD,
+    STATE_BACKUP_MENU,
+    STATE_BACKUP_LIST
 } AppState;
 
 typedef enum {
@@ -57,12 +63,55 @@ typedef enum {
 #define ACTION_ROMS    1
 #define ACTION_UPDATE  2
 #define ACTION_INFO    3
-#define ACTION_SHELL   4
+#define ACTION_SETTINGS 4
+#define ACTION_SHELL   5
+
+#define KB_ROWS 4
+#define KB_MAX_COLS 10
+/* Filas de letras, min y mayus intercambiables por modo. Los indices de
+   fila/columna coinciden entre minusculas, mayusculas y numeros/simbolos
+   para que la navegacion no salte al cambiar de modo. */
+static const char *KB_LOWER[KB_ROWS][KB_MAX_COLS] = {
+    {"q","w","e","r","t","y","u","i","o","p"},
+    {"a","s","d","f","g","h","j","k","l","ñ"},
+    {"z","x","c","v","b","n","m","-","_", NULL},
+    {" ", NULL},
+};
+static const char *KB_UPPER[KB_ROWS][KB_MAX_COLS] = {
+    {"Q","W","E","R","T","Y","U","I","O","P"},
+    {"A","S","D","F","G","H","J","K","L","Ñ"},
+    {"Z","X","C","V","B","N","M","-","_", NULL},
+    {" ", NULL},
+};
+static const char *KB_SYMBOLS[KB_ROWS][KB_MAX_COLS] = {
+    {"1","2","3","4","5","6","7","8","9","0"},
+    {"!","@","#","$","%","^","&","*","(", ")"},
+    {".",",","/","\\",":",";","+","=", NULL, NULL},
+    {" ", NULL},
+};
+#define KB_MODE_LOWER   0
+#define KB_MODE_UPPER   1
+#define KB_MODE_SYMBOLS 2
+
+static const char *kb_key_at(int mode, int row, int col)
+{
+    if (row < 0 || row >= KB_ROWS || col < 0 || col >= KB_MAX_COLS) return NULL;
+    if (mode == KB_MODE_UPPER)   return KB_UPPER[row][col];
+    if (mode == KB_MODE_SYMBOLS) return KB_SYMBOLS[row][col];
+    return KB_LOWER[row][col];
+}
+static int kb_row_len(int mode, int row)
+{
+    int c = 0;
+    while (c < KB_MAX_COLS && kb_key_at(mode, row, c) != NULL) c++;
+    return c;
+}
 
 static const char *MENU_ICONS[] = {
     "[>]",
     "[~]",
     "[i]",
+    "[#]",
     "[O]",
 };
 
@@ -70,6 +119,7 @@ static const char *MENU_ITEMS[][2] = {
     {"Catálogo Amiga",              "Amiga Catalog"},
     {"Actualización de sistema",    "System Update"},
     {"Diagnóstico del sistema",     "System Diagnostics"},
+    {"Configuración",               "Settings"},
     {"Apagar dispositivo",          "Power Off"},
 };
 static const char *MENU_DESC[][2] = {
@@ -79,10 +129,26 @@ static const char *MENU_DESC[][2] = {
      "Download and install the\n" "latest version of Armiga."},
     {"Revisa el estado del\n" "hardware y el sistema.",
      "Check the status of the\n" "hardware and system."},
+    {"Ajustes del sistema:\n" "red inalambrica y mas.",
+     "System settings:\n" "wireless network and more."},
     {"Apaga el dispositivo\n" "de forma segura.",
      "Shut down the device\n" "safely."},
 };
-#define MENU_COUNT 4
+#define MENU_COUNT 5
+
+static const char *SETTINGS_MENU_ITEMS[][2] = {
+    {"Red inalámbrica",             "Wireless Network"},
+    {"Copia de seguridad",          "Backup"},
+    {"Restablecer valores de fábrica", "Factory reset"},
+};
+#define SETTINGS_MENU_COUNT 3
+#define SETTINGS_ACTION_FACTORY_RESET 10
+
+static const char *BACKUP_MENU_ITEMS[][2] = {
+    {"Crear nueva copia",           "Create new backup"},
+    {"Restaurar copia",             "Restore backup"},
+};
+#define BACKUP_MENU_COUNT 2
 
 #define DEV_ACTION_TERMINAL 0
 #define DEV_ACTION_BTOP     1
@@ -500,6 +566,89 @@ static void update_status(char *time_str, size_t time_str_sz,
     *battery_pct = cap;
 }
 
+#define WIFI_CONF_PATH "/media/amiga_data/wifi.conf"
+static void read_wifi_conf(char *ssid, size_t ssid_sz, char *password, size_t password_sz)
+{
+    strncpy(ssid, "", ssid_sz);
+    strncpy(password, "", password_sz);
+    FILE *f = fopen(WIFI_CONF_PATH, "r");
+    if (!f) return;
+    char line[256];
+    while (fgets(line, sizeof(line), f)) {
+        line[strcspn(line, "\r\n")] = 0;
+        if (!strncmp(line, "SSID=", 5))
+            strncpy(ssid, line + 5, ssid_sz - 1);
+        else if (!strncmp(line, "PASSWORD=", 9))
+            strncpy(password, line + 9, password_sz - 1);
+    }
+    fclose(f);
+}
+static bool save_wifi_conf(const char *ssid, const char *password)
+{
+    FILE *f = fopen(WIFI_CONF_PATH, "w");
+    if (!f) return false;
+    fprintf(f, "SSID=%s\nPASSWORD=%s\n", ssid, password);
+    fclose(f);
+    return true;
+}
+static void factory_reset(void)
+{
+    system("rm -f /media/amiga_data/armiga.cfg "
+           "/media/amiga_data/wifi.conf "
+           "/media/amiga_data/test_wifi.conf "
+           "/media/amiga_data/wifi_debug.log "
+           "/media/amiga_data/retroarch/retroarch.cfg");
+    system("rm -rf /media/amiga_data/retroarch/config "
+           "/media/amiga_data/.cache "
+           "/media/amiga_data/.config "
+           "/media/amiga_data/.local");
+}
+#define BACKUP_DIR "/media/amiga_data/backups"
+#define BACKUP_MAX 3
+static void create_backup(void)
+{
+    system("mkdir -p " BACKUP_DIR);
+    char ts[32];
+    time_t now = time(NULL);
+    struct tm *tm_now = localtime(&now);
+    strftime(ts, sizeof(ts), "%Y%m%d_%H%M%S", tm_now);
+    char cmd[768];
+    snprintf(cmd, sizeof(cmd),
+        "cd /media/amiga_data && tar caf " BACKUP_DIR "/backup_%s.tar.gz "
+        "armiga.cfg wifi.conf "
+        "retroarch/retroarch.cfg retroarch/config "
+        "retroarch/saves retroarch/states "
+        "retroarch/playlists retroarch/thumbnails "
+        "2>/dev/null", ts);
+    system(cmd);
+    /* Rotar: mantener solo los BACKUP_MAX mas recientes */
+    system("cd " BACKUP_DIR " && ls -t backup_*.tar.gz 2>/dev/null | "
+           "tail -n +" "4" " | xargs -r rm -f");
+}
+static int list_backups(char names[][64], int max_names)
+{
+    FILE *p = popen("ls -t " BACKUP_DIR "/backup_*.tar.gz 2>/dev/null", "r");
+    if (!p) return 0;
+    int n = 0;
+    char line[256];
+    while (n < max_names && fgets(line, sizeof(line), p)) {
+        line[strcspn(line, "\r\n")] = 0;
+        const char *base = strrchr(line, '/');
+        base = base ? base + 1 : line;
+        strncpy(names[n], base, 63);
+        names[n][63] = 0;
+        n++;
+    }
+    pclose(p);
+    return n;
+}
+static void restore_backup(const char *filename)
+{
+    char cmd[512];
+    snprintf(cmd, sizeof(cmd),
+        "cd /media/amiga_data && tar xaf " BACKUP_DIR "/%s 2>/dev/null", filename);
+    system(cmd);
+}
 static void read_release(char *kernel, char *mesa, char *retroarch, char *sdl3,
                          char *build_date, char *version, char *build_number)
 {
@@ -855,6 +1004,23 @@ int main(void)
     int selected = 0;
     int dev_selected = 0;
     int confirm_target = DEV_ACTION_REBOOT; /* cual de los dos confirm. */
+    AppState confirm_return_state = STATE_DEVMODE;
+    int settings_selected = 0;
+    int backup_selected = 0;
+    Uint64 backup_msg_until = 0;
+    #define BACKUP_LIST_MAX 3
+    char backup_list[BACKUP_LIST_MAX][64];
+    int backup_count = 0;
+    int backup_list_selected = 0;
+    char wifi_ssid[64] = "";
+    char wifi_password[64] = "";
+    int wifi_field_selected = 0;
+    bool wifi_show_password = false;
+    char kb_buffer[64] = "";
+    int  kb_row = 0;
+    int  kb_col = 0;
+    int  kb_mode = KB_MODE_LOWER;
+    AppState kb_return_state = STATE_WIFI_CONFIG;
     AppState state = STATE_MENU;
     ExecRequest exec_req = EXEC_NONE;
     int action   = ACTION_NONE;
@@ -920,6 +1086,7 @@ int main(void)
                 else if (state == STATE_DEVMODE) state = STATE_MENU;
                 else if (state == STATE_SYSINFO) state = STATE_MENU;
                 else if (state == STATE_UPDATE) { if (update_phase != UPD_DOWNLOADING && update_phase != UPD_CONFIRM) state = STATE_MENU; }
+                else if (state == STATE_SETTINGS) state = STATE_MENU;
             }
 
             if (state == STATE_MENU) {
@@ -995,17 +1162,217 @@ int main(void)
                     ev.jbutton.button == BTN_SDL_B)
                     state = STATE_MENU;
             }
+            else if (state == STATE_SETTINGS) {
+                if (ev.type == SDL_EVENT_KEY_DOWN) {
+                    if (ev.key.key == SDLK_UP)
+                        settings_selected = (settings_selected - 1 + SETTINGS_MENU_COUNT) % SETTINGS_MENU_COUNT;
+                    if (ev.key.key == SDLK_DOWN)
+                        settings_selected = (settings_selected + 1) % SETTINGS_MENU_COUNT;
+                    if (ev.key.key == SDLK_RETURN && settings_selected == 0) {
+                        read_wifi_conf(wifi_ssid, sizeof(wifi_ssid), wifi_password, sizeof(wifi_password));
+                        wifi_field_selected = 0;
+                        wifi_show_password = false;
+                        state = STATE_WIFI_CONFIG;
+                    }
+                    if (ev.key.key == SDLK_RETURN && settings_selected == 1) {
+                        backup_selected = 0;
+                        state = STATE_BACKUP_MENU;
+                    }
+                    if (ev.key.key == SDLK_RETURN && settings_selected == 2) {
+                        confirm_target = SETTINGS_ACTION_FACTORY_RESET;
+                        confirm_return_state = STATE_SETTINGS;
+                        state = STATE_CONFIRM;
+                    }
+                }
+                if (ev.type == SDL_EVENT_JOYSTICK_HAT_MOTION) {
+                    if (ev.jhat.value == SDL_HAT_UP)
+                        settings_selected = (settings_selected - 1 + SETTINGS_MENU_COUNT) % SETTINGS_MENU_COUNT;
+                    else if (ev.jhat.value == SDL_HAT_DOWN)
+                        settings_selected = (settings_selected + 1) % SETTINGS_MENU_COUNT;
+                }
+                if (ev.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN &&
+                    ev.jbutton.button == BTN_SDL_A && settings_selected == 0) {
+                    read_wifi_conf(wifi_ssid, sizeof(wifi_ssid), wifi_password, sizeof(wifi_password));
+                    wifi_field_selected = 0;
+                    wifi_show_password = false;
+                    state = STATE_WIFI_CONFIG;
+                }
+                if (ev.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN &&
+                    ev.jbutton.button == BTN_SDL_A && settings_selected == 1) {
+                    backup_selected = 0;
+                    state = STATE_BACKUP_MENU;
+                }
+                if (ev.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN &&
+                    ev.jbutton.button == BTN_SDL_A && settings_selected == 2) {
+                    confirm_target = SETTINGS_ACTION_FACTORY_RESET;
+                    confirm_return_state = STATE_SETTINGS;
+                    state = STATE_CONFIRM;
+                }
+                if (ev.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN &&
+                    ev.jbutton.button == BTN_SDL_B)
+                    state = STATE_MENU;
+            }
+            else if (state == STATE_BACKUP_MENU) {
+                if (ev.type == SDL_EVENT_KEY_DOWN) {
+                    if (ev.key.key == SDLK_UP)
+                        backup_selected = (backup_selected - 1 + BACKUP_MENU_COUNT) % BACKUP_MENU_COUNT;
+                    if (ev.key.key == SDLK_DOWN)
+                        backup_selected = (backup_selected + 1) % BACKUP_MENU_COUNT;
+                }
+                if (ev.type == SDL_EVENT_JOYSTICK_HAT_MOTION) {
+                    if (ev.jhat.value == SDL_HAT_UP)
+                        backup_selected = (backup_selected - 1 + BACKUP_MENU_COUNT) % BACKUP_MENU_COUNT;
+                    else if (ev.jhat.value == SDL_HAT_DOWN)
+                        backup_selected = (backup_selected + 1) % BACKUP_MENU_COUNT;
+                }
+                if (ev.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN &&
+                    ev.jbutton.button == BTN_SDL_A && backup_selected == 0) {
+                    create_backup();
+                    backup_msg_until = SDL_GetTicks() + 2000;
+                }
+                if (ev.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN &&
+                    ev.jbutton.button == BTN_SDL_A && backup_selected == 1) {
+                    backup_count = list_backups(backup_list, BACKUP_LIST_MAX);
+                    backup_list_selected = 0;
+                    state = STATE_BACKUP_LIST;
+                }
+                if (ev.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN &&
+                    ev.jbutton.button == BTN_SDL_B)
+                    state = STATE_SETTINGS;
+            }
+            else if (state == STATE_BACKUP_LIST) {
+                if (ev.type == SDL_EVENT_KEY_DOWN && backup_count > 0) {
+                    if (ev.key.key == SDLK_UP)
+                        backup_list_selected = (backup_list_selected - 1 + backup_count) % backup_count;
+                    if (ev.key.key == SDLK_DOWN)
+                        backup_list_selected = (backup_list_selected + 1) % backup_count;
+                }
+                if (ev.type == SDL_EVENT_JOYSTICK_HAT_MOTION && backup_count > 0) {
+                    if (ev.jhat.value == SDL_HAT_UP)
+                        backup_list_selected = (backup_list_selected - 1 + backup_count) % backup_count;
+                    else if (ev.jhat.value == SDL_HAT_DOWN)
+                        backup_list_selected = (backup_list_selected + 1) % backup_count;
+                }
+                if (ev.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN &&
+                    ev.jbutton.button == BTN_SDL_A && backup_count > 0) {
+                    restore_backup(backup_list[backup_list_selected]);
+                    running = false;
+                    exec_req = EXEC_REBOOT;
+                }
+                if (ev.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN &&
+                    ev.jbutton.button == BTN_SDL_B)
+                    state = STATE_BACKUP_MENU;
+            }
+            else if (state == STATE_WIFI_CONFIG) {
+                if (ev.type == SDL_EVENT_KEY_DOWN) {
+                    if (ev.key.key == SDLK_UP)
+                        wifi_field_selected = (wifi_field_selected - 1 + 2) % 2;
+                    if (ev.key.key == SDLK_DOWN)
+                        wifi_field_selected = (wifi_field_selected + 1) % 2;
+                }
+                if (ev.type == SDL_EVENT_JOYSTICK_HAT_MOTION) {
+                    if (ev.jhat.value == SDL_HAT_UP)
+                        wifi_field_selected = (wifi_field_selected - 1 + 2) % 2;
+                    else if (ev.jhat.value == SDL_HAT_DOWN)
+                        wifi_field_selected = (wifi_field_selected + 1) % 2;
+                }
+                if (ev.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN &&
+                    ev.jbutton.button == BTN_SDL_SELECT)
+                    wifi_show_password = !wifi_show_password;
+                if (ev.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN &&
+                    ev.jbutton.button == BTN_SDL_A) {
+                    if (wifi_field_selected == 0)
+                        strncpy(kb_buffer, wifi_ssid, sizeof(kb_buffer) - 1);
+                    else
+                        strncpy(kb_buffer, wifi_password, sizeof(kb_buffer) - 1);
+                    kb_buffer[sizeof(kb_buffer) - 1] = 0;
+                    kb_row = 0;
+                    kb_col = 0;
+                    kb_mode = KB_MODE_LOWER;
+                    kb_return_state = STATE_WIFI_CONFIG;
+                    state = STATE_KEYBOARD;
+                }
+                if (ev.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN &&
+                    ev.jbutton.button == BTN_SDL_B) {
+                    save_wifi_conf(wifi_ssid, wifi_password);
+                    state = STATE_SETTINGS;
+                }
+            }
+            else if (state == STATE_KEYBOARD) {
+                int row_len = kb_row_len(kb_mode, kb_row);
+                if (ev.type == SDL_EVENT_KEY_DOWN || ev.type == SDL_EVENT_JOYSTICK_HAT_MOTION) {
+                    int dir_up = 0, dir_down = 0, dir_left = 0, dir_right = 0;
+                    if (ev.type == SDL_EVENT_KEY_DOWN) {
+                        dir_up    = (ev.key.key == SDLK_UP);
+                        dir_down  = (ev.key.key == SDLK_DOWN);
+                        dir_left  = (ev.key.key == SDLK_LEFT);
+                        dir_right = (ev.key.key == SDLK_RIGHT);
+                    } else {
+                        dir_up    = (ev.jhat.value == SDL_HAT_UP);
+                        dir_down  = (ev.jhat.value == SDL_HAT_DOWN);
+                        dir_left  = (ev.jhat.value == SDL_HAT_LEFT);
+                        dir_right = (ev.jhat.value == SDL_HAT_RIGHT);
+                    }
+                    if (dir_up)    kb_row = (kb_row - 1 + KB_ROWS) % KB_ROWS;
+                    if (dir_down)  kb_row = (kb_row + 1) % KB_ROWS;
+                    if (dir_left)  kb_col = (kb_col - 1 + row_len) % row_len;
+                    if (dir_right) kb_col = (kb_col + 1) % row_len;
+                    /* al cambiar de fila, si la columna actual no existe en la nueva fila, recolocar */
+                    int new_row_len = kb_row_len(kb_mode, kb_row);
+                    if (new_row_len > 0 && kb_col >= new_row_len) kb_col = new_row_len - 1;
+                }
+                if (ev.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN &&
+                    ev.jbutton.button == BTN_SDL_A) {
+                    const char *k = kb_key_at(kb_mode, kb_row, kb_col);
+                    if (k) {
+                        size_t len = strlen(kb_buffer);
+                        if (len + strlen(k) < sizeof(kb_buffer) - 1) {
+                            strcat(kb_buffer, k);
+                        }
+                    }
+                }
+                if (ev.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN &&
+                    ev.jbutton.button == BTN_SDL_L1) {
+                    size_t len = strlen(kb_buffer);
+                    if (len > 0) kb_buffer[len - 1] = 0;
+                }
+                if (ev.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN &&
+                    ev.jbutton.button == BTN_SDL_R1) {
+                    if (wifi_field_selected == 0)
+                        strncpy(wifi_ssid, kb_buffer, sizeof(wifi_ssid) - 1);
+                    else
+                        strncpy(wifi_password, kb_buffer, sizeof(wifi_password) - 1);
+                    state = kb_return_state;
+                }
+                if (ev.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN &&
+                    ev.jbutton.button == BTN_SDL_B) {
+                    state = kb_return_state;
+                }
+                if (ev.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN &&
+                    ev.jbutton.button == BTN_SDL_SELECT) {
+                    kb_mode = (kb_mode == KB_MODE_LOWER) ? KB_MODE_UPPER :
+                              (kb_mode == KB_MODE_UPPER) ? KB_MODE_SYMBOLS : KB_MODE_LOWER;
+                    int nl = kb_row_len(kb_mode, kb_row);
+                    if (nl > 0 && kb_col >= nl) kb_col = nl - 1;
+                }
+            }
             else if (state == STATE_CONFIRM) {
                 if ((ev.type == SDL_EVENT_KEY_DOWN && ev.key.key == SDLK_RETURN) ||
                     (ev.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN &&
                      ev.jbutton.button == BTN_SDL_A)) {
-                    running = false;
-                    exec_req = (confirm_target == DEV_ACTION_REBOOT)
-                               ? EXEC_REBOOT : EXEC_SHUTDOWN;
+                    if (confirm_target == SETTINGS_ACTION_FACTORY_RESET) {
+                        factory_reset();
+                        running = false;
+                        exec_req = EXEC_REBOOT;
+                    } else {
+                        running = false;
+                        exec_req = (confirm_target == DEV_ACTION_REBOOT)
+                                   ? EXEC_REBOOT : EXEC_SHUTDOWN;
+                    }
                 }
                 if (ev.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN &&
                     ev.jbutton.button == BTN_SDL_B)
-                    state = STATE_DEVMODE;
+                    state = confirm_return_state;
             }
             else if (state == STATE_SYSINFO) {
                 if (ev.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN &&
@@ -1097,6 +1464,9 @@ int main(void)
             } else if (action == ACTION_INFO) {
                 state = STATE_SYSINFO;
                 last_sysinfo_update = 0; /* forzar refresco inmediato */
+            } else if (action == ACTION_SETTINGS) {
+                state = STATE_SETTINGS;
+                settings_selected = 0;
             }
             action = ACTION_NONE;
         }
@@ -1250,6 +1620,176 @@ int main(void)
             draw_rect_filled(ren, bar_x, bar_y, bar_w * frac, 4.0f, c_green);
         }
 
+        } else if (state == STATE_SETTINGS) {
+            draw_text(ren, f_sm, tr("CONFIGURACIÓN", "SETTINGS"), c_green, mx, 20.0f);
+            draw_statusbar(ren, f_sm, status_time, status_wifi_up, status_battery);
+            draw_line(ren, mx, 44.0f, SCREEN_W - 20.0f, 44.0f, c_green);
+
+            float settings_y0 = 64.0f;
+            float settings_item_h = 30.0f;
+            for (int i = 0; i < SETTINGS_MENU_COUNT; i++) {
+                float iy = settings_y0 + i * settings_item_h;
+                if (i == settings_selected) {
+                    draw_rounded_rect_filled(ren, mx - 4.0f, iy - 4.0f,
+                                     mw, settings_item_h - 2.0f, 8.0f, c_selbg);
+                    draw_rect_filled(ren, mx - 4.0f, iy - 4.0f,
+                                     4.0f, settings_item_h - 2.0f, c_green);
+                    draw_text(ren, f_med, SETTINGS_MENU_ITEMS[i][current_lang], c_green, mx + 8.0f, iy);
+                } else {
+                    draw_text(ren, f_med, SETTINGS_MENU_ITEMS[i][current_lang], c_gray, mx + 8.0f, iy);
+                }
+            }
+
+            draw_line(ren, mx, 438.0f, SCREEN_W - 20.0f, 438.0f, c_green);
+            draw_footer(ren, f_sm, tr("[B] Seleccionar  [A] Volver", "[B] Select  [A] Back"), s_version);
+
+        } else if (state == STATE_BACKUP_MENU) {
+            draw_text(ren, f_sm, tr("COPIA DE SEGURIDAD", "BACKUP"), c_green, mx, 20.0f);
+            draw_statusbar(ren, f_sm, status_time, status_wifi_up, status_battery);
+            draw_line(ren, mx, 44.0f, SCREEN_W - 20.0f, 44.0f, c_green);
+            float bkm_y0 = 64.0f;
+            float bkm_item_h = 30.0f;
+            for (int i = 0; i < BACKUP_MENU_COUNT; i++) {
+                float iy = bkm_y0 + i * bkm_item_h;
+                if (i == backup_selected) {
+                    draw_rounded_rect_filled(ren, mx - 4.0f, iy - 4.0f,
+                                     mw, bkm_item_h - 2.0f, 8.0f, c_selbg);
+                    draw_rect_filled(ren, mx - 4.0f, iy - 4.0f,
+                                     4.0f, bkm_item_h - 2.0f, c_green);
+                    draw_text(ren, f_med, BACKUP_MENU_ITEMS[i][current_lang], c_green, mx + 8.0f, iy);
+                } else {
+                    draw_text(ren, f_med, BACKUP_MENU_ITEMS[i][current_lang], c_gray, mx + 8.0f, iy);
+                }
+            }
+            if (backup_msg_until > 0 && SDL_GetTicks() < backup_msg_until) {
+                draw_text(ren, f_sm, tr("Copia creada correctamente", "Backup created successfully"),
+                          c_green, mx, bkm_y0 + BACKUP_MENU_COUNT * bkm_item_h + 20.0f);
+            }
+            draw_line(ren, mx, 438.0f, SCREEN_W - 20.0f, 438.0f, c_green);
+            draw_footer(ren, f_sm, tr("[B] Seleccionar  [A] Volver", "[B] Select  [A] Back"), s_version);
+
+        } else if (state == STATE_BACKUP_LIST) {
+            draw_text(ren, f_sm, tr("RESTAURAR COPIA", "RESTORE BACKUP"), c_green, mx, 20.0f);
+            draw_statusbar(ren, f_sm, status_time, status_wifi_up, status_battery);
+            draw_line(ren, mx, 44.0f, SCREEN_W - 20.0f, 44.0f, c_green);
+            float bkl_y0 = 64.0f;
+            float bkl_item_h = 26.0f;
+            if (backup_count == 0) {
+                draw_text(ren, f_sm, tr("No hay copias disponibles", "No backups available"), c_gray, mx, bkl_y0);
+            } else {
+                for (int i = 0; i < backup_count; i++) {
+                    float iy = bkl_y0 + i * bkl_item_h;
+                    if (i == backup_list_selected) {
+                        draw_rounded_rect_filled(ren, mx - 4.0f, iy - 4.0f,
+                                         mw, bkl_item_h - 2.0f, 8.0f, c_selbg);
+                        draw_rect_filled(ren, mx - 4.0f, iy - 4.0f,
+                                         4.0f, bkl_item_h - 2.0f, c_green);
+                        draw_text(ren, f_sm, backup_list[i], c_green, mx + 8.0f, iy);
+                    } else {
+                        draw_text(ren, f_sm, backup_list[i], c_gray, mx + 8.0f, iy);
+                    }
+                }
+            }
+            draw_line(ren, mx, 438.0f, SCREEN_W - 20.0f, 438.0f, c_green);
+            draw_footer(ren, f_sm, tr("[B] Restaurar  [A] Volver", "[B] Restore  [A] Back"), s_version);
+
+        } else if (state == STATE_WIFI_CONFIG) {
+            draw_text(ren, f_sm, tr("RED INALÁMBRICA", "WIRELESS NETWORK"), c_green, mx, 20.0f);
+            draw_statusbar(ren, f_sm, status_time, status_wifi_up, status_battery);
+            draw_line(ren, mx, 44.0f, SCREEN_W - 20.0f, 44.0f, c_green);
+
+            float wifi_y0 = 64.0f;
+            float wifi_item_h = 44.0f;
+
+            {
+                float iy = wifi_y0;
+                bool sel = (wifi_field_selected == 0);
+                SDL_Color labelc = sel ? c_green : c_gray;
+                if (sel) {
+                    draw_rounded_rect_filled(ren, mx - 4.0f, iy - 4.0f,
+                                     mw, wifi_item_h - 6.0f, 8.0f, c_selbg);
+                    draw_rect_filled(ren, mx - 4.0f, iy - 4.0f,
+                                     4.0f, wifi_item_h - 6.0f, c_green);
+                }
+                draw_text(ren, f_sm, "SSID", labelc, mx + 8.0f, iy);
+                draw_text(ren, f_med, wifi_ssid[0] ? wifi_ssid : "--", c_white, mx + 8.0f, iy + 16.0f);
+            }
+
+            {
+                float iy = wifi_y0 + wifi_item_h;
+                bool sel = (wifi_field_selected == 1);
+                SDL_Color labelc = sel ? c_green : c_gray;
+                if (sel) {
+                    draw_rounded_rect_filled(ren, mx - 4.0f, iy - 4.0f,
+                                     mw, wifi_item_h - 6.0f, 8.0f, c_selbg);
+                    draw_rect_filled(ren, mx - 4.0f, iy - 4.0f,
+                                     4.0f, wifi_item_h - 6.0f, c_green);
+                }
+                draw_text(ren, f_sm, tr("CONTRASEÑA", "PASSWORD"), labelc, mx + 8.0f, iy);
+                char masked[64];
+                if (wifi_show_password || !wifi_password[0]) {
+                    strncpy(masked, wifi_password[0] ? wifi_password : "--", sizeof(masked) - 1);
+                    masked[sizeof(masked)-1] = 0;
+                } else {
+                    size_t len = strlen(wifi_password);
+                    if (len >= sizeof(masked)) len = sizeof(masked) - 1;
+                    for (size_t k = 0; k < len; k++) masked[k] = '*';
+                    masked[len] = 0;
+                }
+                draw_text(ren, f_med, masked, c_white, mx + 8.0f, iy + 16.0f);
+            }
+
+            draw_line(ren, mx, 438.0f, SCREEN_W - 20.0f, 438.0f, c_green);
+            draw_footer(ren, f_sm,
+                tr("[B] Editar  [SELECT] Ver/Ocultar  [A] Guardar", "[B] Edit  [SELECT] Show/Hide  [A] Save"),
+                s_version);
+
+        } else if (state == STATE_KEYBOARD) {
+            draw_text(ren, f_sm,
+                wifi_field_selected == 0 ? "SSID" : tr("CONTRASEÑA", "PASSWORD"),
+                c_green, mx, 20.0f);
+            draw_statusbar(ren, f_sm, status_time, status_wifi_up, status_battery);
+            draw_line(ren, mx, 44.0f, SCREEN_W - 20.0f, 44.0f, c_green);
+
+            draw_rect_filled(ren, mx, 56.0f, SCREEN_W - 40.0f, 30.0f, c_selbg);
+            draw_text(ren, f_med, kb_buffer[0] ? kb_buffer : "", c_white, mx + 8.0f, 62.0f);
+
+            SDL_Color c_keybg = COL_KEY_BG;
+            float kb_y0 = 130.0f;
+            float key_w = 48.0f;
+            float key_h = 42.0f;
+            float key_gap = 6.0f;
+            float kb_grid_w = 10.0f * key_w + 9.0f * key_gap;
+            float kb_area_w = SCREEN_W - 40.0f;
+            float kb_x0 = mx + (kb_area_w - kb_grid_w) / 2.0f;
+            float space_w = 6.0f * key_w + 5.0f * key_gap;
+            float space_x0 = kb_x0 + 2.0f * (key_w + key_gap);
+            for (int r = 0; r < KB_ROWS; r++) {
+                int rlen = kb_row_len(kb_mode, r);
+                for (int c = 0; c < rlen; c++) {
+                    const char *k = kb_key_at(kb_mode, r, c);
+                    if (!k) continue;
+                    bool is_space_row = (r == 3);
+                    float kx = is_space_row ? space_x0 : kb_x0 + c * (key_w + key_gap);
+                    float kw = is_space_row ? space_w : key_w;
+                    float ky = kb_y0 + r * (key_h + key_gap);
+                    bool sel = (r == kb_row && c == kb_col);
+                    const char *label = is_space_row ? tr("ESPACIO", "SPACE") : k;
+                    if (sel) {
+                        draw_rounded_rect_filled(ren, kx, ky, kw, key_h, 4.0f, c_selbg);
+                        draw_text_centered(ren, f_sm, label, c_green, kx + kw/2.0f, ky + key_h/2.0f - 6.0f);
+                    } else {
+                        draw_rounded_rect_filled(ren, kx, ky, kw, key_h, 4.0f, c_keybg);
+                        draw_text_centered(ren, f_sm, label, c_gray, kx + kw/2.0f, ky + key_h/2.0f - 6.0f);
+                    }
+                }
+            }
+
+            draw_line(ren, mx, 438.0f, SCREEN_W - 20.0f, 438.0f, c_green);
+            draw_footer(ren, f_sm,
+                tr("[B] Insertar [L1] Borrar [R1] Aceptar [A] Cancelar [SELECT] Mayus/Num", "[B] Insert [L1] Delete [R1] Accept [A] Cancel [SELECT] Caps/Num"),
+                s_version);
+
         } else if (state == STATE_DEVMODE) {
             /* Titulo pequeño arriba a la izquierda */
             draw_text(ren, f_sm, tr("MODO DESARROLLADOR", "DEVELOPER MODE"), c_green, mx, 20.0f);
@@ -1312,9 +1852,11 @@ int main(void)
             draw_footer(ren, f_sm, tr("[B] Seleccionar  [A] Volver", "[B] Select  [A] Back"), s_version);
 
         } else if (state == STATE_CONFIRM) {
-            const char *label = (confirm_target == DEV_ACTION_REBOOT)
-                                 ? "Reiniciar el dispositivo?"
-                                 : "Apagar el dispositivo?";
+            const char *label = (confirm_target == SETTINGS_ACTION_FACTORY_RESET)
+                                 ? tr("¿Restablecer valores de fábrica?", "Factory reset?")
+                                 : (confirm_target == DEV_ACTION_REBOOT)
+                                 ? tr("¿Reiniciar el dispositivo?", "Reboot the device?")
+                                 : tr("¿Apagar el dispositivo?", "Shut down the device?");
             draw_text_centered(ren, f_med, label, c_white,
                                SCREEN_W / 2.0f, SCREEN_H / 2.0f - 30.0f);
             draw_text_centered(ren, f_med, tr("[B] Si        [A] No", "[B] Yes       [A] No"), c_green,
@@ -1398,7 +1940,7 @@ int main(void)
 
             /* ── BLOQUE 1 DER: ESTADO ────────────────────────────────────── */
             y = SI_Y0 + 2.0f;
-            SI_BLOCK_TITLE(SI_RX, y, tr("MÉTRICAS:", "METRICS:"));
+            SI_BLOCK_TITLE(SI_RX, y, tr("MÉTRICAS", "METRICS"));
             y += 28.0f;
             {
                 /* RAM: calcular pct */
@@ -1427,7 +1969,7 @@ int main(void)
 
             /* ── BLOQUE 2 IZQ: ALMACENAMIENTO ───────────────────────────── */
             y = SI_SEP_H1 + 4.0f;
-            SI_BLOCK_TITLE(SI_MX, y, tr("VOLÚMENES:", "VOLUMES:"));
+            SI_BLOCK_TITLE(SI_MX, y, tr("VOLÚMENES", "VOLUMES"));
             y += 28.0f;
             {
                 /* Disco sistema: pct */
@@ -1456,7 +1998,7 @@ int main(void)
 
             /* ── BLOQUE 2 DER: HARDWARE ──────────────────────────────────── */
             y = SI_SEP_H1 + 4.0f;
-            SI_BLOCK_TITLE(SI_RX, y, tr("ESPECIFICACIONES:", "SPECIFICATIONS:"));
+            SI_BLOCK_TITLE(SI_RX, y, tr("ESPECIFICACIONES", "SPECIFICATIONS"));
             y += 28.0f;
             SI_ROW(SI_RX, y, SI_RX + SI_CW_R, "CPU",           "Cortex-A53 @1.51GHz"); y += SI_ROW_H;
             SI_ROW(SI_RX, y, SI_RX + SI_CW_R, "GPU",           "Mali-G31 (Panfrost)"); y += SI_ROW_H;
@@ -1466,7 +2008,7 @@ int main(void)
 
             /* ── BLOQUE 3 IZQ: SOFTWARE ──────────────────────────────────── */
             y = SI_SEP_H2 + 4.0f;
-            SI_BLOCK_TITLE(SI_MX, y, tr("MOTOR DE EMULACIÓN:", "EMULATION ENGINE:"));
+            SI_BLOCK_TITLE(SI_MX, y, tr("MOTOR DE EMULACIÓN", "EMULATION ENGINE"));
             y += 28.0f;
             SI_ROW(SI_MX, y, SI_MX + SI_CW_L, "RetroArch", s_retroarch); y += SI_ROW_H;
             SI_ROW(SI_MX, y, SI_MX + SI_CW_L, "Mesa",      s_mesa);      y += SI_ROW_H;
@@ -1559,7 +2101,6 @@ int main(void)
         } else {
             screenshot_flash_until = 0;
         }
-
         SDL_RenderPresent(ren);
         /* Confirmar arranque exitoso ante el mecanismo de rollback A/B,
          * una sola vez, tras el primer frame realmente dibujado en
