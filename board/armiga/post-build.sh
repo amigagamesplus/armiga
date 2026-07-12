@@ -42,7 +42,7 @@ esac
 UDHCPC_EOF
     chmod +x "$TARGET_DIR/usr/share/udhcpc/default.script"
 fi
-KVER="7.0.11-armiga"
+KVER="7.0.14-armiga"
 depmod -a -b "$TARGET_DIR" "$KVER" || true
 # --- armiga-release ----------------------------------------------------------
 BUILD_DATE=$(date -u +"%Y-%m-%d %H:%M")
@@ -51,7 +51,7 @@ BUILD_NUMBER="${GITHUB_RUN_NUMBER:-local}"
 cat > "$TARGET_DIR/etc/armiga-release" << RELEASE_EOF
 ARMIGA_VERSION=$ARMIGA_VERSION
 BUILD_NUMBER=$BUILD_NUMBER
-KERNEL_VERSION=7.0.11-armiga
+KERNEL_VERSION=7.0.14-armiga
 MESA_VERSION=26.1.4
 RETROARCH_VERSION=1.22.2
 SDL3_VERSION=3.4.12
