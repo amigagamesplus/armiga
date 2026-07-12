@@ -1728,7 +1728,7 @@ int main(void)
 
             /* ── BLOQUE 1 DER: ESTADO ────────────────────────────────────── */
             y = SI_Y0 + 2.0f;
-            SI_BLOCK_TITLE(SI_RX, y, tr("MÉTRICAS:", "METRICS:"));
+            SI_BLOCK_TITLE(SI_RX, y, tr("MÉTRICAS", "METRICS"));
             y += 28.0f;
             {
                 /* RAM: calcular pct */
@@ -1757,7 +1757,7 @@ int main(void)
 
             /* ── BLOQUE 2 IZQ: ALMACENAMIENTO ───────────────────────────── */
             y = SI_SEP_H1 + 4.0f;
-            SI_BLOCK_TITLE(SI_MX, y, tr("VOLÚMENES:", "VOLUMES:"));
+            SI_BLOCK_TITLE(SI_MX, y, tr("VOLÚMENES", "VOLUMES"));
             y += 28.0f;
             {
                 /* Disco sistema: pct */
@@ -1786,7 +1786,7 @@ int main(void)
 
             /* ── BLOQUE 2 DER: HARDWARE ──────────────────────────────────── */
             y = SI_SEP_H1 + 4.0f;
-            SI_BLOCK_TITLE(SI_RX, y, tr("ESPECIFICACIONES:", "SPECIFICATIONS:"));
+            SI_BLOCK_TITLE(SI_RX, y, tr("ESPECIFICACIONES", "SPECIFICATIONS"));
             y += 28.0f;
             SI_ROW(SI_RX, y, SI_RX + SI_CW_R, "CPU",           "Cortex-A53 @1.51GHz"); y += SI_ROW_H;
             SI_ROW(SI_RX, y, SI_RX + SI_CW_R, "GPU",           "Mali-G31 (Panfrost)"); y += SI_ROW_H;
@@ -1796,7 +1796,7 @@ int main(void)
 
             /* ── BLOQUE 3 IZQ: SOFTWARE ──────────────────────────────────── */
             y = SI_SEP_H2 + 4.0f;
-            SI_BLOCK_TITLE(SI_MX, y, tr("MOTOR DE EMULACIÓN:", "EMULATION ENGINE:"));
+            SI_BLOCK_TITLE(SI_MX, y, tr("MOTOR DE EMULACIÓN", "EMULATION ENGINE"));
             y += 28.0f;
             SI_ROW(SI_MX, y, SI_MX + SI_CW_L, "RetroArch", s_retroarch); y += SI_ROW_H;
             SI_ROW(SI_MX, y, SI_MX + SI_CW_L, "Mesa",      s_mesa);      y += SI_ROW_H;
