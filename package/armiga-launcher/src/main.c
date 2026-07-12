@@ -946,6 +946,9 @@ int main(void)
     int  kb_mode = KB_MODE_LOWER;
     AppState kb_return_state = STATE_WIFI_CONFIG;
     AppState state = STATE_MENU;
+    AppState prev_state = STATE_MENU;
+    Uint64 fade_start = 0;
+    #define FADE_MS 180
     ExecRequest exec_req = EXEC_NONE;
     int action   = ACTION_NONE;
     bool running = true;
@@ -1391,6 +1394,10 @@ int main(void)
             last_sysinfo_update = now_ticks;
         }
 
+        if (state != prev_state) {
+            fade_start = SDL_GetTicks();
+            prev_state = state;
+        }
         /* RENDER */
         SDL_SetRenderDrawColor(ren, c_bg.r, c_bg.g, c_bg.b, 255);
         SDL_RenderClear(ren);
@@ -1888,6 +1895,20 @@ int main(void)
             SDL_SetRenderDrawBlendMode(ren, SDL_BLENDMODE_NONE);
         } else {
             screenshot_flash_until = 0;
+        }
+        if (fade_start != 0) {
+            Uint64 elapsed = SDL_GetTicks() - fade_start;
+            if (elapsed < FADE_MS) {
+                float frac = 1.0f - ((float)elapsed / (float)FADE_MS);
+                Uint8 fade_a = (Uint8)(frac * 220.0f);
+                SDL_SetRenderDrawBlendMode(ren, SDL_BLENDMODE_BLEND);
+                SDL_SetRenderDrawColor(ren, 0, 0, 0, fade_a);
+                SDL_FRect fade_rect = {0, 0, (float)SCREEN_W, (float)SCREEN_H};
+                SDL_RenderFillRect(ren, &fade_rect);
+                SDL_SetRenderDrawBlendMode(ren, SDL_BLENDMODE_NONE);
+            } else {
+                fade_start = 0;
+            }
         }
 
         SDL_RenderPresent(ren);
