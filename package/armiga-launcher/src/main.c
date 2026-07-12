@@ -948,7 +948,7 @@ int main(void)
     AppState state = STATE_MENU;
     AppState prev_state = STATE_MENU;
     Uint64 fade_start = 0;
-    #define FADE_MS 180
+    #define FADE_MS 320
     ExecRequest exec_req = EXEC_NONE;
     int action   = ACTION_NONE;
     bool running = true;
