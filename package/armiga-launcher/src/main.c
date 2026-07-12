@@ -136,8 +136,10 @@ static const char *MENU_DESC[][2] = {
 
 static const char *SETTINGS_MENU_ITEMS[][2] = {
     {"Red inalámbrica",             "Wireless Network"},
+    {"Restablecer valores de fábrica", "Factory reset"},
 };
-#define SETTINGS_MENU_COUNT 1
+#define SETTINGS_MENU_COUNT 2
+#define SETTINGS_ACTION_FACTORY_RESET 10
 
 #define DEV_ACTION_TERMINAL 0
 #define DEV_ACTION_BTOP     1
@@ -580,6 +582,18 @@ static bool save_wifi_conf(const char *ssid, const char *password)
     fclose(f);
     return true;
 }
+static void factory_reset(void)
+{
+    system("rm -f /media/amiga_data/armiga.cfg "
+           "/media/amiga_data/wifi.conf "
+           "/media/amiga_data/test_wifi.conf "
+           "/media/amiga_data/wifi_debug.log "
+           "/media/amiga_data/retroarch/retroarch.cfg");
+    system("rm -rf /media/amiga_data/retroarch/config "
+           "/media/amiga_data/.cache "
+           "/media/amiga_data/.config "
+           "/media/amiga_data/.local");
+}
 static void read_release(char *kernel, char *mesa, char *retroarch, char *sdl3,
                          char *build_date, char *version, char *build_number)
 {
@@ -935,6 +949,7 @@ int main(void)
     int selected = 0;
     int dev_selected = 0;
     int confirm_target = DEV_ACTION_REBOOT; /* cual de los dos confirm. */
+    AppState confirm_return_state = STATE_DEVMODE;
     int settings_selected = 0;
     char wifi_ssid[64] = "";
     char wifi_password[64] = "";
@@ -1098,6 +1113,11 @@ int main(void)
                         wifi_show_password = false;
                         state = STATE_WIFI_CONFIG;
                     }
+                    if (ev.key.key == SDLK_RETURN && settings_selected == 1) {
+                        confirm_target = SETTINGS_ACTION_FACTORY_RESET;
+                        confirm_return_state = STATE_SETTINGS;
+                        state = STATE_CONFIRM;
+                    }
                 }
                 if (ev.type == SDL_EVENT_JOYSTICK_HAT_MOTION) {
                     if (ev.jhat.value == SDL_HAT_UP)
@@ -1111,6 +1131,12 @@ int main(void)
                     wifi_field_selected = 0;
                     wifi_show_password = false;
                     state = STATE_WIFI_CONFIG;
+                }
+                if (ev.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN &&
+                    ev.jbutton.button == BTN_SDL_A && settings_selected == 1) {
+                    confirm_target = SETTINGS_ACTION_FACTORY_RESET;
+                    confirm_return_state = STATE_SETTINGS;
+                    state = STATE_CONFIRM;
                 }
                 if (ev.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN &&
                     ev.jbutton.button == BTN_SDL_B)
@@ -1213,13 +1239,19 @@ int main(void)
                 if ((ev.type == SDL_EVENT_KEY_DOWN && ev.key.key == SDLK_RETURN) ||
                     (ev.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN &&
                      ev.jbutton.button == BTN_SDL_A)) {
-                    running = false;
-                    exec_req = (confirm_target == DEV_ACTION_REBOOT)
-                               ? EXEC_REBOOT : EXEC_SHUTDOWN;
+                    if (confirm_target == SETTINGS_ACTION_FACTORY_RESET) {
+                        factory_reset();
+                        running = false;
+                        exec_req = EXEC_REBOOT;
+                    } else {
+                        running = false;
+                        exec_req = (confirm_target == DEV_ACTION_REBOOT)
+                                   ? EXEC_REBOOT : EXEC_SHUTDOWN;
+                    }
                 }
                 if (ev.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN &&
                     ev.jbutton.button == BTN_SDL_B)
-                    state = STATE_DEVMODE;
+                    state = confirm_return_state;
             }
             else if (state == STATE_SYSINFO) {
                 if (ev.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN &&
@@ -1649,7 +1681,9 @@ int main(void)
             draw_footer(ren, f_sm, tr("[B] Seleccionar  [A] Volver", "[B] Select  [A] Back"), s_version);
 
         } else if (state == STATE_CONFIRM) {
-            const char *label = (confirm_target == DEV_ACTION_REBOOT)
+            const char *label = (confirm_target == SETTINGS_ACTION_FACTORY_RESET)
+                                 ? tr("¿Restablecer valores de fábrica?", "Factory reset?")
+                                 : (confirm_target == DEV_ACTION_REBOOT)
                                  ? "Reiniciar el dispositivo?"
                                  : "Apagar el dispositivo?";
             draw_text_centered(ren, f_med, label, c_white,
