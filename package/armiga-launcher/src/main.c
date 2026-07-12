@@ -1684,8 +1684,8 @@ int main(void)
             const char *label = (confirm_target == SETTINGS_ACTION_FACTORY_RESET)
                                  ? tr("¿Restablecer valores de fábrica?", "Factory reset?")
                                  : (confirm_target == DEV_ACTION_REBOOT)
-                                 ? "Reiniciar el dispositivo?"
-                                 : "Apagar el dispositivo?";
+                                 ? tr("¿Reiniciar el dispositivo?", "Reboot the device?")
+                                 : tr("¿Apagar el dispositivo?", "Shut down the device?");
             draw_text_centered(ren, f_med, label, c_white,
                                SCREEN_W / 2.0f, SCREEN_H / 2.0f - 30.0f);
             draw_text_centered(ren, f_med, tr("[B] Si        [A] No", "[B] Yes       [A] No"), c_green,
