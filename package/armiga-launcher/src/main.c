@@ -1574,7 +1574,7 @@ int main(void)
 
             draw_line(ren, mx, 438.0f, SCREEN_W - 20.0f, 438.0f, c_green);
             draw_footer(ren, f_sm,
-                tr("[A] Insertar [L1] Borrar [R1] Aceptar [B] Cancelar [SELECT] Mayus/Num", "[A] Insert [L1] Delete [R1] Accept [B] Cancel [SELECT] Caps/Num"),
+                tr("[B] Insertar [L1] Borrar [R1] Aceptar [A] Cancelar [SELECT] Mayus/Num", "[B] Insert [L1] Delete [R1] Accept [A] Cancel [SELECT] Caps/Num"),
                 s_version);
 
         } else if (state == STATE_DEVMODE) {
