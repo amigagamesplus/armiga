@@ -34,6 +34,7 @@
 #define COL_GRAY     {136, 136, 136, 255}
 #define COL_SEL_BG   { 42,  42,  42, 255}
 #define COL_RED      {200,  40,  40, 255}
+#define COL_KEY_BG   { 22,  22,  22, 255}
 
 
 typedef enum {
@@ -1550,6 +1551,7 @@ int main(void)
             draw_rect_filled(ren, mx, 56.0f, SCREEN_W - 40.0f, 30.0f, c_selbg);
             draw_text(ren, f_med, kb_buffer[0] ? kb_buffer : "", c_white, mx + 8.0f, 62.0f);
 
+            SDL_Color c_keybg = COL_KEY_BG;
             float kb_x0 = mx;
             float kb_y0 = 110.0f;
             float key_w = 34.0f;
@@ -1567,6 +1569,7 @@ int main(void)
                         draw_rounded_rect_filled(ren, kx, ky, key_w, key_h, 4.0f, c_selbg);
                         draw_text_centered(ren, f_sm, k, c_green, kx + key_w/2.0f, ky + 8.0f);
                     } else {
+                        draw_rounded_rect_filled(ren, kx, ky, key_w, key_h, 4.0f, c_keybg);
                         draw_text_centered(ren, f_sm, k, c_gray, kx + key_w/2.0f, ky + 8.0f);
                     }
                 }
