@@ -45,7 +45,9 @@ typedef enum {
     STATE_UPDATE,
     STATE_SETTINGS,
     STATE_WIFI_CONFIG,
-    STATE_KEYBOARD
+    STATE_KEYBOARD,
+    STATE_BACKUP_MENU,
+    STATE_BACKUP_LIST
 } AppState;
 
 typedef enum {
@@ -136,10 +138,17 @@ static const char *MENU_DESC[][2] = {
 
 static const char *SETTINGS_MENU_ITEMS[][2] = {
     {"Red inalámbrica",             "Wireless Network"},
+    {"Copia de seguridad",          "Backup"},
     {"Restablecer valores de fábrica", "Factory reset"},
 };
-#define SETTINGS_MENU_COUNT 2
+#define SETTINGS_MENU_COUNT 3
 #define SETTINGS_ACTION_FACTORY_RESET 10
+
+static const char *BACKUP_MENU_ITEMS[][2] = {
+    {"Crear nueva copia",           "Create new backup"},
+    {"Restaurar copia",             "Restore backup"},
+};
+#define BACKUP_MENU_COUNT 2
 
 #define DEV_ACTION_TERMINAL 0
 #define DEV_ACTION_BTOP     1
@@ -594,6 +603,52 @@ static void factory_reset(void)
            "/media/amiga_data/.config "
            "/media/amiga_data/.local");
 }
+#define BACKUP_DIR "/media/amiga_data/backups"
+#define BACKUP_MAX 3
+static void create_backup(void)
+{
+    system("mkdir -p " BACKUP_DIR);
+    char ts[32];
+    time_t now = time(NULL);
+    struct tm *tm_now = localtime(&now);
+    strftime(ts, sizeof(ts), "%Y%m%d_%H%M%S", tm_now);
+    char cmd[768];
+    snprintf(cmd, sizeof(cmd),
+        "cd /media/amiga_data && tar caf " BACKUP_DIR "/backup_%s.tar.gz "
+        "armiga.cfg wifi.conf "
+        "retroarch/retroarch.cfg retroarch/config "
+        "retroarch/saves retroarch/states "
+        "retroarch/playlists retroarch/thumbnails "
+        "2>/dev/null", ts);
+    system(cmd);
+    /* Rotar: mantener solo los BACKUP_MAX mas recientes */
+    system("cd " BACKUP_DIR " && ls -t backup_*.tar.gz 2>/dev/null | "
+           "tail -n +" "4" " | xargs -r rm -f");
+}
+static int list_backups(char names[][64], int max_names)
+{
+    FILE *p = popen("ls -t " BACKUP_DIR "/backup_*.tar.gz 2>/dev/null", "r");
+    if (!p) return 0;
+    int n = 0;
+    char line[256];
+    while (n < max_names && fgets(line, sizeof(line), p)) {
+        line[strcspn(line, "\r\n")] = 0;
+        const char *base = strrchr(line, '/');
+        base = base ? base + 1 : line;
+        strncpy(names[n], base, 63);
+        names[n][63] = 0;
+        n++;
+    }
+    pclose(p);
+    return n;
+}
+static void restore_backup(const char *filename)
+{
+    char cmd[512];
+    snprintf(cmd, sizeof(cmd),
+        "cd /media/amiga_data && tar xaf " BACKUP_DIR "/%s 2>/dev/null", filename);
+    system(cmd);
+}
 static void read_release(char *kernel, char *mesa, char *retroarch, char *sdl3,
                          char *build_date, char *version, char *build_number)
 {
@@ -951,6 +1006,12 @@ int main(void)
     int confirm_target = DEV_ACTION_REBOOT; /* cual de los dos confirm. */
     AppState confirm_return_state = STATE_DEVMODE;
     int settings_selected = 0;
+    int backup_selected = 0;
+    Uint64 backup_msg_until = 0;
+    #define BACKUP_LIST_MAX 3
+    char backup_list[BACKUP_LIST_MAX][64];
+    int backup_count = 0;
+    int backup_list_selected = 0;
     char wifi_ssid[64] = "";
     char wifi_password[64] = "";
     int wifi_field_selected = 0;
@@ -1114,6 +1175,10 @@ int main(void)
                         state = STATE_WIFI_CONFIG;
                     }
                     if (ev.key.key == SDLK_RETURN && settings_selected == 1) {
+                        backup_selected = 0;
+                        state = STATE_BACKUP_MENU;
+                    }
+                    if (ev.key.key == SDLK_RETURN && settings_selected == 2) {
                         confirm_target = SETTINGS_ACTION_FACTORY_RESET;
                         confirm_return_state = STATE_SETTINGS;
                         state = STATE_CONFIRM;
@@ -1134,6 +1199,11 @@ int main(void)
                 }
                 if (ev.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN &&
                     ev.jbutton.button == BTN_SDL_A && settings_selected == 1) {
+                    backup_selected = 0;
+                    state = STATE_BACKUP_MENU;
+                }
+                if (ev.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN &&
+                    ev.jbutton.button == BTN_SDL_A && settings_selected == 2) {
                     confirm_target = SETTINGS_ACTION_FACTORY_RESET;
                     confirm_return_state = STATE_SETTINGS;
                     state = STATE_CONFIRM;
@@ -1141,6 +1211,57 @@ int main(void)
                 if (ev.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN &&
                     ev.jbutton.button == BTN_SDL_B)
                     state = STATE_MENU;
+            }
+            else if (state == STATE_BACKUP_MENU) {
+                if (ev.type == SDL_EVENT_KEY_DOWN) {
+                    if (ev.key.key == SDLK_UP)
+                        backup_selected = (backup_selected - 1 + BACKUP_MENU_COUNT) % BACKUP_MENU_COUNT;
+                    if (ev.key.key == SDLK_DOWN)
+                        backup_selected = (backup_selected + 1) % BACKUP_MENU_COUNT;
+                }
+                if (ev.type == SDL_EVENT_JOYSTICK_HAT_MOTION) {
+                    if (ev.jhat.value == SDL_HAT_UP)
+                        backup_selected = (backup_selected - 1 + BACKUP_MENU_COUNT) % BACKUP_MENU_COUNT;
+                    else if (ev.jhat.value == SDL_HAT_DOWN)
+                        backup_selected = (backup_selected + 1) % BACKUP_MENU_COUNT;
+                }
+                if (ev.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN &&
+                    ev.jbutton.button == BTN_SDL_A && backup_selected == 0) {
+                    create_backup();
+                    backup_msg_until = SDL_GetTicks() + 2000;
+                }
+                if (ev.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN &&
+                    ev.jbutton.button == BTN_SDL_A && backup_selected == 1) {
+                    backup_count = list_backups(backup_list, BACKUP_LIST_MAX);
+                    backup_list_selected = 0;
+                    state = STATE_BACKUP_LIST;
+                }
+                if (ev.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN &&
+                    ev.jbutton.button == BTN_SDL_B)
+                    state = STATE_SETTINGS;
+            }
+            else if (state == STATE_BACKUP_LIST) {
+                if (ev.type == SDL_EVENT_KEY_DOWN && backup_count > 0) {
+                    if (ev.key.key == SDLK_UP)
+                        backup_list_selected = (backup_list_selected - 1 + backup_count) % backup_count;
+                    if (ev.key.key == SDLK_DOWN)
+                        backup_list_selected = (backup_list_selected + 1) % backup_count;
+                }
+                if (ev.type == SDL_EVENT_JOYSTICK_HAT_MOTION && backup_count > 0) {
+                    if (ev.jhat.value == SDL_HAT_UP)
+                        backup_list_selected = (backup_list_selected - 1 + backup_count) % backup_count;
+                    else if (ev.jhat.value == SDL_HAT_DOWN)
+                        backup_list_selected = (backup_list_selected + 1) % backup_count;
+                }
+                if (ev.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN &&
+                    ev.jbutton.button == BTN_SDL_A && backup_count > 0) {
+                    restore_backup(backup_list[backup_list_selected]);
+                    running = false;
+                    exec_req = EXEC_REBOOT;
+                }
+                if (ev.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN &&
+                    ev.jbutton.button == BTN_SDL_B)
+                    state = STATE_BACKUP_MENU;
             }
             else if (state == STATE_WIFI_CONFIG) {
                 if (ev.type == SDL_EVENT_KEY_DOWN) {
@@ -1521,6 +1642,56 @@ int main(void)
 
             draw_line(ren, mx, 438.0f, SCREEN_W - 20.0f, 438.0f, c_green);
             draw_footer(ren, f_sm, tr("[B] Seleccionar  [A] Volver", "[B] Select  [A] Back"), s_version);
+
+        } else if (state == STATE_BACKUP_MENU) {
+            draw_text(ren, f_sm, tr("COPIA DE SEGURIDAD", "BACKUP"), c_green, mx, 20.0f);
+            draw_statusbar(ren, f_sm, status_time, status_wifi_up, status_battery);
+            draw_line(ren, mx, 44.0f, SCREEN_W - 20.0f, 44.0f, c_green);
+            float bkm_y0 = 64.0f;
+            float bkm_item_h = 30.0f;
+            for (int i = 0; i < BACKUP_MENU_COUNT; i++) {
+                float iy = bkm_y0 + i * bkm_item_h;
+                if (i == backup_selected) {
+                    draw_rounded_rect_filled(ren, mx - 4.0f, iy - 4.0f,
+                                     mw, bkm_item_h - 2.0f, 8.0f, c_selbg);
+                    draw_rect_filled(ren, mx - 4.0f, iy - 4.0f,
+                                     4.0f, bkm_item_h - 2.0f, c_green);
+                    draw_text(ren, f_med, BACKUP_MENU_ITEMS[i][current_lang], c_green, mx + 8.0f, iy);
+                } else {
+                    draw_text(ren, f_med, BACKUP_MENU_ITEMS[i][current_lang], c_gray, mx + 8.0f, iy);
+                }
+            }
+            if (backup_msg_until > 0 && SDL_GetTicks() < backup_msg_until) {
+                draw_text(ren, f_sm, tr("Copia creada correctamente", "Backup created successfully"),
+                          c_green, mx, bkm_y0 + BACKUP_MENU_COUNT * bkm_item_h + 20.0f);
+            }
+            draw_line(ren, mx, 438.0f, SCREEN_W - 20.0f, 438.0f, c_green);
+            draw_footer(ren, f_sm, tr("[B] Seleccionar  [A] Volver", "[B] Select  [A] Back"), s_version);
+
+        } else if (state == STATE_BACKUP_LIST) {
+            draw_text(ren, f_sm, tr("RESTAURAR COPIA", "RESTORE BACKUP"), c_green, mx, 20.0f);
+            draw_statusbar(ren, f_sm, status_time, status_wifi_up, status_battery);
+            draw_line(ren, mx, 44.0f, SCREEN_W - 20.0f, 44.0f, c_green);
+            float bkl_y0 = 64.0f;
+            float bkl_item_h = 26.0f;
+            if (backup_count == 0) {
+                draw_text(ren, f_sm, tr("No hay copias disponibles", "No backups available"), c_gray, mx, bkl_y0);
+            } else {
+                for (int i = 0; i < backup_count; i++) {
+                    float iy = bkl_y0 + i * bkl_item_h;
+                    if (i == backup_list_selected) {
+                        draw_rounded_rect_filled(ren, mx - 4.0f, iy - 4.0f,
+                                         mw, bkl_item_h - 2.0f, 8.0f, c_selbg);
+                        draw_rect_filled(ren, mx - 4.0f, iy - 4.0f,
+                                         4.0f, bkl_item_h - 2.0f, c_green);
+                        draw_text(ren, f_sm, backup_list[i], c_green, mx + 8.0f, iy);
+                    } else {
+                        draw_text(ren, f_sm, backup_list[i], c_gray, mx + 8.0f, iy);
+                    }
+                }
+            }
+            draw_line(ren, mx, 438.0f, SCREEN_W - 20.0f, 438.0f, c_green);
+            draw_footer(ren, f_sm, tr("[B] Restaurar  [A] Volver", "[B] Restore  [A] Back"), s_version);
 
         } else if (state == STATE_WIFI_CONFIG) {
             draw_text(ren, f_sm, tr("RED INALÁMBRICA", "WIRELESS NETWORK"), c_green, mx, 20.0f);
