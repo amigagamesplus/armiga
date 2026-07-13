@@ -47,7 +47,8 @@ typedef enum {
     STATE_WIFI_CONFIG,
     STATE_KEYBOARD,
     STATE_BACKUP_MENU,
-    STATE_BACKUP_LIST
+    STATE_BACKUP_LIST,
+    STATE_LED_CONFIG
 } AppState;
 
 typedef enum {
@@ -139,9 +140,10 @@ static const char *MENU_DESC[][2] = {
 static const char *SETTINGS_MENU_ITEMS[][2] = {
     {"Red inalámbrica",             "Wireless Network"},
     {"Copia de seguridad",          "Backup"},
+    {"LED RGB analógicos",          "Analog Stick LEDs"},
     {"Restablecer valores de fábrica", "Factory reset"},
 };
-#define SETTINGS_MENU_COUNT 3
+#define SETTINGS_MENU_COUNT 4
 #define SETTINGS_ACTION_FACTORY_RESET 10
 
 static const char *BACKUP_MENU_ITEMS[][2] = {
@@ -591,6 +593,47 @@ static bool save_wifi_conf(const char *ssid, const char *password)
     fclose(f);
     return true;
 }
+#define LED_SERIAL_DEV "/dev/ttyS2"
+#define LED_LEDS_PER_STICK 8
+static void send_led_payload(int brightness,
+                              int r_right, int g_right, int b_right,
+                              int r_left, int g_left, int b_left)
+{
+    system("echo 1 > /sys/class/leds/rgb:kbd_backlight/brightness 2>/dev/null");
+
+    int fd = open(LED_SERIAL_DEV, O_WRONLY | O_NOCTTY);
+    if (fd < 0) return;
+
+    struct termios tio;
+    if (tcgetattr(fd, &tio) == 0) {
+        cfmakeraw(&tio);
+        cfsetispeed(&tio, B115200);
+        cfsetospeed(&tio, B115200);
+        tcsetattr(fd, TCSANOW, &tio);
+    }
+
+    unsigned char payload[2 + LED_LEDS_PER_STICK * 3 * 2 + 1];
+    int idx = 0;
+    unsigned int sum = 0;
+
+    payload[idx] = 1; sum += payload[idx]; idx++;
+    payload[idx] = (unsigned char)brightness; sum += payload[idx]; idx++;
+
+    for (int i = 0; i < LED_LEDS_PER_STICK; i++) {
+        payload[idx] = (unsigned char)r_right; sum += payload[idx]; idx++;
+        payload[idx] = (unsigned char)g_right; sum += payload[idx]; idx++;
+        payload[idx] = (unsigned char)b_right; sum += payload[idx]; idx++;
+    }
+    for (int i = 0; i < LED_LEDS_PER_STICK; i++) {
+        payload[idx] = (unsigned char)r_left; sum += payload[idx]; idx++;
+        payload[idx] = (unsigned char)g_left; sum += payload[idx]; idx++;
+        payload[idx] = (unsigned char)b_left; sum += payload[idx]; idx++;
+    }
+    payload[idx] = (unsigned char)(sum & 0xFF); idx++;
+
+    write(fd, payload, idx);
+    close(fd);
+}
 static void factory_reset(void)
 {
     system("rm -f /media/amiga_data/armiga.cfg "
@@ -1016,6 +1059,11 @@ int main(void)
     char wifi_password[64] = "";
     int wifi_field_selected = 0;
     bool wifi_show_password = false;
+    int led_selected = 0; /* 0,1,2 = R,G,B derecho; 3,4,5 = R,G,B izquierdo; 6 = Brillo */
+    #define LED_SLIDER_COUNT 7
+    int led_r_right = 0, led_g_right = 0, led_b_right = 0;
+    int led_r_left = 0, led_g_left = 0, led_b_left = 0;
+    int led_brightness = 128;
     char kb_buffer[64] = "";
     int  kb_row = 0;
     int  kb_col = 0;
@@ -1179,6 +1227,10 @@ int main(void)
                         state = STATE_BACKUP_MENU;
                     }
                     if (ev.key.key == SDLK_RETURN && settings_selected == 2) {
+                        led_selected = 0;
+                        state = STATE_LED_CONFIG;
+                    }
+                    if (ev.key.key == SDLK_RETURN && settings_selected == 3) {
                         confirm_target = SETTINGS_ACTION_FACTORY_RESET;
                         confirm_return_state = STATE_SETTINGS;
                         state = STATE_CONFIRM;
@@ -1204,6 +1256,11 @@ int main(void)
                 }
                 if (ev.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN &&
                     ev.jbutton.button == BTN_SDL_A && settings_selected == 2) {
+                    led_selected = 0;
+                    state = STATE_LED_CONFIG;
+                }
+                if (ev.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN &&
+                    ev.jbutton.button == BTN_SDL_A && settings_selected == 3) {
                     confirm_target = SETTINGS_ACTION_FACTORY_RESET;
                     confirm_return_state = STATE_SETTINGS;
                     state = STATE_CONFIRM;
@@ -1235,6 +1292,66 @@ int main(void)
                     backup_count = list_backups(backup_list, BACKUP_LIST_MAX);
                     backup_list_selected = 0;
                     state = STATE_BACKUP_LIST;
+                }
+                if (ev.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN &&
+                    ev.jbutton.button == BTN_SDL_B)
+                    state = STATE_SETTINGS;
+            }
+            else if (state == STATE_LED_CONFIG) {
+                int *led_vals[LED_SLIDER_COUNT] = {
+                    &led_r_right, &led_g_right, &led_b_right,
+                    &led_r_left,  &led_g_left,  &led_b_left,
+                    &led_brightness
+                };
+                bool led_dirty = false;
+                if (ev.type == SDL_EVENT_KEY_DOWN) {
+                    if (ev.key.key == SDLK_UP)
+                        led_selected = (led_selected - 1 + LED_SLIDER_COUNT) % LED_SLIDER_COUNT;
+                    if (ev.key.key == SDLK_DOWN)
+                        led_selected = (led_selected + 1) % LED_SLIDER_COUNT;
+                    if (ev.key.key == SDLK_LEFT) {
+                        *led_vals[led_selected] -= 5;
+                        if (*led_vals[led_selected] < 0) *led_vals[led_selected] = 0;
+                        led_dirty = true;
+                    }
+                    if (ev.key.key == SDLK_RIGHT) {
+                        *led_vals[led_selected] += 5;
+                        if (*led_vals[led_selected] > 255) *led_vals[led_selected] = 255;
+                        led_dirty = true;
+                    }
+                }
+                if (ev.type == SDL_EVENT_JOYSTICK_HAT_MOTION) {
+                    if (ev.jhat.value == SDL_HAT_UP)
+                        led_selected = (led_selected - 1 + LED_SLIDER_COUNT) % LED_SLIDER_COUNT;
+                    else if (ev.jhat.value == SDL_HAT_DOWN)
+                        led_selected = (led_selected + 1) % LED_SLIDER_COUNT;
+                    else if (ev.jhat.value == SDL_HAT_LEFT) {
+                        *led_vals[led_selected] -= 5;
+                        if (*led_vals[led_selected] < 0) *led_vals[led_selected] = 0;
+                        led_dirty = true;
+                    }
+                    else if (ev.jhat.value == SDL_HAT_RIGHT) {
+                        *led_vals[led_selected] += 5;
+                        if (*led_vals[led_selected] > 255) *led_vals[led_selected] = 255;
+                        led_dirty = true;
+                    }
+                }
+                if (ev.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN &&
+                    ev.jbutton.button == BTN_SDL_L1) {
+                    *led_vals[led_selected] -= 20;
+                    if (*led_vals[led_selected] < 0) *led_vals[led_selected] = 0;
+                    led_dirty = true;
+                }
+                if (ev.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN &&
+                    ev.jbutton.button == BTN_SDL_R1) {
+                    *led_vals[led_selected] += 20;
+                    if (*led_vals[led_selected] > 255) *led_vals[led_selected] = 255;
+                    led_dirty = true;
+                }
+                if (led_dirty) {
+                    send_led_payload(led_brightness,
+                                      led_r_right, led_g_right, led_b_right,
+                                      led_r_left, led_g_left, led_b_left);
                 }
                 if (ev.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN &&
                     ev.jbutton.button == BTN_SDL_B)
@@ -1742,6 +1859,71 @@ int main(void)
             draw_line(ren, mx, 438.0f, SCREEN_W - 20.0f, 438.0f, c_green);
             draw_footer(ren, f_sm,
                 tr("[B] Editar  [SELECT] Ver/Ocultar  [A] Guardar", "[B] Edit  [SELECT] Show/Hide  [A] Save"),
+                s_version);
+
+        } else if (state == STATE_LED_CONFIG) {
+            draw_text(ren, f_sm, tr("LED RGB ANALÓGICOS", "ANALOG STICK LEDS"), c_green, mx, 20.0f);
+            draw_statusbar(ren, f_sm, status_time, status_wifi_up, status_battery);
+            draw_line(ren, mx, 44.0f, SCREEN_W - 20.0f, 44.0f, c_green);
+
+            static const char *LED_SLIDER_LABELS[][2] = {
+                {"R (derecho)", "R (right)"},
+                {"G (derecho)", "G (right)"},
+                {"B (derecho)", "B (right)"},
+                {"R (izquierdo)", "R (left)"},
+                {"G (izquierdo)", "G (left)"},
+                {"B (izquierdo)", "B (left)"},
+                {"Brillo", "Brightness"},
+            };
+            int led_vals_r[LED_SLIDER_COUNT] = {
+                led_r_right, led_g_right, led_b_right,
+                led_r_left,  led_g_left,  led_b_left,
+                led_brightness
+            };
+            SDL_Color led_bar_colors[LED_SLIDER_COUNT] = {
+                {220, 60, 60, 255}, {60, 220, 60, 255}, {60, 60, 220, 255},
+                {220, 60, 60, 255}, {60, 220, 60, 255}, {60, 60, 220, 255},
+                c_gray
+            };
+
+            float led_y0 = 62.0f;
+            float led_item_h = 34.0f;
+            float led_bar_w = 220.0f;
+            float led_bar_h = 10.0f;
+
+            for (int i = 0; i < LED_SLIDER_COUNT; i++) {
+                float iy = led_y0 + i * led_item_h;
+                bool sel = (led_selected == i);
+                SDL_Color labelc = sel ? c_green : c_gray;
+                if (sel) {
+                    draw_rounded_rect_filled(ren, mx - 4.0f, iy - 4.0f,
+                                     mw, led_item_h - 8.0f, 8.0f, c_selbg);
+                    draw_rect_filled(ren, mx - 4.0f, iy - 4.0f,
+                                     4.0f, led_item_h - 8.0f, c_green);
+                }
+                draw_text(ren, f_sm, LED_SLIDER_LABELS[i][current_lang], labelc, mx + 8.0f, iy);
+
+                float bar_x = mx + 180.0f;
+                float bar_y = iy + 3.0f;
+                draw_rect_filled(ren, bar_x, bar_y, led_bar_w, led_bar_h, c_selbg);
+                float frac = led_vals_r[i] / 255.0f;
+                draw_rect_filled(ren, bar_x, bar_y, led_bar_w * frac, led_bar_h, led_bar_colors[i]);
+
+                char valbuf[8];
+                snprintf(valbuf, sizeof(valbuf), "%d", led_vals_r[i]);
+                draw_text(ren, f_sm, valbuf, c_white, bar_x + led_bar_w + 10.0f, iy);
+            }
+
+            SDL_Color preview_right = {(Uint8)led_r_right, (Uint8)led_g_right, (Uint8)led_b_right, 255};
+            SDL_Color preview_left  = {(Uint8)led_r_left,  (Uint8)led_g_left,  (Uint8)led_b_left,  255};
+            float preview_y = led_y0 + LED_SLIDER_COUNT * led_item_h + 10.0f;
+            draw_text(ren, f_sm, tr("Vista previa:", "Preview:"), c_gray, mx, preview_y);
+            draw_rect_filled(ren, mx + 100.0f, preview_y - 2.0f, 30.0f, 16.0f, preview_right);
+            draw_rect_filled(ren, mx + 140.0f, preview_y - 2.0f, 30.0f, 16.0f, preview_left);
+
+            draw_line(ren, mx, 438.0f, SCREEN_W - 20.0f, 438.0f, c_green);
+            draw_footer(ren, f_sm,
+                tr("[<>] Ajustar  [L1/R1] +/-20  [A] Volver", "[<>] Adjust  [L1/R1] +/-20  [A] Back"),
                 s_version);
 
         } else if (state == STATE_KEYBOARD) {
