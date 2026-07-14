@@ -593,6 +593,42 @@ static bool save_wifi_conf(const char *ssid, const char *password)
     fclose(f);
     return true;
 }
+#define LED_CONF_PATH "/media/amiga_data/led.conf"
+static void read_led_conf(int *r_right, int *g_right, int *b_right,
+                           int *r_left, int *g_left, int *b_left,
+                           int *brightness)
+{
+    *r_right = 0; *g_right = 0; *b_right = 0;
+    *r_left = 0; *g_left = 0; *b_left = 0;
+    *brightness = 128;
+    FILE *f = fopen(LED_CONF_PATH, "r");
+    if (!f) return;
+    char line[64];
+    while (fgets(line, sizeof(line), f)) {
+        line[strcspn(line, "\r\n")] = 0;
+        if (!strncmp(line, "R_RIGHT=", 8)) *r_right = atoi(line + 8);
+        else if (!strncmp(line, "G_RIGHT=", 8)) *g_right = atoi(line + 8);
+        else if (!strncmp(line, "B_RIGHT=", 8)) *b_right = atoi(line + 8);
+        else if (!strncmp(line, "R_LEFT=", 7)) *r_left = atoi(line + 7);
+        else if (!strncmp(line, "G_LEFT=", 7)) *g_left = atoi(line + 7);
+        else if (!strncmp(line, "B_LEFT=", 7)) *b_left = atoi(line + 7);
+        else if (!strncmp(line, "BRIGHTNESS=", 11)) *brightness = atoi(line + 11);
+    }
+    fclose(f);
+}
+static bool save_led_conf(int r_right, int g_right, int b_right,
+                           int r_left, int g_left, int b_left,
+                           int brightness)
+{
+    FILE *f = fopen(LED_CONF_PATH, "w");
+    if (!f) return false;
+    fprintf(f, "R_RIGHT=%d\nG_RIGHT=%d\nB_RIGHT=%d\n"
+               "R_LEFT=%d\nG_LEFT=%d\nB_LEFT=%d\n"
+               "BRIGHTNESS=%d\n",
+               r_right, g_right, b_right, r_left, g_left, b_left, brightness);
+    fclose(f);
+    return true;
+}
 #define LED_SERIAL_DEV "/dev/ttyS2"
 #define LED_LEDS_PER_STICK 8
 static void send_led_payload(int brightness,
@@ -1064,6 +1100,12 @@ int main(void)
     int led_r_right = 0, led_g_right = 0, led_b_right = 0;
     int led_r_left = 0, led_g_left = 0, led_b_left = 0;
     int led_brightness = 128;
+    read_led_conf(&led_r_right, &led_g_right, &led_b_right,
+                  &led_r_left, &led_g_left, &led_b_left, &led_brightness);
+    send_led_payload(led_brightness, led_r_right, led_g_right, led_b_right,
+                      led_r_left, led_g_left, led_b_left);
+    Uint64 led_repeat_next = 0;
+    int led_repeat_dir = 0; /* -1 izq, +1 der, 0 ninguno */
     char kb_buffer[64] = "";
     int  kb_row = 0;
     int  kb_col = 0;
@@ -1313,12 +1355,20 @@ int main(void)
                         *led_vals[led_selected] -= 5;
                         if (*led_vals[led_selected] < 0) *led_vals[led_selected] = 0;
                         led_dirty = true;
+                        led_repeat_dir = -1;
+                        led_repeat_next = SDL_GetTicks() + 350;
                     }
                     if (ev.key.key == SDLK_RIGHT) {
                         *led_vals[led_selected] += 5;
                         if (*led_vals[led_selected] > 255) *led_vals[led_selected] = 255;
                         led_dirty = true;
+                        led_repeat_dir = 1;
+                        led_repeat_next = SDL_GetTicks() + 350;
                     }
+                }
+                if (ev.type == SDL_EVENT_KEY_UP &&
+                    (ev.key.key == SDLK_LEFT || ev.key.key == SDLK_RIGHT)) {
+                    led_repeat_dir = 0;
                 }
                 if (ev.type == SDL_EVENT_JOYSTICK_HAT_MOTION) {
                     if (ev.jhat.value == SDL_HAT_UP)
@@ -1329,11 +1379,18 @@ int main(void)
                         *led_vals[led_selected] -= 5;
                         if (*led_vals[led_selected] < 0) *led_vals[led_selected] = 0;
                         led_dirty = true;
+                        led_repeat_dir = -1;
+                        led_repeat_next = SDL_GetTicks() + 350;
                     }
                     else if (ev.jhat.value == SDL_HAT_RIGHT) {
                         *led_vals[led_selected] += 5;
                         if (*led_vals[led_selected] > 255) *led_vals[led_selected] = 255;
                         led_dirty = true;
+                        led_repeat_dir = 1;
+                        led_repeat_next = SDL_GetTicks() + 350;
+                    }
+                    else {
+                        led_repeat_dir = 0;
                     }
                 }
                 if (ev.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN &&
@@ -1354,8 +1411,12 @@ int main(void)
                                       led_r_left, led_g_left, led_b_left);
                 }
                 if (ev.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN &&
-                    ev.jbutton.button == BTN_SDL_B)
+                    ev.jbutton.button == BTN_SDL_B) {
+                    led_repeat_dir = 0;
+                    save_led_conf(led_r_right, led_g_right, led_b_right,
+                                  led_r_left, led_g_left, led_b_left, led_brightness);
                     state = STATE_SETTINGS;
+                }
             }
             else if (state == STATE_BACKUP_LIST) {
                 if (ev.type == SDL_EVENT_KEY_DOWN && backup_count > 0) {
@@ -1593,6 +1654,21 @@ int main(void)
             update_status(status_time, sizeof(status_time),
                          &status_wifi_up, &status_battery);
             last_status_update = now_ticks;
+        }
+        if (state == STATE_LED_CONFIG && led_repeat_dir != 0 &&
+            now_ticks >= led_repeat_next) {
+            int *led_vals[LED_SLIDER_COUNT] = {
+                &led_r_right, &led_g_right, &led_b_right,
+                &led_r_left,  &led_g_left,  &led_b_left,
+                &led_brightness
+            };
+            *led_vals[led_selected] += led_repeat_dir * 5;
+            if (*led_vals[led_selected] < 0) *led_vals[led_selected] = 0;
+            if (*led_vals[led_selected] > 255) *led_vals[led_selected] = 255;
+            send_led_payload(led_brightness,
+                              led_r_right, led_g_right, led_b_right,
+                              led_r_left, led_g_left, led_b_left);
+            led_repeat_next = now_ticks + 60;
         }
 
         /* Lógica OTA */
