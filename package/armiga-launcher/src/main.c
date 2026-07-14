@@ -1421,7 +1421,6 @@ int main(void)
                     setenv("TZ", timezone_current, 1);
                     tzset();
                     save_timezone_config(timezone_current);
-                    state = STATE_SETTINGS;
                 }
                 if (ev.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN &&
                     ev.jbutton.button == BTN_SDL_A)
@@ -1986,7 +1985,7 @@ int main(void)
 
             draw_line(ren, mx, 438.0f, SCREEN_W - 20.0f, 438.0f, c_green);
             draw_footer(ren, f_sm,
-                tr("[B] Aplicar  [A] Cancelar", "[B] Apply  [A] Cancel"), s_version);
+                tr("[B] Aplicar  [A] Volver", "[B] Apply  [A] Back"), s_version);
 
         } else if (state == STATE_BACKUP_MENU) {
             draw_text(ren, f_sm, tr("COPIA DE SEGURIDAD", "BACKUP"), c_green, mx, 20.0f);
