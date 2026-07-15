@@ -1414,7 +1414,7 @@ int main(void)
                         timezone_selected = (timezone_selected + 1) % TIMEZONE_LIST_COUNT;
                 }
                 if ((ev.type == SDL_EVENT_KEY_DOWN && ev.key.key == SDLK_RETURN) ||
-                    (ev.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN && ev.jbutton.button == BTN_SDL_B)) {
+                    (ev.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN && ev.jbutton.button == BTN_SDL_A)) {
                     strncpy(timezone_current, TIMEZONE_LIST[timezone_selected].tz_name,
                             sizeof(timezone_current) - 1);
                     timezone_current[sizeof(timezone_current) - 1] = 0;
@@ -1423,7 +1423,7 @@ int main(void)
                     save_timezone_config(timezone_current);
                 }
                 if (ev.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN &&
-                    ev.jbutton.button == BTN_SDL_A)
+                    ev.jbutton.button == BTN_SDL_B)
                     state = STATE_SETTINGS;
             }
             else if (state == STATE_BACKUP_MENU) {
