@@ -2192,15 +2192,19 @@ int main(void)
                 float iy = dim_y0;
                 bool sel = (dim_field_selected == 0);
                 SDL_Color labelc = sel ? c_green : c_gray;
+                const char *dim_val_disp = DIM_TIMEOUT_LABELS[dim_timeout_selected][current_lang];
                 if (sel) {
+                    int lw = 0, lh = 0, vw = 0, vh = 0;
+                    TTF_GetStringSize(f_sm, tr("Atenuar tras", "Dim after"), 0, &lw, &lh);
+                    TTF_GetStringSize(f_med, dim_val_disp, 0, &vw, &vh);
+                    float sel_w = (float)(lw > vw ? lw : vw) + 24.0f;
                     draw_rounded_rect_filled(ren, mx - 4.0f, iy - 4.0f,
-                                     mw, dim_item_h - 8.0f, 8.0f, c_selbg);
+                                     sel_w, dim_item_h - 8.0f, 8.0f, c_selbg);
                     draw_rect_filled(ren, mx - 4.0f, iy - 4.0f,
                                      4.0f, dim_item_h - 8.0f, c_green);
                 }
                 draw_text(ren, f_sm, tr("Atenuar tras", "Dim after"), labelc, mx + 8.0f, iy);
-                draw_text(ren, f_med, DIM_TIMEOUT_LABELS[dim_timeout_selected][current_lang],
-                          c_white, mx + 8.0f, iy + 16.0f);
+                draw_text(ren, f_med, dim_val_disp, c_white, mx + 8.0f, iy + 16.0f);
             }
 
             {
@@ -2208,8 +2212,12 @@ int main(void)
                 bool sel = (dim_field_selected == 1);
                 SDL_Color labelc = sel ? c_green : c_gray;
                 if (sel) {
+                    int lw = 0, lh = 0;
+                    TTF_GetStringSize(f_sm, tr("Brillo al atenuar", "Brightness when dimmed"), 0, &lw, &lh);
+                    float bar_total_w = dim_bar_w + 10.0f + 40.0f; /* barra + gap + "100%" aprox */
+                    float sel_w = ((float)lw > bar_total_w ? (float)lw : bar_total_w) + 24.0f;
                     draw_rounded_rect_filled(ren, mx - 4.0f, iy - 4.0f,
-                                     mw, dim_item_h - 8.0f, 8.0f, c_selbg);
+                                     sel_w, dim_item_h - 8.0f, 8.0f, c_selbg);
                     draw_rect_filled(ren, mx - 4.0f, iy - 4.0f,
                                      4.0f, dim_item_h - 8.0f, c_green);
                 }
