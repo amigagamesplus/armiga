@@ -48,7 +48,8 @@ typedef enum {
     STATE_KEYBOARD,
     STATE_BACKUP_MENU,
     STATE_BACKUP_LIST,
-    STATE_LED_CONFIG
+    STATE_LED_CONFIG,
+    STATE_TIMEZONE_CONFIG
 } AppState;
 
 typedef enum {
@@ -141,10 +142,40 @@ static const char *SETTINGS_MENU_ITEMS[][2] = {
     {"Red inalámbrica",             "Wireless Network"},
     {"Copia de seguridad",          "Backup"},
     {"LED RGB analógicos",          "Analog Stick LEDs"},
+    {"Zona horaria",                "Time Zone"},
     {"Restablecer valores de fábrica", "Factory reset"},
 };
-#define SETTINGS_MENU_COUNT 4
+#define SETTINGS_MENU_COUNT 5
 #define SETTINGS_ACTION_FACTORY_RESET 10
+
+typedef struct {
+    const char *tz_name;    /* nombre IANA, usado como valor TZ real */
+    const char *label[2];   /* etiqueta mostrada, es/en */
+} TimezoneEntry;
+
+static const TimezoneEntry TIMEZONE_LIST[] = {
+    {"Europe/Madrid",              {"Madrid",        "Madrid"}},
+    {"Europe/London",               {"Londres",       "London"}},
+    {"Europe/Berlin",               {"Berlín",        "Berlin"}},
+    {"Europe/Moscow",               {"Moscú",         "Moscow"}},
+    {"America/New_York",            {"Nueva York",    "New York"}},
+    {"America/Chicago",             {"Chicago",       "Chicago"}},
+    {"America/Denver",              {"Denver",        "Denver"}},
+    {"America/Los_Angeles",         {"Los Ángeles",   "Los Angeles"}},
+    {"America/Mexico_City",         {"Ciudad de México", "Mexico City"}},
+    {"America/Sao_Paulo",           {"São Paulo",     "Sao Paulo"}},
+    {"America/Argentina/Buenos_Aires", {"Buenos Aires", "Buenos Aires"}},
+    {"Asia/Dubai",                  {"Dubái",         "Dubai"}},
+    {"Asia/Kolkata",                {"Bombay",        "Mumbai"}},
+    {"Asia/Shanghai",               {"Shanghái",      "Shanghai"}},
+    {"Asia/Tokyo",                  {"Tokio",         "Tokyo"}},
+    {"Asia/Seoul",                  {"Seúl",          "Seoul"}},
+    {"Australia/Sydney",            {"Sídney",        "Sydney"}},
+    {"Pacific/Auckland",            {"Auckland",      "Auckland"}},
+    {"Africa/Cairo",                {"El Cairo",      "Cairo"}},
+    {"UTC",                         {"UTC (sin ajuste)", "UTC (no offset)"}},
+};
+#define TIMEZONE_LIST_COUNT (int)(sizeof(TIMEZONE_LIST) / sizeof(TIMEZONE_LIST[0]))
 
 static const char *BACKUP_MENU_ITEMS[][2] = {
     {"Crear nueva copia",           "Create new backup"},
@@ -525,6 +556,48 @@ static void save_lang_config(void)
     if (!f) return;
     for (int i = 0; i < n; i++) fputs(lines[i], f);
     fprintf(f, "LANG=%s\n", (current_lang == LANG_EN) ? "EN" : "ES");
+    fclose(f);
+}
+/* Lee el valor TZ actual de armiga.cfg (sin aplicarlo, solo para saber
+ * cual esta activo, ej. al abrir el selector de zona horaria). */
+static void read_current_tz(char *tz_name, size_t tz_sz)
+{
+    strncpy(tz_name, "UTC", tz_sz - 1);
+    tz_name[tz_sz - 1] = 0;
+    FILE *f = fopen(ARMIGA_CONFIG_PATH, "r");
+    if (!f) return;
+    char line[128];
+    while (fgets(line, sizeof(line), f)) {
+        char key[32], val[96];
+        if (sscanf(line, "%31[^=]=%95s", key, val) == 2 && !strcmp(key, "TZ")) {
+            strncpy(tz_name, val, tz_sz - 1);
+            tz_name[tz_sz - 1] = 0;
+        }
+    }
+    fclose(f);
+}
+/* Guarda TZ en armiga.cfg, preservando el resto de claves (ej. LANG),
+ * mismo patron que save_lang_config. */
+static void save_timezone_config(const char *tz_name)
+{
+    char lines[32][128];
+    int n = 0;
+    FILE *f = fopen(ARMIGA_CONFIG_PATH, "r");
+    if (f) {
+        while (n < 32 && fgets(lines[n], sizeof(lines[n]), f)) {
+            char key[32], val[96];
+            if (sscanf(lines[n], "%31[^=]=%95s", key, val) == 2 &&
+                !strcmp(key, "TZ")) {
+                continue; /* se reescribe al final, no duplicar */
+            }
+            n++;
+        }
+        fclose(f);
+    }
+    f = fopen(ARMIGA_CONFIG_PATH, "w");
+    if (!f) return;
+    for (int i = 0; i < n; i++) fputs(lines[i], f);
+    fprintf(f, "TZ=%s\n", tz_name);
     fclose(f);
 }
 
@@ -1106,6 +1179,15 @@ int main(void)
                       led_r_left, led_g_left, led_b_left);
     Uint64 led_repeat_next = 0;
     int led_repeat_dir = 0; /* -1 izq, +1 der, 0 ninguno */
+    char timezone_current[64] = "UTC";
+    int timezone_selected = 0;
+    read_current_tz(timezone_current, sizeof(timezone_current));
+    for (int i = 0; i < TIMEZONE_LIST_COUNT; i++) {
+        if (!strcmp(TIMEZONE_LIST[i].tz_name, timezone_current)) {
+            timezone_selected = i;
+            break;
+        }
+    }
     char kb_buffer[64] = "";
     int  kb_row = 0;
     int  kb_col = 0;
@@ -1273,6 +1355,9 @@ int main(void)
                         state = STATE_LED_CONFIG;
                     }
                     if (ev.key.key == SDLK_RETURN && settings_selected == 3) {
+                        state = STATE_TIMEZONE_CONFIG;
+                    }
+                    if (ev.key.key == SDLK_RETURN && settings_selected == 4) {
                         confirm_target = SETTINGS_ACTION_FACTORY_RESET;
                         confirm_return_state = STATE_SETTINGS;
                         state = STATE_CONFIRM;
@@ -1303,6 +1388,10 @@ int main(void)
                 }
                 if (ev.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN &&
                     ev.jbutton.button == BTN_SDL_A && settings_selected == 3) {
+                    state = STATE_TIMEZONE_CONFIG;
+                }
+                if (ev.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN &&
+                    ev.jbutton.button == BTN_SDL_A && settings_selected == 4) {
                     confirm_target = SETTINGS_ACTION_FACTORY_RESET;
                     confirm_return_state = STATE_SETTINGS;
                     state = STATE_CONFIRM;
@@ -1310,6 +1399,32 @@ int main(void)
                 if (ev.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN &&
                     ev.jbutton.button == BTN_SDL_B)
                     state = STATE_MENU;
+            }
+            else if (state == STATE_TIMEZONE_CONFIG) {
+                if (ev.type == SDL_EVENT_KEY_DOWN) {
+                    if (ev.key.key == SDLK_UP)
+                        timezone_selected = (timezone_selected - 1 + TIMEZONE_LIST_COUNT) % TIMEZONE_LIST_COUNT;
+                    if (ev.key.key == SDLK_DOWN)
+                        timezone_selected = (timezone_selected + 1) % TIMEZONE_LIST_COUNT;
+                }
+                if (ev.type == SDL_EVENT_JOYSTICK_HAT_MOTION) {
+                    if (ev.jhat.value == SDL_HAT_UP)
+                        timezone_selected = (timezone_selected - 1 + TIMEZONE_LIST_COUNT) % TIMEZONE_LIST_COUNT;
+                    else if (ev.jhat.value == SDL_HAT_DOWN)
+                        timezone_selected = (timezone_selected + 1) % TIMEZONE_LIST_COUNT;
+                }
+                if ((ev.type == SDL_EVENT_KEY_DOWN && ev.key.key == SDLK_RETURN) ||
+                    (ev.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN && ev.jbutton.button == BTN_SDL_A)) {
+                    strncpy(timezone_current, TIMEZONE_LIST[timezone_selected].tz_name,
+                            sizeof(timezone_current) - 1);
+                    timezone_current[sizeof(timezone_current) - 1] = 0;
+                    setenv("TZ", timezone_current, 1);
+                    tzset();
+                    save_timezone_config(timezone_current);
+                }
+                if (ev.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN &&
+                    ev.jbutton.button == BTN_SDL_B)
+                    state = STATE_SETTINGS;
             }
             else if (state == STATE_BACKUP_MENU) {
                 if (ev.type == SDL_EVENT_KEY_DOWN) {
@@ -1835,6 +1950,42 @@ int main(void)
 
             draw_line(ren, mx, 438.0f, SCREEN_W - 20.0f, 438.0f, c_green);
             draw_footer(ren, f_sm, tr("[B] Seleccionar  [A] Volver", "[B] Select  [A] Back"), s_version);
+
+        } else if (state == STATE_TIMEZONE_CONFIG) {
+            draw_text(ren, f_sm, tr("ZONA HORARIA", "TIME ZONE"), c_green, mx, 20.0f);
+            draw_statusbar(ren, f_sm, status_time, status_wifi_up, status_battery);
+            draw_line(ren, mx, 44.0f, SCREEN_W - 20.0f, 44.0f, c_green);
+
+            float tz_y0 = 60.0f;
+            float tz_item_h = 20.0f;
+            int tz_visible = 18;
+            int tz_scroll = 0;
+            if (timezone_selected >= tz_visible)
+                tz_scroll = timezone_selected - tz_visible + 1;
+            if (tz_scroll > TIMEZONE_LIST_COUNT - tz_visible)
+                tz_scroll = TIMEZONE_LIST_COUNT - tz_visible;
+            if (tz_scroll < 0) tz_scroll = 0;
+
+            for (int row = 0; row < tz_visible && (row + tz_scroll) < TIMEZONE_LIST_COUNT; row++) {
+                int i = row + tz_scroll;
+                float iy = tz_y0 + row * tz_item_h;
+                bool sel = (i == timezone_selected);
+                bool active = !strcmp(TIMEZONE_LIST[i].tz_name, timezone_current);
+                if (sel) {
+                    draw_rounded_rect_filled(ren, mx - 4.0f, iy - 3.0f,
+                                     mw, tz_item_h - 2.0f, 6.0f, c_selbg);
+                    draw_rect_filled(ren, mx - 4.0f, iy - 3.0f,
+                                     4.0f, tz_item_h - 2.0f, c_green);
+                }
+                SDL_Color labelc = sel ? c_green : c_gray;
+                draw_text(ren, f_sm, TIMEZONE_LIST[i].label[current_lang], labelc, mx + 8.0f, iy);
+                if (active)
+                    draw_text(ren, f_sm, "*", c_green, mx + mw - 16.0f, iy);
+            }
+
+            draw_line(ren, mx, 438.0f, SCREEN_W - 20.0f, 438.0f, c_green);
+            draw_footer(ren, f_sm,
+                tr("[B] Aplicar  [A] Volver", "[B] Apply  [A] Back"), s_version);
 
         } else if (state == STATE_BACKUP_MENU) {
             draw_text(ren, f_sm, tr("COPIA DE SEGURIDAD", "BACKUP"), c_green, mx, 20.0f);
