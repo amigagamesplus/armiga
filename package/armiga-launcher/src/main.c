@@ -49,7 +49,8 @@ typedef enum {
     STATE_BACKUP_MENU,
     STATE_BACKUP_LIST,
     STATE_LED_CONFIG,
-    STATE_TIMEZONE_CONFIG
+    STATE_TIMEZONE_CONFIG,
+    STATE_SCREENDIM_CONFIG
 } AppState;
 
 typedef enum {
@@ -143,10 +144,26 @@ static const char *SETTINGS_MENU_ITEMS[][2] = {
     {"Copia de seguridad",          "Backup"},
     {"LED RGB analógicos",          "Analog Stick LEDs"},
     {"Zona horaria",                "Time Zone"},
+    {"Ahorro de pantalla",          "Screen Dimming"},
     {"Restablecer valores de fábrica", "Factory reset"},
 };
-#define SETTINGS_MENU_COUNT 5
+#define SETTINGS_MENU_COUNT 6
 #define SETTINGS_ACTION_FACTORY_RESET 10
+
+/* Tiempos de inactividad seleccionables, en segundos. 0 = Nunca. */
+static const int DIM_TIMEOUT_OPTIONS[] = {0, 60, 300, 600, 900, 1800, 3600};
+static const char *DIM_TIMEOUT_LABELS[][2] = {
+    {"Nunca",     "Never"},
+    {"1 minuto",  "1 minute"},
+    {"5 minutos", "5 minutes"},
+    {"10 minutos","10 minutes"},
+    {"15 minutos","15 minutes"},
+    {"30 minutos","30 minutes"},
+    {"60 minutos","60 minutes"},
+};
+#define DIM_TIMEOUT_COUNT (int)(sizeof(DIM_TIMEOUT_OPTIONS) / sizeof(DIM_TIMEOUT_OPTIONS[0]))
+#define DIM_BACKLIGHT_PATH "/sys/class/backlight/backlight/brightness"
+#define DIM_BACKLIGHT_MAX_PATH "/sys/class/backlight/backlight/max_brightness"
 
 typedef struct {
     const char *tz_name;    /* nombre IANA, usado como valor TZ real */
@@ -665,6 +682,72 @@ static bool save_wifi_conf(const char *ssid, const char *password)
     fprintf(f, "SSID=%s\nPASSWORD=%s\n", ssid, password);
     fclose(f);
     return true;
+}
+static int read_max_brightness(void)
+{
+    FILE *f = fopen(DIM_BACKLIGHT_MAX_PATH, "r");
+    if (!f) return 2499; /* fallback razonable si el sysfs no responde */
+    int v = 2499;
+    if (fscanf(f, "%d", &v) != 1) v = 2499;
+    fclose(f);
+    return v;
+}
+static int read_current_brightness(void)
+{
+    FILE *f = fopen(DIM_BACKLIGHT_PATH, "r");
+    if (!f) return -1;
+    int v = -1;
+    if (fscanf(f, "%d", &v) != 1) v = -1;
+    fclose(f);
+    return v;
+}
+static void write_brightness(int value)
+{
+    FILE *f = fopen(DIM_BACKLIGHT_PATH, "w");
+    if (!f) return;
+    fprintf(f, "%d", value);
+    fclose(f);
+}
+/* Lee DIM_TIMEOUT y DIM_PERCENT de armiga.cfg. Defaults: Nunca (0), 20%. */
+static void read_dim_config(int *timeout_sec, int *dim_percent)
+{
+    *timeout_sec = 0;
+    *dim_percent = 20;
+    FILE *f = fopen(ARMIGA_CONFIG_PATH, "r");
+    if (!f) return;
+    char line[128];
+    while (fgets(line, sizeof(line), f)) {
+        char key[32], val[96];
+        if (sscanf(line, "%31[^=]=%95s", key, val) == 2) {
+            if (!strcmp(key, "DIM_TIMEOUT")) *timeout_sec = atoi(val);
+            else if (!strcmp(key, "DIM_PERCENT")) *dim_percent = atoi(val);
+        }
+    }
+    fclose(f);
+}
+/* Guarda DIM_TIMEOUT y DIM_PERCENT en armiga.cfg, preservando otras claves
+ * (TZ, LANG), mismo patron que save_timezone_config/save_lang_config. */
+static void save_dim_config(int timeout_sec, int dim_percent)
+{
+    char lines[32][128];
+    int n = 0;
+    FILE *f = fopen(ARMIGA_CONFIG_PATH, "r");
+    if (f) {
+        while (n < 32 && fgets(lines[n], sizeof(lines[n]), f)) {
+            char key[32], val[96];
+            if (sscanf(lines[n], "%31[^=]=%95s", key, val) == 2 &&
+                (!strcmp(key, "DIM_TIMEOUT") || !strcmp(key, "DIM_PERCENT"))) {
+                continue; /* se reescriben al final, no duplicar */
+            }
+            n++;
+        }
+        fclose(f);
+    }
+    f = fopen(ARMIGA_CONFIG_PATH, "w");
+    if (!f) return;
+    for (int i = 0; i < n; i++) fputs(lines[i], f);
+    fprintf(f, "DIM_TIMEOUT=%d\nDIM_PERCENT=%d\n", timeout_sec, dim_percent);
+    fclose(f);
 }
 #define LED_CONF_PATH "/media/amiga_data/led.conf"
 static void read_led_conf(int *r_right, int *g_right, int *b_right,
@@ -1188,6 +1271,18 @@ int main(void)
             break;
         }
     }
+    int dim_timeout_sec = 0;
+    int dim_percent = 20;
+    read_dim_config(&dim_timeout_sec, &dim_percent);
+    int dim_timeout_selected = 0;
+    for (int i = 0; i < DIM_TIMEOUT_COUNT; i++) {
+        if (DIM_TIMEOUT_OPTIONS[i] == dim_timeout_sec) { dim_timeout_selected = i; break; }
+    }
+    int dim_field_selected = 0; /* 0 = tiempo, 1 = porcentaje */
+    int dim_max_brightness = read_max_brightness();
+    int dim_saved_brightness = -1; /* brillo del usuario antes de atenuar, -1 = no atenuado */
+    bool dim_active = false;
+    Uint64 last_input_ticks = SDL_GetTicks();
     char kb_buffer[64] = "";
     int  kb_row = 0;
     int  kb_col = 0;
@@ -1252,6 +1347,14 @@ int main(void)
 
     while (running) {
         while (SDL_PollEvent(&ev)) {
+            if (ev.type == SDL_EVENT_KEY_DOWN || ev.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN ||
+                ev.type == SDL_EVENT_JOYSTICK_HAT_MOTION || ev.type == SDL_EVENT_JOYSTICK_AXIS_MOTION) {
+                last_input_ticks = SDL_GetTicks();
+                if (dim_active) {
+                    write_brightness(dim_saved_brightness);
+                    dim_active = false;
+                }
+            }
             if (ev.type == SDL_EVENT_KEY_DOWN && ev.key.key == SDLK_ESCAPE) {
                 if (state == STATE_MENU) running = false;
                 else if (state == STATE_CONFIRM) state = STATE_DEVMODE;
@@ -1358,6 +1461,10 @@ int main(void)
                         state = STATE_TIMEZONE_CONFIG;
                     }
                     if (ev.key.key == SDLK_RETURN && settings_selected == 4) {
+                        dim_field_selected = 0;
+                        state = STATE_SCREENDIM_CONFIG;
+                    }
+                    if (ev.key.key == SDLK_RETURN && settings_selected == 5) {
                         confirm_target = SETTINGS_ACTION_FACTORY_RESET;
                         confirm_return_state = STATE_SETTINGS;
                         state = STATE_CONFIRM;
@@ -1392,6 +1499,11 @@ int main(void)
                 }
                 if (ev.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN &&
                     ev.jbutton.button == BTN_SDL_A && settings_selected == 4) {
+                    dim_field_selected = 0;
+                    state = STATE_SCREENDIM_CONFIG;
+                }
+                if (ev.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN &&
+                    ev.jbutton.button == BTN_SDL_A && settings_selected == 5) {
                     confirm_target = SETTINGS_ACTION_FACTORY_RESET;
                     confirm_return_state = STATE_SETTINGS;
                     state = STATE_CONFIRM;
@@ -1421,6 +1533,66 @@ int main(void)
                     setenv("TZ", timezone_current, 1);
                     tzset();
                     save_timezone_config(timezone_current);
+                }
+                if (ev.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN &&
+                    ev.jbutton.button == BTN_SDL_B)
+                    state = STATE_SETTINGS;
+            }
+            else if (state == STATE_SCREENDIM_CONFIG) {
+                if (ev.type == SDL_EVENT_KEY_DOWN) {
+                    if (ev.key.key == SDLK_UP)
+                        dim_field_selected = (dim_field_selected - 1 + 2) % 2;
+                    if (ev.key.key == SDLK_DOWN)
+                        dim_field_selected = (dim_field_selected + 1) % 2;
+                    if (ev.key.key == SDLK_LEFT) {
+                        if (dim_field_selected == 0)
+                            dim_timeout_selected = (dim_timeout_selected - 1 + DIM_TIMEOUT_COUNT) % DIM_TIMEOUT_COUNT;
+                        else {
+                            dim_percent -= 5;
+                            if (dim_percent < 5) dim_percent = 5;
+                        }
+                    }
+                    if (ev.key.key == SDLK_RIGHT) {
+                        if (dim_field_selected == 0)
+                            dim_timeout_selected = (dim_timeout_selected + 1) % DIM_TIMEOUT_COUNT;
+                        else {
+                            dim_percent += 5;
+                            if (dim_percent > 95) dim_percent = 95;
+                        }
+                    }
+                }
+                if (ev.type == SDL_EVENT_JOYSTICK_HAT_MOTION) {
+                    if (ev.jhat.value == SDL_HAT_UP)
+                        dim_field_selected = (dim_field_selected - 1 + 2) % 2;
+                    else if (ev.jhat.value == SDL_HAT_DOWN)
+                        dim_field_selected = (dim_field_selected + 1) % 2;
+                    else if (ev.jhat.value == SDL_HAT_LEFT) {
+                        if (dim_field_selected == 0)
+                            dim_timeout_selected = (dim_timeout_selected - 1 + DIM_TIMEOUT_COUNT) % DIM_TIMEOUT_COUNT;
+                        else {
+                            dim_percent -= 5;
+                            if (dim_percent < 5) dim_percent = 5;
+                        }
+                    }
+                    else if (ev.jhat.value == SDL_HAT_RIGHT) {
+                        if (dim_field_selected == 0)
+                            dim_timeout_selected = (dim_timeout_selected + 1) % DIM_TIMEOUT_COUNT;
+                        else {
+                            dim_percent += 5;
+                            if (dim_percent > 95) dim_percent = 95;
+                        }
+                    }
+                }
+                if ((ev.type == SDL_EVENT_KEY_DOWN && ev.key.key == SDLK_RETURN) ||
+                    (ev.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN && ev.jbutton.button == BTN_SDL_A)) {
+                    dim_timeout_sec = DIM_TIMEOUT_OPTIONS[dim_timeout_selected];
+                    save_dim_config(dim_timeout_sec, dim_percent);
+                    if (dim_active) {
+                        write_brightness(dim_saved_brightness);
+                        dim_active = false;
+                    }
+                    last_input_ticks = SDL_GetTicks();
+                    state = STATE_SETTINGS;
                 }
                 if (ev.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN &&
                     ev.jbutton.button == BTN_SDL_B)
@@ -1770,6 +1942,16 @@ int main(void)
                          &status_wifi_up, &status_battery);
             last_status_update = now_ticks;
         }
+        if (dim_timeout_sec > 0 && !dim_active &&
+            (now_ticks - last_input_ticks) >= (Uint64)(dim_timeout_sec * 1000)) {
+            dim_saved_brightness = read_current_brightness();
+            if (dim_saved_brightness >= 0) {
+                int target = (int)((int64_t)dim_saved_brightness * dim_percent / 100);
+                if (target < 1) target = 1; /* nunca apagar del todo, sigue siendo legible */
+                write_brightness(target);
+                dim_active = true;
+            }
+        }
         if (state == STATE_LED_CONFIG && led_repeat_dir != 0 &&
             now_ticks >= led_repeat_next) {
             int *led_vals[LED_SLIDER_COUNT] = {
@@ -1986,6 +2168,57 @@ int main(void)
             draw_line(ren, mx, 438.0f, SCREEN_W - 20.0f, 438.0f, c_green);
             draw_footer(ren, f_sm,
                 tr("[B] Aplicar  [A] Volver", "[B] Apply  [A] Back"), s_version);
+
+        } else if (state == STATE_SCREENDIM_CONFIG) {
+            draw_text(ren, f_sm, tr("AHORRO DE PANTALLA", "SCREEN DIMMING"), c_green, mx, 20.0f);
+            draw_statusbar(ren, f_sm, status_time, status_wifi_up, status_battery);
+            draw_line(ren, mx, 44.0f, SCREEN_W - 20.0f, 44.0f, c_green);
+
+            float dim_y0 = 70.0f;
+            float dim_item_h = 46.0f;
+            float dim_bar_w = 220.0f;
+            float dim_bar_h = 10.0f;
+
+            {
+                float iy = dim_y0;
+                bool sel = (dim_field_selected == 0);
+                SDL_Color labelc = sel ? c_green : c_gray;
+                if (sel) {
+                    draw_rounded_rect_filled(ren, mx - 4.0f, iy - 4.0f,
+                                     mw, dim_item_h - 8.0f, 8.0f, c_selbg);
+                    draw_rect_filled(ren, mx - 4.0f, iy - 4.0f,
+                                     4.0f, dim_item_h - 8.0f, c_green);
+                }
+                draw_text(ren, f_sm, tr("Atenuar tras", "Dim after"), labelc, mx + 8.0f, iy);
+                draw_text(ren, f_med, DIM_TIMEOUT_LABELS[dim_timeout_selected][current_lang],
+                          c_white, mx + 8.0f, iy + 16.0f);
+            }
+
+            {
+                float iy = dim_y0 + dim_item_h;
+                bool sel = (dim_field_selected == 1);
+                SDL_Color labelc = sel ? c_green : c_gray;
+                if (sel) {
+                    draw_rounded_rect_filled(ren, mx - 4.0f, iy - 4.0f,
+                                     mw, dim_item_h - 8.0f, 8.0f, c_selbg);
+                    draw_rect_filled(ren, mx - 4.0f, iy - 4.0f,
+                                     4.0f, dim_item_h - 8.0f, c_green);
+                }
+                draw_text(ren, f_sm, tr("Brillo al atenuar", "Brightness when dimmed"),
+                          labelc, mx + 8.0f, iy);
+                float bar_x = mx + 8.0f;
+                float bar_y = iy + 20.0f;
+                draw_rect_filled(ren, bar_x, bar_y, dim_bar_w, dim_bar_h, c_selbg);
+                float frac = dim_percent / 100.0f;
+                draw_rect_filled(ren, bar_x, bar_y, dim_bar_w * frac, dim_bar_h, c_green);
+                char valbuf[8];
+                snprintf(valbuf, sizeof(valbuf), "%d%%", dim_percent);
+                draw_text(ren, f_sm, valbuf, c_white, bar_x + dim_bar_w + 10.0f, iy + 16.0f);
+            }
+
+            draw_line(ren, mx, 438.0f, SCREEN_W - 20.0f, 438.0f, c_green);
+            draw_footer(ren, f_sm,
+                tr("[B] Guardar  [A] Volver", "[B] Save  [A] Back"), s_version);
 
         } else if (state == STATE_BACKUP_MENU) {
             draw_text(ren, f_sm, tr("COPIA DE SEGURIDAD", "BACKUP"), c_green, mx, 20.0f);
