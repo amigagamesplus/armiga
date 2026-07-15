@@ -2060,13 +2060,16 @@ int main(void)
         for (int i = 0; i < MENU_COUNT; i++) {
             float iy = menu_y0 + i * item_h;
             if (i == selected) {
+                int text_w = 0, text_h = 0;
+                TTF_GetStringSize(f_med, MENU_ITEMS[i][current_lang], 0, &text_w, &text_h);
+                float sel_w = 46.0f + (float)text_w + 40.0f; /* icono+texto + espacio para "> " */
                 draw_rounded_rect_filled(ren, mx - 4.0f, iy - 4.0f,
-                                 mw, item_h - 2.0f, 8.0f, c_selbg);
+                                 sel_w, item_h - 2.0f, 8.0f, c_selbg);
                 draw_rect_filled(ren, mx - 4.0f, iy - 4.0f,
                                  4.0f, item_h - 2.0f, c_green);
                 draw_text(ren, f_med, MENU_ICONS[i], c_green, mx + 8.0f, iy);
                 draw_text(ren, f_med, MENU_ITEMS[i][current_lang], c_green, mx + 46.0f, iy);
-                draw_text(ren, f_med, ">", c_green, mx + mw - 20.0f, iy);
+                draw_text(ren, f_med, ">", c_green, mx + sel_w - 20.0f, iy);
             } else {
                 draw_text(ren, f_med, MENU_ICONS[i], c_gray, mx + 8.0f, iy);
                 draw_text(ren, f_med, MENU_ITEMS[i][current_lang], c_gray, mx + 46.0f, iy);
@@ -2157,8 +2160,11 @@ int main(void)
                 bool sel = (i == timezone_selected);
                 bool active = !strcmp(TIMEZONE_LIST[i].tz_name, timezone_current);
                 if (sel) {
+                    int text_w = 0, text_h = 0;
+                    TTF_GetStringSize(f_sm, TIMEZONE_LIST[i].label[current_lang], 0, &text_w, &text_h);
+                    float sel_w = (float)text_w + 24.0f;
                     draw_rounded_rect_filled(ren, mx - 4.0f, iy - 3.0f,
-                                     mw, tz_item_h - 2.0f, 6.0f, c_selbg);
+                                     sel_w, tz_item_h - 2.0f, 6.0f, c_selbg);
                     draw_rect_filled(ren, mx - 4.0f, iy - 3.0f,
                                      4.0f, tz_item_h - 2.0f, c_green);
                 }
@@ -2232,8 +2238,11 @@ int main(void)
             for (int i = 0; i < BACKUP_MENU_COUNT; i++) {
                 float iy = bkm_y0 + i * bkm_item_h;
                 if (i == backup_selected) {
+                    int text_w = 0, text_h = 0;
+                    TTF_GetStringSize(f_med, BACKUP_MENU_ITEMS[i][current_lang], 0, &text_w, &text_h);
+                    float sel_w = (float)text_w + 24.0f;
                     draw_rounded_rect_filled(ren, mx - 4.0f, iy - 4.0f,
-                                     mw, bkm_item_h - 2.0f, 8.0f, c_selbg);
+                                     sel_w, bkm_item_h - 2.0f, 8.0f, c_selbg);
                     draw_rect_filled(ren, mx - 4.0f, iy - 4.0f,
                                      4.0f, bkm_item_h - 2.0f, c_green);
                     draw_text(ren, f_med, BACKUP_MENU_ITEMS[i][current_lang], c_green, mx + 8.0f, iy);
@@ -2260,8 +2269,11 @@ int main(void)
                 for (int i = 0; i < backup_count; i++) {
                     float iy = bkl_y0 + i * bkl_item_h;
                     if (i == backup_list_selected) {
+                        int text_w = 0, text_h = 0;
+                        TTF_GetStringSize(f_sm, backup_list[i], 0, &text_w, &text_h);
+                        float sel_w = (float)text_w + 24.0f;
                         draw_rounded_rect_filled(ren, mx - 4.0f, iy - 4.0f,
-                                         mw, bkl_item_h - 2.0f, 8.0f, c_selbg);
+                                         sel_w, bkl_item_h - 2.0f, 8.0f, c_selbg);
                         draw_rect_filled(ren, mx - 4.0f, iy - 4.0f,
                                          4.0f, bkl_item_h - 2.0f, c_green);
                         draw_text(ren, f_sm, backup_list[i], c_green, mx + 8.0f, iy);
@@ -2449,8 +2461,11 @@ int main(void)
             for (int i = 0; i < DEV_MENU_COUNT; i++) {
                 float iy = dev_y0 + i * dev_item_h;
                 if (i == dev_selected) {
+                    int text_w = 0, text_h = 0;
+                    TTF_GetStringSize(f_sm, DEV_MENU_ITEMS[i], 0, &text_w, &text_h);
+                    float sel_w = (float)text_w + 24.0f;
                     draw_rounded_rect_filled(ren, mx - 4.0f, iy - 4.0f,
-                                     mw, dev_item_h - 2.0f, 8.0f, c_selbg);
+                                     sel_w, dev_item_h - 2.0f, 8.0f, c_selbg);
                     draw_rect_filled(ren, mx - 4.0f, iy - 4.0f,
                                      4.0f, dev_item_h - 2.0f, c_green);
                     draw_text(ren, f_sm, DEV_MENU_ITEMS[i], c_green, mx + 8.0f, iy);
