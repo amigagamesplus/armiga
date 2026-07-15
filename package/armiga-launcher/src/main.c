@@ -2120,8 +2120,11 @@ int main(void)
             for (int i = 0; i < SETTINGS_MENU_COUNT; i++) {
                 float iy = settings_y0 + i * settings_item_h;
                 if (i == settings_selected) {
+                    int text_w = 0, text_h = 0;
+                    TTF_GetStringSize(f_med, SETTINGS_MENU_ITEMS[i][current_lang], 0, &text_w, &text_h);
+                    float sel_w = (float)text_w + 24.0f; /* padding izquierdo (8) + derecho (16) */
                     draw_rounded_rect_filled(ren, mx - 4.0f, iy - 4.0f,
-                                     mw, settings_item_h - 2.0f, 8.0f, c_selbg);
+                                     sel_w, settings_item_h - 2.0f, 8.0f, c_selbg);
                     draw_rect_filled(ren, mx - 4.0f, iy - 4.0f,
                                      4.0f, settings_item_h - 2.0f, c_green);
                     draw_text(ren, f_med, SETTINGS_MENU_ITEMS[i][current_lang], c_green, mx + 8.0f, iy);
