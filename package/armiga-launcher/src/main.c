@@ -2297,27 +2297,25 @@ int main(void)
                 float iy = wifi_y0;
                 bool sel = (wifi_field_selected == 0);
                 SDL_Color labelc = sel ? c_green : c_gray;
+                const char *ssid_disp = wifi_ssid[0] ? wifi_ssid : "--";
                 if (sel) {
+                    int lw = 0, lh = 0, vw = 0, vh = 0;
+                    TTF_GetStringSize(f_sm, "SSID", 0, &lw, &lh);
+                    TTF_GetStringSize(f_med, ssid_disp, 0, &vw, &vh);
+                    float sel_w = (float)(lw > vw ? lw : vw) + 24.0f;
                     draw_rounded_rect_filled(ren, mx - 4.0f, iy - 4.0f,
-                                     mw, wifi_item_h - 6.0f, 8.0f, c_selbg);
+                                     sel_w, wifi_item_h - 6.0f, 8.0f, c_selbg);
                     draw_rect_filled(ren, mx - 4.0f, iy - 4.0f,
                                      4.0f, wifi_item_h - 6.0f, c_green);
                 }
                 draw_text(ren, f_sm, "SSID", labelc, mx + 8.0f, iy);
-                draw_text(ren, f_med, wifi_ssid[0] ? wifi_ssid : "--", c_white, mx + 8.0f, iy + 16.0f);
+                draw_text(ren, f_med, ssid_disp, c_white, mx + 8.0f, iy + 16.0f);
             }
 
             {
                 float iy = wifi_y0 + wifi_item_h;
                 bool sel = (wifi_field_selected == 1);
                 SDL_Color labelc = sel ? c_green : c_gray;
-                if (sel) {
-                    draw_rounded_rect_filled(ren, mx - 4.0f, iy - 4.0f,
-                                     mw, wifi_item_h - 6.0f, 8.0f, c_selbg);
-                    draw_rect_filled(ren, mx - 4.0f, iy - 4.0f,
-                                     4.0f, wifi_item_h - 6.0f, c_green);
-                }
-                draw_text(ren, f_sm, tr("CONTRASEÑA", "PASSWORD"), labelc, mx + 8.0f, iy);
                 char masked[64];
                 if (wifi_show_password || !wifi_password[0]) {
                     strncpy(masked, wifi_password[0] ? wifi_password : "--", sizeof(masked) - 1);
@@ -2328,6 +2326,17 @@ int main(void)
                     for (size_t k = 0; k < len; k++) masked[k] = '*';
                     masked[len] = 0;
                 }
+                if (sel) {
+                    int lw = 0, lh = 0, vw = 0, vh = 0;
+                    TTF_GetStringSize(f_sm, tr("CONTRASEÑA", "PASSWORD"), 0, &lw, &lh);
+                    TTF_GetStringSize(f_med, masked, 0, &vw, &vh);
+                    float sel_w = (float)(lw > vw ? lw : vw) + 24.0f;
+                    draw_rounded_rect_filled(ren, mx - 4.0f, iy - 4.0f,
+                                     sel_w, wifi_item_h - 6.0f, 8.0f, c_selbg);
+                    draw_rect_filled(ren, mx - 4.0f, iy - 4.0f,
+                                     4.0f, wifi_item_h - 6.0f, c_green);
+                }
+                draw_text(ren, f_sm, tr("CONTRASEÑA", "PASSWORD"), labelc, mx + 8.0f, iy);
                 draw_text(ren, f_med, masked, c_white, mx + 8.0f, iy + 16.0f);
             }
 
