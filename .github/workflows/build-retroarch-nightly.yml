@@ -139,7 +139,8 @@ jobs:
             PKG_CONFIG_SYSROOT_DIR="${PKG_CONFIG_SYSROOT_DIR}" \
             pkg-config --debug --cflags freetype2 2>&1 | tail -30 || true
 
-          export CFLAGS="--sysroot=/sysroot-aarch64 -I/sysroot-aarch64/usr/include -I/sysroot-aarch64/usr/include/aarch64-linux-gnu -I/sysroot-aarch64/usr/include/libdrm -I/sysroot-aarch64/usr/include/freetype2"
+          export CFLAGS="--sysroot=/sysroot-aarch64 -I/sysroot-aarch64/usr/include -I/sysroot-aarch64/usr/include/aarch64-linux-gnu -I/sysroot-aarch64/usr/include/libdrm -I/sysroot-aarch64/usr/include/freetype2 -mcpu=cortex-a53+crc+simd -O3 -fomit-frame-pointer"
+          export CXXFLAGS="${CFLAGS}"
           export LDFLAGS="--sysroot=/sysroot-aarch64 -L/sysroot-aarch64/usr/lib/aarch64-linux-gnu"
 
           ./configure \
@@ -212,7 +213,8 @@ jobs:
           cd retroarch-src
           export CC=aarch64-linux-gnu-gcc
           export CXX=aarch64-linux-gnu-g++
-          export CFLAGS="--sysroot=/sysroot-aarch64 -I/sysroot-aarch64/usr/include -I/sysroot-aarch64/usr/include/aarch64-linux-gnu -I/sysroot-aarch64/usr/include/libdrm -I/sysroot-aarch64/usr/include/freetype2"
+          export CFLAGS="--sysroot=/sysroot-aarch64 -I/sysroot-aarch64/usr/include -I/sysroot-aarch64/usr/include/aarch64-linux-gnu -I/sysroot-aarch64/usr/include/libdrm -I/sysroot-aarch64/usr/include/freetype2 -mcpu=cortex-a53+crc+simd -O3 -fomit-frame-pointer"
+          export CXXFLAGS="${CFLAGS}"
           export LDFLAGS="--sysroot=/sysroot-aarch64 -L/sysroot-aarch64/usr/lib/aarch64-linux-gnu"
           make -j$(nproc)
           aarch64-linux-gnu-strip --strip-unneeded retroarch
