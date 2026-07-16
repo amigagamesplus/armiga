@@ -1,0 +1,259 @@
+name: Build RetroArch (Nightly)
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install host dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            gcc-aarch64-linux-gnu g++-aarch64-linux-gnu \
+            pkg-config wget apt-file
+          sudo apt-file update
+
+      - name: Locate khrplatform.h provider package
+        run: |
+          # En vez de adivinar nombres de paquete, preguntamos al índice real
+          # de apt-file qué paquete arm64 contiene khrplatform.h.
+          echo ">>> Buscando proveedor de KHR/khrplatform.h..."
+          apt-file search KHR/khrplatform.h || true
+          KHR_PKG=$(apt-file search KHR/khrplatform.h 2>/dev/null \
+            | grep -v 'emscripten\|mingw\|ogre\|i386' \
+            | head -1 | cut -d: -f1)
+          echo "Paquete candidato: ${KHR_PKG:-NINGUNO}"
+          echo "KHR_PKG=${KHR_PKG}" >> "$GITHUB_ENV"
+
+          echo ">>> Buscando proveedor de freetype2.pc..."
+          apt-file search freetype2.pc || true
+          FT_PKG=$(apt-file search freetype2.pc 2>/dev/null \
+            | grep -v 'emscripten\|mingw\|i386' \
+            | head -1 | cut -d: -f1)
+          echo "Paquete candidato: ${FT_PKG:-NINGUNO}"
+          echo "FT_PKG=${FT_PKG}" >> "$GITHUB_ENV"
+
+      - name: Setup aarch64 sysroot
+        run: |
+          sudo mkdir -p /sysroot-aarch64
+          cd /tmp
+          sudo dpkg --add-architecture arm64
+          sudo sed -i 's/^deb /deb [arch=amd64] /g' /etc/apt/sources.list
+          echo "deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports jammy main universe" | sudo tee /etc/apt/sources.list.d/arm64.list
+          sudo apt-get update -qq
+          # libegl1-mesa-dev / libgles2-mesa-dev / libgbm-dev: SOLO para los headers
+          # (EGL/egl.h, GLES2/gl2.h, gbm.h, KHR/khrplatform.h). Los .so que traen
+          # estos paquetes se sobrescriben después con los reales de ARMIGA (Panfrost).
+          PKGS="libdrm2:arm64 libdrm-dev:arm64 libasound2:arm64 libasound2-dev:arm64 libfreetype6:arm64 libfreetype6-dev:arm64 libpng16-16:arm64 libpng-dev:arm64 libbrotli1:arm64 libbrotli-dev:arm64 libudev1:arm64 libudev-dev:arm64 zlib1g:arm64 zlib1g-dev:arm64 mesa-common-dev:arm64 libgl1-mesa-dev:arm64 libegl1-mesa-dev:arm64 libgles2-mesa-dev:arm64 libgbm-dev:arm64 libglvnd-dev:arm64 libegl-dev:arm64 libgles-dev:arm64 libc6:arm64 libc6-dev:arm64 linux-libc-dev:arm64"
+          if [ -n "${KHR_PKG:-}" ]; then
+            PKGS="${PKGS} ${KHR_PKG}:arm64"
+          fi
+          if [ -n "${FT_PKG:-}" ]; then
+            PKGS="${PKGS} ${FT_PKG}:arm64"
+          fi
+          FAILED=""
+          for pkg in ${PKGS}; do
+            apt-get download "${pkg}" || FAILED="${FAILED} ${pkg}"
+          done
+          if [ -n "${FAILED}" ]; then
+            echo "AVISO: no se pudieron descargar:${FAILED}"
+            echo "(puede que jammy use otro nombre de paquete para estos headers)"
+          fi
+          for deb in /tmp/*.deb; do sudo dpkg-deb -x $deb /sysroot-aarch64 || true; done
+          ls /sysroot-aarch64/usr/lib/aarch64-linux-gnu/ | head -10
+
+          echo ">>> Verificando headers EGL/GLES2/gbm..."
+          MISSING=0
+          for hdr in usr/include/EGL/egl.h usr/include/GLES2/gl2.h usr/include/gbm.h usr/include/KHR/khrplatform.h; do
+            if [ ! -f "/sysroot-aarch64/${hdr}" ]; then
+              echo "FALTA: ${hdr}"
+              MISSING=1
+            fi
+          done
+          if [ "${MISSING}" -eq 1 ]; then
+            echo "ERROR: faltan headers tras la descarga de paquetes -dev."
+            echo "Paquetes .deb descargados en /tmp:"
+            ls /tmp/*.deb 2>/dev/null || echo "(ninguno)"
+            echo ""
+            echo ">>> Contenido de paquetes mesa/egl/gles/glvnd (diagnóstico):"
+            for deb in /tmp/*mesa* /tmp/*egl* /tmp/*gles* /tmp/*glvnd*; do
+              [ -f "$deb" ] || continue
+              echo "--- $deb ---"
+              dpkg-deb -c "$deb" | grep -E "\.h$" || echo "  (sin headers .h)"
+            done
+            exit 1
+          fi
+          echo "Headers OK."
+
+      - name: Inject ARMIGA Mesa (Panfrost) .so into sysroot
+        run: |
+          # Sobrescribe los .so genéricos de libegl1-mesa-dev/libgles2-mesa-dev/libgbm-dev
+          # con los .so REALES de ARMIGA (Panfrost, commiteados en rootfs_overlay).
+          # Los headers instalados en el paso anterior se mantienen tal cual: son API
+          # pública de Khronos, válida independientemente de qué backend implemente Mesa.
+          MESA_LIB="board/armiga/rootfs_overlay/usr/lib"
+          SYSROOT_LIB="/sysroot-aarch64/usr/lib/aarch64-linux-gnu"
+          ls "${MESA_LIB}"
+          sudo cp -a "${MESA_LIB}"/libEGL.so* "${SYSROOT_LIB}/"
+          sudo cp -a "${MESA_LIB}"/libGLESv2.so* "${SYSROOT_LIB}/"
+          sudo cp -a "${MESA_LIB}"/libgbm.so* "${SYSROOT_LIB}/"
+          sudo cp -a "${MESA_LIB}"/libgallium-*.so "${SYSROOT_LIB}/"
+          sudo mkdir -p "${SYSROOT_LIB}/gbm"
+          sudo cp -a "${MESA_LIB}/gbm/dri_gbm.so" "${SYSROOT_LIB}/gbm/" || true
+          ls -la "${SYSROOT_LIB}"/libEGL* "${SYSROOT_LIB}"/libGLESv2* "${SYSROOT_LIB}"/libgbm*
+
+      - name: Download RetroArch source (master / nightly HEAD)
+        run: |
+          # A diferencia de build-retroarch.yml (que clona un tag estable fijo,
+          # ej. v1.22.2), aquí clonamos el HEAD de master sin branch/tag fijo,
+          # equivalente a lo que compila el buildbot oficial de nightlies.
+          # Esto puede incluir cambios muy recientes que aún no rompan la build
+          # (o sí) ya que master no tiene la estabilidad garantizada de un tag.
+          git clone --depth=1 https://github.com/libretro/RetroArch.git retroarch-src
+          cd retroarch-src
+          git submodule update --init --depth=1
+          echo ">>> Commit compilado:"
+          git log -1 --format="%H %ci %s"
+          echo "RETROARCH_COMMIT=$(git rev-parse --short HEAD)" >> "$GITHUB_ENV"
+
+      - name: Configure RetroArch (cross aarch64)
+        run: |
+          cd retroarch-src
+          export CROSS_COMPILE=aarch64-linux-gnu-
+          export CC=aarch64-linux-gnu-gcc
+          export CXX=aarch64-linux-gnu-g++
+          export PKG_CONFIG_PATH=/sysroot-aarch64/usr/lib/aarch64-linux-gnu/pkgconfig
+          export PKG_CONFIG_LIBDIR=/sysroot-aarch64/usr/lib/aarch64-linux-gnu/pkgconfig
+          export PKG_CONFIG_SYSROOT_DIR=/sysroot-aarch64
+
+          echo ">>> Diagnóstico freetype2.pc:"
+          find /sysroot-aarch64 -iname "freetype2.pc" -exec echo {} \; -exec cat {} \;
+          PKG_CONFIG_PATH="${PKG_CONFIG_PATH}" PKG_CONFIG_LIBDIR="${PKG_CONFIG_LIBDIR}" \
+            PKG_CONFIG_SYSROOT_DIR="${PKG_CONFIG_SYSROOT_DIR}" \
+            pkg-config --debug --cflags freetype2 2>&1 | tail -30 || true
+
+          export CFLAGS="--sysroot=/sysroot-aarch64 -I/sysroot-aarch64/usr/include -I/sysroot-aarch64/usr/include/aarch64-linux-gnu -I/sysroot-aarch64/usr/include/libdrm -I/sysroot-aarch64/usr/include/freetype2"
+          export LDFLAGS="--sysroot=/sysroot-aarch64 -L/sysroot-aarch64/usr/lib/aarch64-linux-gnu"
+
+          ./configure \
+            --host=aarch64-linux-gnu \
+            --prefix=/usr \
+            --sysconfdir=/etc \
+            \
+            --enable-kms \
+            --enable-egl \
+            --enable-opengles \
+            --disable-opengl \
+            --disable-opengl1 \
+            --disable-opengl_core \
+            --disable-vulkan \
+            --disable-x11 \
+            --disable-wayland \
+            --disable-plain_drm \
+            --disable-mali_fbdev \
+            --disable-cg \
+            --disable-glslang \
+            --disable-spirv_cross \
+            \
+            --enable-alsa \
+            --disable-pulse \
+            --disable-jack \
+            --disable-oss \
+            --disable-roar \
+            --disable-rsound \
+            --disable-al \
+            --disable-tinyalsa \
+            --disable-pipewire \
+            \
+            --enable-udev \
+            --disable-sdl \
+            --disable-sdl2 \
+            --disable-hid \
+            --disable-bluetooth \
+            \
+            --enable-zlib \
+            --enable-freetype \
+            --enable-zstd \
+            --enable-networking \
+            --enable-dynamic \
+            --enable-menu \
+            --enable-rgui \
+            --enable-ozone \
+            --enable-xmb \
+            --enable-materialui \
+            --enable-glsl \
+            --enable-runahead \
+            --enable-rewind \
+            --enable-cheats \
+            --enable-cheevos \
+            --enable-libretrodb \
+            --enable-overlay \
+            --enable-screenshots \
+            \
+            --disable-qt \
+            --disable-discord \
+            --disable-ffmpeg \
+            --disable-v4l2 \
+            --disable-cdrom \
+            --disable-parport \
+            --disable-ssl \
+            --disable-dbus \
+            --disable-microphone
+
+      - name: Build RetroArch
+        run: |
+          cd retroarch-src
+          export CC=aarch64-linux-gnu-gcc
+          export CXX=aarch64-linux-gnu-g++
+          export CFLAGS="--sysroot=/sysroot-aarch64 -I/sysroot-aarch64/usr/include -I/sysroot-aarch64/usr/include/aarch64-linux-gnu -I/sysroot-aarch64/usr/include/libdrm -I/sysroot-aarch64/usr/include/freetype2"
+          export LDFLAGS="--sysroot=/sysroot-aarch64 -L/sysroot-aarch64/usr/lib/aarch64-linux-gnu"
+          make -j$(nproc)
+          aarch64-linux-gnu-strip --strip-unneeded retroarch
+
+      - name: Collect artifacts
+        run: |
+          mkdir -p retroarch-artifacts/usr/bin retroarch-artifacts/usr/lib
+          cp retroarch-src/retroarch retroarch-artifacts/usr/bin/
+          file retroarch-artifacts/usr/bin/retroarch
+          ls -la retroarch-artifacts/usr/bin/retroarch
+
+          # Dejamos constancia del commit exacto compilado, para poder
+          # identificar después qué nightly llevaba el dispositivo.
+          echo "${RETROARCH_COMMIT}" > retroarch-artifacts/usr/bin/retroarch.commit
+
+          # RetroArch enlaza dinámicamente contra freetype (y sus dependencias
+          # transitivas libpng/libbrotlidec). Estas .so no están en rootfs_overlay
+          # (a diferencia de Mesa), así que se recogen aquí del sysroot del runner
+          # para que build.yml las inyecte igual que hace con Mesa GBM.
+          SYSROOT_LIB="/sysroot-aarch64/usr/lib/aarch64-linux-gnu"
+          for lib in libfreetype.so.6 libpng16.so.16 libbrotlidec.so.1 libbrotlicommon.so.1; do
+            matches=$(find "${SYSROOT_LIB}" -name "${lib}*" 2>/dev/null)
+            if [ -n "${matches}" ]; then
+              # cp -a preserva symlinks; copiamos TODOS los matches (symlink corto
+              # + fichero real versionado), no solo el primero, o el symlink queda roto.
+              echo "${matches}" | xargs -I{} cp -a {} retroarch-artifacts/usr/lib/
+            else
+              echo "AVISO: no se encontró ${lib} en el sysroot"
+            fi
+          done
+          # strip solo sobre ficheros reales (no symlinks, para no seguirlos a un
+          # destino que podría no existir aún en este punto)
+          find retroarch-artifacts/usr/lib -type f -name "*.so*" \
+            -exec aarch64-linux-gnu-strip --strip-unneeded {} \; 2>/dev/null || true
+
+          echo "Artefactos recolectados:"
+          ls -la retroarch-artifacts/usr/lib/
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: retroarch-aarch64-nightly-${{ env.RETROARCH_COMMIT }}
+          path: retroarch-artifacts/
+          retention-days: 30
