@@ -81,6 +81,10 @@ case "$1" in
             tries=$((tries + 1))
             sleep 1
         done
+        # Desactivar power management del chip RTL8821CS: el ahorro de
+        # energia agresivo de este chipset provoca desconexiones/reconexiones
+        # intermitentes con el AP. Se aplica una vez conectado.
+        iwconfig "$INTERFACE" power off 2>/dev/null
         echo "OK"
         ;;
     stop)
