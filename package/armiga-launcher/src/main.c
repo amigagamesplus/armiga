@@ -19,11 +19,17 @@
 #include <linux/kd.h>
 #include "logo.h"
 
+/* strncpy no garantiza null-terminacion si src >= sz; este helper si */
+static void safe_copy(char *dst, const char *src, size_t sz) {
+    if (sz == 0) return;
+    strncpy(dst, src, sz - 1);
+    dst[sz - 1] = '\0';
+}
+
 #define SCREEN_W  640
 #define SCREEN_H  480
 
 #define FONT_PATH    "/usr/share/armiga/fonts/JetBrainsMonoNL-ExtraBold.ttf"
-#define FONT_TITLE   36
 #define FONT_MED     13
 #define FONT_SM      12
 
@@ -271,7 +277,7 @@ static bool redirect_stdio_to_local_console(void)
 
 static void read_ip_address(char *buf, size_t bufsize)
 {
-    strncpy(buf, "sin red", bufsize);
+    safe_copy(buf, "sin red", bufsize);
     struct ifaddrs *ifaddr, *ifa;
     if (getifaddrs(&ifaddr) == -1) return;
     for (ifa = ifaddr; ifa != NULL; ifa = ifa->ifa_next) {
@@ -287,7 +293,7 @@ static void read_ip_address(char *buf, size_t bufsize)
 
 static void read_uptime(char *buf, size_t bufsize)
 {
-    strncpy(buf, "--", bufsize);
+    safe_copy(buf, "--", bufsize);
     FILE *f = fopen("/proc/uptime", "r");
     if (!f) return;
     double secs = 0.0;
@@ -301,7 +307,7 @@ static void read_uptime(char *buf, size_t bufsize)
 
 static void read_ram_usage(char *buf, size_t bufsize)
 {
-    strncpy(buf, "--", bufsize);
+    safe_copy(buf, "--", bufsize);
     FILE *f = fopen("/proc/meminfo", "r");
     if (!f) return;
     long mem_total = -1, mem_avail = -1;
@@ -320,7 +326,7 @@ static void read_ram_usage(char *buf, size_t bufsize)
 
 static void read_disk_usage(const char *path, char *buf, size_t bufsize)
 {
-    strncpy(buf, "--", bufsize);
+    safe_copy(buf, "--", bufsize);
     struct statvfs st;
     if (statvfs(path, &st) != 0) return;
     unsigned long long total_mb = (unsigned long long)st.f_blocks * st.f_frsize / (1024 * 1024);
@@ -331,7 +337,7 @@ static void read_disk_usage(const char *path, char *buf, size_t bufsize)
 
 static void read_cpu_temp(char *buf, size_t bufsize)
 {
-    strncpy(buf, "--", bufsize);
+    safe_copy(buf, "--", bufsize);
     FILE *f = fopen("/sys/class/thermal/thermal_zone0/temp", "r");
     if (!f) return;
     int millideg = 0;
@@ -404,9 +410,9 @@ static int check_update(const char *current_ver,
                         char *dl_url, size_t dl_url_sz,
                         char *sha_url, size_t sha_url_sz)
 {
-    strncpy(new_ver, "", new_ver_sz);
-    strncpy(dl_url,  "", dl_url_sz);
-    strncpy(sha_url, "", sha_url_sz);
+    safe_copy(new_ver, "", new_ver_sz);
+    safe_copy(dl_url,  "", dl_url_sz);
+    safe_copy(sha_url, "", sha_url_sz);
 
     /* Descargar JSON de la API a un fichero temporal */
     const char *tmp = "/tmp/armiga_release.json";
@@ -444,9 +450,9 @@ static int check_update(const char *current_ver,
                 sscanf(p, "\"browser_download_url\" : \"%511[^\"]\"", url);
                 if (!url[0]) sscanf(p, "\"browser_download_url\":\"%511[^\"]\"", url);
                 if (strstr(last_name, ".img.gz") && !strstr(last_name, ".sha256"))
-                    strncpy(asset_url, url, sizeof(asset_url)-1);
+                    safe_copy(asset_url, url, sizeof(asset_url));
                 if (strstr(last_name, ".sha256"))
-                    strncpy(sha_asset_url, url, sizeof(sha_asset_url)-1);
+                    safe_copy(sha_asset_url, url, sizeof(sha_asset_url));
                 /* Parar tras obtener ambos assets de la primera release */
                 if (asset_url[0] && sha_asset_url[0]) goto parse_done;
             }
@@ -461,9 +467,9 @@ static int check_update(const char *current_ver,
     /* Normalizar tag: quitar 'v' inicial */
     const char *ver = tag;
     if (ver[0] == 'v') ver++;
-    strncpy(new_ver, ver, new_ver_sz-1);
-    strncpy(dl_url,  asset_url,     dl_url_sz-1);
-    strncpy(sha_url, sha_asset_url, sha_url_sz-1);
+    safe_copy(new_ver, ver, new_ver_sz);
+    safe_copy(dl_url,  asset_url,     dl_url_sz);
+    safe_copy(sha_url, sha_asset_url, sha_url_sz);
 
     return semver_cmp(ver, current_ver) > 0 ? 1 : 0; /* 1=hay update, 0=al día */
 }
@@ -661,17 +667,17 @@ static void update_status(char *time_str, size_t time_str_sz,
 #define WIFI_CONF_PATH "/media/amiga_data/wifi.conf"
 static void read_wifi_conf(char *ssid, size_t ssid_sz, char *password, size_t password_sz)
 {
-    strncpy(ssid, "", ssid_sz);
-    strncpy(password, "", password_sz);
+    safe_copy(ssid, "", ssid_sz);
+    safe_copy(password, "", password_sz);
     FILE *f = fopen(WIFI_CONF_PATH, "r");
     if (!f) return;
     char line[256];
     while (fgets(line, sizeof(line), f)) {
         line[strcspn(line, "\r\n")] = 0;
         if (!strncmp(line, "SSID=", 5))
-            strncpy(ssid, line + 5, ssid_sz - 1);
+            safe_copy(ssid, line + 5, ssid_sz);
         else if (!strncmp(line, "PASSWORD=", 9))
-            strncpy(password, line + 9, password_sz - 1);
+            safe_copy(password, line + 9, password_sz);
     }
     fclose(f);
 }
@@ -857,8 +863,13 @@ static void create_backup(void)
         "2>/dev/null", ts);
     system(cmd);
     /* Rotar: mantener solo los BACKUP_MAX mas recientes */
-    system("cd " BACKUP_DIR " && ls -t backup_*.tar.gz 2>/dev/null | "
-           "tail -n +" "4" " | xargs -r rm -f");
+    {
+        char rot_cmd[160];
+        snprintf(rot_cmd, sizeof(rot_cmd),
+            "cd " BACKUP_DIR " && ls -t backup_*.tar.gz 2>/dev/null | "
+            "tail -n +%d | xargs -r rm -f", BACKUP_MAX + 1);
+        system(rot_cmd);
+    }
 }
 static int list_backups(char names[][64], int max_names)
 {
@@ -887,26 +898,26 @@ static void restore_backup(const char *filename)
 static void read_release(char *kernel, char *mesa, char *retroarch, char *sdl3,
                          char *build_date, char *version, char *build_number)
 {
-    strncpy(kernel,     "?", 32);
-    strncpy(mesa,       "?", 32);
-    strncpy(retroarch,  "?", 32);
-    strncpy(sdl3,       "?", 32);
-    if (build_date) strncpy(build_date, "?", 24);
-    if (version) strncpy(version, "1.0", 32);
-    if (build_number) strncpy(build_number, "?", 16);
+    safe_copy(kernel,     "?", 32);
+    safe_copy(mesa,       "?", 32);
+    safe_copy(retroarch,  "?", 32);
+    safe_copy(sdl3,       "?", 32);
+    if (build_date) safe_copy(build_date, "?", 24);
+    if (version) safe_copy(version, "1.0", 32);
+    if (build_number) safe_copy(build_number, "?", 16);
     FILE *f = fopen("/etc/armiga-release", "r");
     if (!f) return;
     char line[128];
     while (fgets(line, sizeof(line), f)) {
         char key[64], val[64];
         if (sscanf(line, "%63[^=]=%63s", key, val) == 2) {
-            if (!strcmp(key, "KERNEL_VERSION"))    strncpy(kernel,    val, 32);
-            if (!strcmp(key, "MESA_VERSION"))      strncpy(mesa,      val, 32);
-            if (!strcmp(key, "RETROARCH_VERSION")) strncpy(retroarch, val, 32);
-            if (!strcmp(key, "SDL3_VERSION"))      strncpy(sdl3,      val, 32);
-            if (build_date && !strcmp(key, "BUILD_DATE")) strncpy(build_date, val, 24);
-            if (version && !strcmp(key, "ARMIGA_VERSION")) strncpy(version, val, 32);
-            if (build_number && !strcmp(key, "BUILD_NUMBER")) strncpy(build_number, val, 16);
+            if (!strcmp(key, "KERNEL_VERSION"))    safe_copy(kernel,    val, 32);
+            if (!strcmp(key, "MESA_VERSION"))      safe_copy(mesa,      val, 32);
+            if (!strcmp(key, "RETROARCH_VERSION")) safe_copy(retroarch, val, 32);
+            if (!strcmp(key, "SDL3_VERSION"))      safe_copy(sdl3,      val, 32);
+            if (build_date && !strcmp(key, "BUILD_DATE")) safe_copy(build_date, val, 24);
+            if (version && !strcmp(key, "ARMIGA_VERSION")) safe_copy(version, val, 32);
+            if (build_number && !strcmp(key, "BUILD_NUMBER")) safe_copy(build_number, val, 16);
         }
     }
     fclose(f);
@@ -968,7 +979,7 @@ static void draw_statusbar(SDL_Renderer *ren, TTF_Font *f,
     right -= (float)w + gap;
 
     /* WIFI */
-    const char *wifi_lbl = wifi_up ? "WIFI" : "WIFI";
+    const char *wifi_lbl = "WIFI";
     SDL_Color wifi_col   = wifi_up ? c_green : c_red;
     TTF_GetStringSize(f, wifi_lbl, 0, &w, &h);
     draw_text(ren, f, wifi_lbl, wifi_col, right - (float)w, y);
@@ -1032,7 +1043,7 @@ static void read_cpu_usage(char *buf, size_t bufsize, int *pct_out)
 
 static void read_loadavg(char *buf, size_t bufsize)
 {
-    strncpy(buf, "--", bufsize);
+    safe_copy(buf, "--", bufsize);
     FILE *f = fopen("/proc/loadavg", "r");
     if (!f) return;
     float l1, l5, l15;
@@ -1043,7 +1054,7 @@ static void read_loadavg(char *buf, size_t bufsize)
 
 static void read_wifi_signal(char *buf, size_t bufsize, int *pct_out)
 {
-    strncpy(buf, "--", bufsize);
+    safe_copy(buf, "--", bufsize);
     if (pct_out) *pct_out = -1;
     FILE *f = fopen("/proc/net/wireless", "r");
     if (!f) return;
@@ -1073,7 +1084,7 @@ static void read_wifi_signal(char *buf, size_t bufsize, int *pct_out)
 
 static void read_mac_address(char *buf, size_t bufsize)
 {
-    strncpy(buf, "--", bufsize);
+    safe_copy(buf, "--", bufsize);
     FILE *f = fopen("/sys/class/net/wlan0/address", "r");
     if (!f) return;
     if (fgets(buf, (int)bufsize, f)) {
@@ -1207,10 +1218,9 @@ int main(void)
     SDL_Renderer *ren = SDL_CreateRenderer(win, NULL);
     if (!ren) { SDL_DestroyWindow(win); TTF_Quit(); SDL_Quit(); return 1; }
 
-    TTF_Font *f_title = TTF_OpenFont(FONT_PATH, FONT_TITLE);
     TTF_Font *f_med   = TTF_OpenFont(FONT_PATH, FONT_MED);
     TTF_Font *f_sm    = TTF_OpenFont(FONT_PATH, FONT_SM);
-    if (!f_title || !f_med || !f_sm) {
+    if (!f_med || !f_sm) {
         fprintf(stderr, "TTF_OpenFont: %s\n", SDL_GetError());
         SDL_DestroyRenderer(ren); SDL_DestroyWindow(win);
         TTF_Quit(); SDL_Quit(); return 1;
@@ -1243,7 +1253,7 @@ int main(void)
     int settings_selected = 0;
     int backup_selected = 0;
     Uint64 backup_msg_until = 0;
-    #define BACKUP_LIST_MAX 3
+    #define BACKUP_LIST_MAX BACKUP_MAX
     char backup_list[BACKUP_LIST_MAX][64];
     int backup_count = 0;
     int backup_list_selected = 0;
@@ -1289,6 +1299,8 @@ int main(void)
     int  kb_mode = KB_MODE_LOWER;
     AppState kb_return_state = STATE_WIFI_CONFIG;
     AppState state = STATE_MENU;
+    AppState prev_state = STATE_MENU;
+    int menu_axis_prev = 0; /* reset al re-entrar a STATE_MENU, evita movimiento fantasma (B05) */
     ExecRequest exec_req = EXEC_NONE;
     int action   = ACTION_NONE;
     bool running = true;
@@ -1388,15 +1400,14 @@ int main(void)
                 }
                 if (ev.type == SDL_EVENT_JOYSTICK_AXIS_MOTION &&
                     ev.jaxis.axis == 1) {
-                    static int axis_prev = 0;
                     int v = ev.jaxis.value;
                     int zone = (v < -16000) ? -1 : (v > 16000) ? 1 : 0;
-                    if (zone != axis_prev) {
+                    if (zone != menu_axis_prev) {
                         if (zone == -1)
                             selected = (selected - 1 + MENU_COUNT) % MENU_COUNT;
                         else if (zone == 1)
                             selected = (selected + 1) % MENU_COUNT;
-                        axis_prev = zone;
+                        menu_axis_prev = zone;
                     }
                 }
                 if (ev.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN &&
@@ -1858,6 +1869,10 @@ int main(void)
                     state = STATE_MENU;
             }
         }
+
+        if (state == STATE_MENU && prev_state != STATE_MENU)
+            menu_axis_prev = 0; /* evita movimiento fantasma al volver de un submenu (B05) */
+        prev_state = state;
 
         /* Deteccion de combo SELECT+START+L1 mantenido 3s (solo desde STATE_MENU) */
         if (state == STATE_MENU && joy) {
@@ -2609,7 +2624,7 @@ int main(void)
             float y = SI_Y0 + 2.0f;
             SI_BLOCK_TITLE(SI_MX, y, tr("SISTEMA", "SYSTEM"));
             y += 28.0f;
-            SI_ROW(SI_MX, y, SI_MX + SI_CW_L, tr("Version OS", "OS Version"),       "v1.0");          y += SI_ROW_H;
+            SI_ROW(SI_MX, y, SI_MX + SI_CW_L, tr("Version OS", "OS Version"),       s_version);       y += SI_ROW_H;
             SI_ROW(SI_MX, y, SI_MX + SI_CW_L, "Kernel",       s_kernel);        y += SI_ROW_H;
             SI_ROW(SI_MX, y, SI_MX + SI_CW_L, tr("Arquitectura", "Architecture"), "aarch64");       y += SI_ROW_H;
             SI_ROW(SI_MX, y, SI_MX + SI_CW_L, tr("Compilación", "Build"),        sysinfo_build);   y += SI_ROW_H;
@@ -2637,9 +2652,9 @@ int main(void)
                 int temp_pct = 0;
                 { int td = 0; if (read_sysfs_int("/sys/class/thermal/thermal_zone0/temp",&td)) temp_pct = td/1000; if(temp_pct>100)temp_pct=100; }
 
-                SI_ROW_BAR(SI_RX, y, SI_RX + SI_CW_R, "Carga CPU",  sysinfo_cpu_usage, sysinfo_cpu_pct); y += SI_ROW_H;
-                SI_ROW_BAR(SI_RX, y, SI_RX + SI_CW_R, "Ocupación RAM",  dev_ram,           ram_pct);          y += SI_ROW_H;
-                SI_ROW_BAR(SI_RX, y, SI_RX + SI_CW_R, "Temp CPU", sysinfo_temp,      temp_pct);         y += SI_ROW_H;
+                SI_ROW_BAR(SI_RX, y, SI_RX + SI_CW_R, tr("Carga CPU", "CPU Load"),  sysinfo_cpu_usage, sysinfo_cpu_pct); y += SI_ROW_H;
+                SI_ROW_BAR(SI_RX, y, SI_RX + SI_CW_R, tr("Ocupación RAM", "RAM Usage"),  dev_ram,           ram_pct);          y += SI_ROW_H;
+                SI_ROW_BAR(SI_RX, y, SI_RX + SI_CW_R, tr("Temp CPU", "CPU Temp"), sysinfo_temp,      temp_pct);         y += SI_ROW_H;
                 SI_ROW    (SI_RX, y, SI_RX + SI_CW_R, "Uptime",   dev_uptime);                          y += SI_ROW_H;
                 SI_ROW    (SI_RX, y, SI_RX + SI_CW_R, "Load Avg", sysinfo_loadavg);
             }
@@ -2658,8 +2673,8 @@ int main(void)
                   if (statvfs("/media/amiga_data", &st) == 0 && st.f_blocks > 0)
                       disk_data_pct = (int)(100 - 100ULL * st.f_bfree / st.f_blocks); }
 
-                SI_ROW_BAR(SI_MX, y, SI_MX + SI_CW_L, "DH0: (Sistema)", sysinfo_disk_root, disk_root_pct); y += SI_ROW_H;
-                SI_ROW_BAR(SI_MX, y, SI_MX + SI_CW_L, "DH1: (Datos)",   sysinfo_disk_data, disk_data_pct); y += SI_ROW_H;
+                SI_ROW_BAR(SI_MX, y, SI_MX + SI_CW_L, tr("DH0: (Sistema)", "DH0: (System)"), sysinfo_disk_root, disk_root_pct); y += SI_ROW_H;
+                SI_ROW_BAR(SI_MX, y, SI_MX + SI_CW_L, tr("DH1: (Datos)", "DH1: (Data)"),   sysinfo_disk_data, disk_data_pct); y += SI_ROW_H;
                 /* Libre total en datos */
                 {
                     char free_buf[32] = "--";
@@ -2696,8 +2711,8 @@ int main(void)
             SI_BLOCK_TITLE(SI_RX, y, tr("CONECTIVIDAD", "CONNECTIVITY"));
             y += 28.0f;
             SI_ROW    (SI_RX, y, SI_RX + SI_CW_R, "IP",          dev_ip);          y += SI_ROW_H;
-            SI_ROW    (SI_RX, y, SI_RX + SI_CW_R, "WiFi",        status_wifi_up ? "Conectado" : "Desconectado"); y += SI_ROW_H;
-            SI_ROW_BAR(SI_RX, y, SI_RX + SI_CW_R, "Intensidad",  sysinfo_wifi_sig, sysinfo_wifi_pct >= 0 ? sysinfo_wifi_pct : 0); y += SI_ROW_H;
+            SI_ROW    (SI_RX, y, SI_RX + SI_CW_R, "WiFi",        status_wifi_up ? tr("Conectado", "Connected") : tr("Desconectado", "Disconnected")); y += SI_ROW_H;
+            SI_ROW_BAR(SI_RX, y, SI_RX + SI_CW_R, tr("Intensidad", "Signal"),  sysinfo_wifi_sig, sysinfo_wifi_pct >= 0 ? sysinfo_wifi_pct : 0); y += SI_ROW_H;
             SI_ROW    (SI_RX, y, SI_RX + SI_CW_R, "MAC",         sysinfo_mac);
 
 #undef SI_BLOCK_TITLE
@@ -2779,6 +2794,7 @@ int main(void)
             screenshot_flash_until = 0;
         }
         SDL_RenderPresent(ren);
+        SDL_Delay(16); /* ~60fps cap, evita CPU al 100% */
         /* Confirmar arranque exitoso ante el mecanismo de rollback A/B,
          * una sola vez, tras el primer frame realmente dibujado en
          * pantalla (prueba de que SDL/DRM y el launcher arrancaron bien,
@@ -2794,7 +2810,6 @@ int main(void)
     if (joy) SDL_CloseJoystick(joy);
     TTF_CloseFont(f_sm);
     TTF_CloseFont(f_med);
-    TTF_CloseFont(f_title);
     SDL_DestroyRenderer(ren);
     SDL_DestroyWindow(win);
     TTF_Quit();
