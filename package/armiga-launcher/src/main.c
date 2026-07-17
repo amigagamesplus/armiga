@@ -2731,7 +2731,7 @@ int main(void)
             /* Versión actual */
             {
                 char buf[64];
-                snprintf(buf, sizeof(buf), "Versión instalada:   %s", s_version);
+                snprintf(buf, sizeof(buf), tr("Versión instalada:   %s", "Installed version:   %s"), s_version);
                 draw_text(ren, f_sm, buf, c_gray, UX, 64.0f);
             }
 
@@ -2743,7 +2743,7 @@ int main(void)
 
             } else if (update_phase == UPD_CONFIRM) {
                 char buf[64];
-                snprintf(buf, sizeof(buf), "Nueva versión disponible:   %s", upd_new_ver);
+                snprintf(buf, sizeof(buf), tr("Nueva versión disponible:   %s", "New version available:   %s"), upd_new_ver);
                 draw_text(ren, f_sm, buf, c_green, UX, 100.0f);
                 draw_text(ren, f_sm, tr("La descarga se realizará en segundo plano.", "The download will run in the background."), c_gray, UX, 122.0f);
                 draw_text(ren, f_sm, tr("El dispositivo se reiniciará al completar.", "The device will restart when finished."), c_gray, UX, 140.0f);
