@@ -2270,7 +2270,7 @@ int main(void)
 
             draw_line(ren, mx, 438.0f, SCREEN_W - 20.0f, 438.0f, c_green);
             draw_footer(ren, f_sm,
-                tr("[B] Aplicar  [A] Volver", "[B] Apply  [A] Back"), s_version);
+                tr("[Arriba/Abajo] Ajustar  [B] Aplicar  [A] Volver", "[Up/Down] Adjust  [B] Apply  [A] Back"), s_version);
 
         } else if (state == STATE_TIMEZONE_CONFIG) {
             draw_text(ren, f_sm, tr("ZONA HORARIA", "TIME ZONE"), c_green, mx, 20.0f);
