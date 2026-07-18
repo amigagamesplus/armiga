@@ -526,7 +526,7 @@ static float get_download_progress(const char *url)
 
 static int verify_sha256(void)
 {
-    if (access(UPDATE_SHA256, F_OK) != 0) return 0; /* sin sha, aceptar */
+    if (access(UPDATE_SHA256, F_OK) != 0) return -1; /* sin sha, rechazar (fail-safe) */
     /* sha256sum -c verifica el fichero */
     int ret = system("cd \"" UPDATE_DIR "\" && sha256sum -c armiga.img.gz.sha256 >/dev/null 2>&1");
     return (ret == 0) ? 0 : -1;
