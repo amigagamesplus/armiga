@@ -2520,7 +2520,14 @@ int main(void)
                 }
             }
             if (backup_creating) {
-                draw_text(ren, f_sm, tr("Generando copia de seguridad...", "Creating backup..."),
+                char dots[4];
+                int ndots = (int)((now_ticks / 400) % 4);
+                memset(dots, '.', ndots);
+                dots[ndots] = '\0';
+                char animbuf[64];
+                snprintf(animbuf, sizeof(animbuf), "%s%s",
+                         tr("Generando copia de seguridad", "Creating backup"), dots);
+                draw_text(ren, f_sm, animbuf,
                           c_white, mx, bkm_y0 + BACKUP_MENU_COUNT * bkm_item_h + 20.0f);
             } else if (backup_msg_until > 0 && SDL_GetTicks() < backup_msg_until) {
                 char msgbuf[128];
