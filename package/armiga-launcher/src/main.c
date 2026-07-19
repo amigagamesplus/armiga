@@ -10,6 +10,7 @@
 #include <fcntl.h>
 #include <sys/types.h>
 #include <sys/wait.h>
+#include <signal.h>
 #include <sys/stat.h>
 #include <sys/statvfs.h>
 #include <ifaddrs.h>
@@ -478,40 +479,46 @@ static int check_update(const char *current_ver,
 
 /* Descarga el .img.gz con progreso. Ejecuta curl en background y
  * monitoriza el fichero destino para actualizar la barra. */
+/* PID real del hijo curl (no via fichero, evita reciclado de PID). */
+static pid_t s_curl_pid = -1;
 static int download_update(const char *url, float *progress_out)
 {
     mkdir(UPDATE_DIR, 0755);
     /* Limpiar ficheros de descarga anterior */
     unlink(UPDATE_IMG);
     unlink(UPDATE_SHA256);
-    char cmd[512];
-    snprintf(cmd, sizeof(cmd),
-             "curl -s --max-time 300 -L "
-             "-o \"" UPDATE_IMG "\" \"%s\" 2>/tmp/curl_progress &"
-             " echo $! > /tmp/curl_pid", url);
-    if (system(cmd) != 0) return -1;
+    s_curl_pid = -1;
+
+    pid_t pid = fork();
+    if (pid < 0) return -1; /* fork fallo */
+    if (pid == 0) {
+        /* Hijo: redirige salida y ejecuta curl directamente, sin shell.
+         * url llega como argv literal: sin interpolacion, sin riesgo de
+         * inyeccion de comandos (B01). */
+        int fd = open("/tmp/curl_progress", O_WRONLY | O_CREAT | O_TRUNC, 0644);
+        if (fd >= 0) { dup2(fd, STDOUT_FILENO); dup2(fd, STDERR_FILENO); close(fd); }
+        execlp("curl", "curl", "-s", "--max-time", "300", "-L",
+               "-o", UPDATE_IMG, url, (char *)NULL);
+        _exit(127); /* solo si execlp falla */
+    }
+    s_curl_pid = pid;
     *progress_out = 0.0f;
     return 0;
 }
 
 static float get_download_progress(const char *url)
 {
-    /* Leer el pid y comprobar si sigue vivo */
-    FILE *f = fopen("/tmp/curl_pid", "r");
-    if (!f) return -1.0f; /* error */
-    int pid = 0;
-    (void)fscanf(f, "%d", &pid);
-    fclose(f);
-
-    /* Comprobar si curl sigue vivo */
-    char proc[32];
-    snprintf(proc, sizeof(proc), "/proc/%d/status", pid);
-    bool running = (access(proc, F_OK) == 0);
-
+    (void)url;
+    if (s_curl_pid <= 0) return -1.0f; /* error */
+    int status = 0;
+    pid_t r = waitpid(s_curl_pid, &status, WNOHANG);
+    bool running = (r == 0);
     if (!running) {
-        /* Verificar que el fichero existe y tiene tamaño */
+        s_curl_pid = -1;
+        /* Verificar que el fichero existe y tiene tamaño, y que curl salio OK */
         struct stat st;
-        if (stat(UPDATE_IMG, &st) == 0 && st.st_size > 1024*1024)
+        bool curl_ok = (r > 0 && WIFEXITED(status) && WEXITSTATUS(status) == 0);
+        if (curl_ok && stat(UPDATE_IMG, &st) == 0 && st.st_size > 1024*1024)
             return 1.0f; /* completado */
         return -1.0f; /* error */
     }
