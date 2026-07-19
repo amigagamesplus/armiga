@@ -409,7 +409,51 @@ static int semver_cmp(const char *a, const char *b)
 
 /* Consulta GitHub API y devuelve versión+URL del asset.
  * Usa curl para peticiones HTTPS. Devuelve 0 si OK. */
-static int check_update(const char *current_ver,
+/* PID del hijo curl para la consulta a la API de GitHub (async). */
+static pid_t s_checkjson_pid = -1;
+/* PID del hijo curl para la descarga del .sha256 (async, fase VERIFYING). */
+static pid_t s_sha_pid = -1;
+#define CHECK_JSON_TMP "/tmp/armiga_release.json"
+/* Lanza curl en background hacia out_path, sin pasar por shell (B01). */
+static pid_t spawn_curl_to_file(const char *url, const char *out_path, const char *max_time_secs)
+{
+    pid_t pid = fork();
+    if (pid < 0) return -1;
+    if (pid == 0) {
+        int fd = open("/dev/null", O_WRONLY);
+        if (fd >= 0) { dup2(fd, STDOUT_FILENO); dup2(fd, STDERR_FILENO); close(fd); }
+        execlp("curl", "curl", "-s", "--max-time", max_time_secs, "-L",
+               "-o", out_path, url, (char *)NULL);
+        _exit(127);
+    }
+    return pid;
+}
+/* Sondea un curl lanzado con spawn_curl_to_file. Devuelve: 0=en curso,
+ * 1=completado con exito (fichero existe y pesa >= min_size_ok),
+ * -1=error (proceso fallo o fichero vacio/ausente). */
+static int poll_curl_pid(pid_t *pid_var, const char *out_path, long min_size_ok)
+{
+    if (*pid_var <= 0) return -1;
+    int status = 0;
+    pid_t r = waitpid(*pid_var, &status, WNOHANG);
+    if (r == 0) return 0;
+    *pid_var = -1;
+    if (r > 0 && WIFEXITED(status) && WEXITSTATUS(status) == 0) {
+        struct stat st;
+        if (stat(out_path, &st) == 0 && st.st_size >= min_size_ok) return 1;
+    }
+    return -1;
+}
+/* Lanza en background la consulta a la API de GitHub (R01: permite animar
+ * "Comprobando..." mientras se espera la respuesta de red). */
+static void start_check_update_async(void)
+{
+    unlink(CHECK_JSON_TMP);
+    s_checkjson_pid = spawn_curl_to_file(GITHUB_API_URL, CHECK_JSON_TMP, "10");
+}
+/* Parsea el JSON ya descargado por start_check_update_async(). Llamar solo
+ * cuando poll_curl_pid() haya devuelto != 0 para el fetch. */
+static int finish_check_update(const char *current_ver,
                         char *new_ver, size_t new_ver_sz,
                         char *dl_url, size_t dl_url_sz,
                         char *sha_url, size_t sha_url_sz)
@@ -417,33 +461,20 @@ static int check_update(const char *current_ver,
     safe_copy(new_ver, "", new_ver_sz);
     safe_copy(dl_url,  "", dl_url_sz);
     safe_copy(sha_url, "", sha_url_sz);
-
-    /* Descargar JSON de la API a un fichero temporal */
-    const char *tmp = "/tmp/armiga_release.json";
-    char cmd[512];
-    snprintf(cmd, sizeof(cmd),
-             "curl -s --max-time 10 -L -o %s "
-             "\"" GITHUB_API_URL "\" 2>/dev/null", tmp);
-    if (system(cmd) != 0) return -1;
-
-    FILE *f = fopen(tmp, "r");
+    FILE *f = fopen(CHECK_JSON_TMP, "r");
     if (!f) return -1;
-
     char line[512];
     char tag[32] = "";
     char asset_url[512] = "";
     char sha_asset_url[512] = "";
     bool in_assets = false;
     char last_name[128] = "";
-
     while (fgets(line, sizeof(line), f)) {
-        /* Extraer tag_name */
         char *p;
         if ((p = strstr(line, "\"tag_name\""))) {
             sscanf(p, "\"tag_name\" : \"%31[^\"]\"", tag);
             if (!tag[0]) sscanf(p, "\"tag_name\":\"%31[^\"]\"", tag);
         }
-        /* Detectar sección assets */
         if (strstr(line, "\"assets\"")) in_assets = true;
         if (in_assets) {
             if ((p = strstr(line, "\"name\"")))
@@ -457,25 +488,20 @@ static int check_update(const char *current_ver,
                     safe_copy(asset_url, url, sizeof(asset_url));
                 if (strstr(last_name, ".sha256"))
                     safe_copy(sha_asset_url, url, sizeof(sha_asset_url));
-                /* Parar tras obtener ambos assets de la primera release */
                 if (asset_url[0] && sha_asset_url[0]) goto parse_done;
             }
         }
     }
     parse_done:
     fclose(f);
-    unlink(tmp);
-
-    if (!tag[0] || !asset_url[0]) return 0; /* peticion OK pero sin releases publicadas: no hay update */
-
-    /* Normalizar tag: quitar 'v' inicial */
+    unlink(CHECK_JSON_TMP);
+    if (!tag[0] || !asset_url[0]) return 0;
     const char *ver = tag;
     if (ver[0] == 'v') ver++;
     safe_copy(new_ver, ver, new_ver_sz);
     safe_copy(dl_url,  asset_url,     dl_url_sz);
     safe_copy(sha_url, sha_asset_url, sha_url_sz);
-
-    return semver_cmp(ver, current_ver) > 0 ? 1 : 0; /* 1=hay update, 0=al día */
+    return semver_cmp(ver, current_ver) > 0 ? 1 : 0;
 }
 
 /* Descarga el .img.gz con progreso. Ejecuta curl en background y
@@ -1508,6 +1534,7 @@ int main(void)
     UpdatePhase update_phase   = UPD_CHECKING;
     bool  update_checked       = false;
     bool  upd_check_frame_shown = false; /* R01: deja repintar "Comprobando..." antes de bloquear */
+    bool  upd_verify_dl_started = false; /* fase VERIFYING: descarga async del .sha256 ya lanzada */
     char  upd_new_ver[32]      = "";
     char  upd_dl_url[512]      = "";
     char  upd_sha_url[512]     = "";
@@ -2184,6 +2211,7 @@ int main(void)
                 update_phase = UPD_CHECKING;
                 update_checked = false;
                 upd_check_frame_shown = false;
+                upd_verify_dl_started = false;
             } else if (action == ACTION_INFO) {
                 state = STATE_SYSINFO;
                 last_sysinfo_update = 0; /* forzar refresco inmediato */
@@ -2241,23 +2269,31 @@ int main(void)
                 }
             }
         }
-        /* Lógica OTA */
+        /* Lógica OTA (async: fork+exec en background, sondeo por frame,
+         * la UI nunca bloquea y la animacion de puntos avanza de verdad) */
         if (state == STATE_UPDATE) {
             if (update_phase == UPD_CHECKING && !update_checked && !upd_check_frame_shown) {
-                /* Deja que este frame se repinte con "Comprobando..." antes
-                 * de bloquear en la llamada de red (R01). */
                 upd_check_frame_shown = true;
-            } else if (update_phase == UPD_CHECKING && !update_checked) {
-                update_checked = true;
                 upd_check_start = now_ticks;
-                int res = check_update(s_version,
-                                       upd_new_ver, sizeof(upd_new_ver),
-                                       upd_dl_url,  sizeof(upd_dl_url),
-                                       upd_sha_url, sizeof(upd_sha_url));
-                if (res == 1)       update_phase = UPD_CONFIRM;
-                else if (res == 0)  update_phase = UPD_NO_UPDATE;
-                else { update_phase = UPD_ERROR;
-                       strncpy(upd_msg, "Error al conectar con el servidor.", sizeof(upd_msg)); }
+                start_check_update_async();
+            } else if (update_phase == UPD_CHECKING && !update_checked) {
+                int r = poll_curl_pid(&s_checkjson_pid, CHECK_JSON_TMP, 1);
+                if (r != 0) {
+                    update_checked = true;
+                    if (r > 0) {
+                        int res = finish_check_update(s_version,
+                                               upd_new_ver, sizeof(upd_new_ver),
+                                               upd_dl_url,  sizeof(upd_dl_url),
+                                               upd_sha_url, sizeof(upd_sha_url));
+                        if (res == 1)       update_phase = UPD_CONFIRM;
+                        else if (res == 0)  update_phase = UPD_NO_UPDATE;
+                        else { update_phase = UPD_ERROR;
+                               strncpy(upd_msg, "Error al conectar con el servidor.", sizeof(upd_msg)); }
+                    } else {
+                        update_phase = UPD_ERROR;
+                        strncpy(upd_msg, "Error al conectar con el servidor.", sizeof(upd_msg));
+                    }
+                }
             }
             if (update_phase == UPD_DOWNLOADING) {
                 if (upd_progress == 0.0f) {
@@ -2276,21 +2312,35 @@ int main(void)
                 }
             }
             if (update_phase == UPD_VERIFYING) {
-                /* Descargar el .sha256 primero */
                 if (upd_sha_url[0]) {
-                    char cmd[512];
-                    snprintf(cmd, sizeof(cmd),
-                             "curl -s -L -o \"" UPDATE_SHA256 "\" \"%s\"", upd_sha_url);
-                    (void)system(cmd);
-                }
-                if (verify_sha256() == 0) {
-                    write_update_flag();
-                    update_phase = UPD_READY;
+                    if (!upd_verify_dl_started) {
+                        upd_verify_dl_started = true;
+                        s_sha_pid = spawn_curl_to_file(upd_sha_url, UPDATE_SHA256, "10");
+                    } else {
+                        int r = poll_curl_pid(&s_sha_pid, UPDATE_SHA256, 1);
+                        if (r != 0) {
+                            if (verify_sha256() == 0) {
+                                write_update_flag();
+                                update_phase = UPD_READY;
+                            } else {
+                                update_phase = UPD_ERROR;
+                                strncpy(upd_msg, "Error de verificacion SHA256.", sizeof(upd_msg));
+                                unlink(UPDATE_IMG);
+                                unlink(UPDATE_SHA256);
+                            }
+                        }
+                    }
                 } else {
-                    update_phase = UPD_ERROR;
-                    strncpy(upd_msg, "Error de verificacion SHA256.", sizeof(upd_msg));
-                    unlink(UPDATE_IMG);
-                    unlink(UPDATE_SHA256);
+                    /* sin sha_url: verify_sha256() rechazara igualmente (B06) */
+                    if (verify_sha256() == 0) {
+                        write_update_flag();
+                        update_phase = UPD_READY;
+                    } else {
+                        update_phase = UPD_ERROR;
+                        strncpy(upd_msg, "Error de verificacion SHA256.", sizeof(upd_msg));
+                        unlink(UPDATE_IMG);
+                        unlink(UPDATE_SHA256);
+                    }
                 }
             }
         }
