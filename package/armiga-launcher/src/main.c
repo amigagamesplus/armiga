@@ -400,6 +400,8 @@ static int semver_cmp(const char *a, const char *b)
 {
     int ma = 0, mi_a = 0, pa = 0;
     int mb = 0, mi_b = 0, pb = 0;
+    if (a[0] == 'v' || a[0] == 'V') a++;
+    if (b[0] == 'v' || b[0] == 'V') b++;
     sscanf(a, "%d.%d.%d", &ma, &mi_a, &pa);
     sscanf(b, "%d.%d.%d", &mb, &mi_b, &pb);
     if (ma != mb) return ma > mb ? 1 : -1;
