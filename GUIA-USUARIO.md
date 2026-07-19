@@ -6,8 +6,8 @@ Bienvenido a Armiga, tu consola de emulación Commodore Amiga.
 
 | Botón físico | Función |
 |---|---|
-| **B** (Sur) | Confirmar / Seleccionar |
-| **A** (Este) | Cancelar / Volver atrás |
+| **B** | Confirmar / Seleccionar |
+| **A** | Cancelar / Volver atrás |
 | **X** | Eliminar (solo en pantalla de copias de seguridad) |
 | **D-Pad** | Navegar por menús |
 | **L1** | Cambiar idioma (Español/English) |
