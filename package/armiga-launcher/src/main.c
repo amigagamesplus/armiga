@@ -2620,6 +2620,7 @@ int main(void)
             } else if (backup_msg_until > 0 && SDL_GetTicks() < backup_msg_until) {
                 char msgbuf[128];
                 SDL_Color msgc;
+                SDL_Color c_red = COL_RED;
                 if (backup_created_name[0]) {
                     snprintf(msgbuf, sizeof(msgbuf), "%s: %s%s",
                              tr("Copia creada", "Backup created"),
