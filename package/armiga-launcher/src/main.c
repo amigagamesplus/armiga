@@ -946,13 +946,17 @@ static void factory_reset(void)
 }
 #define BACKUP_DIR "/media/amiga_data/backups"
 #define BACKUP_MAX 3
-static void create_backup(void)
+/* Crea el backup y escribe el nombre de fichero generado en out_name
+ * (buffer de al menos 64 bytes). */
+static void create_backup(char *out_name, size_t out_name_sz)
 {
     system("mkdir -p " BACKUP_DIR);
     char ts[32];
     time_t now = time(NULL);
     struct tm *tm_now = localtime(&now);
     strftime(ts, sizeof(ts), "%Y%m%d_%H%M%S", tm_now);
+    if (out_name && out_name_sz > 0)
+        snprintf(out_name, out_name_sz, "backup_%s.tar.gz", ts);
     char cmd[768];
     snprintf(cmd, sizeof(cmd),
         "cd /media/amiga_data && tar caf " BACKUP_DIR "/backup_%s.tar.gz "
@@ -1381,6 +1385,9 @@ int main(void)
     int settings_selected = 0;
     int backup_selected = 0;
     Uint64 backup_msg_until = 0;
+    char backup_created_name[64] = "";
+    bool backup_creating = false;      /* R01: en curso, mostrar "Generando..." */
+    bool backup_create_frame_shown = false; /* deja repintar antes de bloquear */
     #define BACKUP_LIST_MAX BACKUP_MAX
     char backup_list[BACKUP_LIST_MAX][64];
     int backup_count = 0;
@@ -1817,9 +1824,9 @@ int main(void)
                         backup_selected = (backup_selected + 1) % BACKUP_MENU_COUNT;
                 }
                 if (ev.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN &&
-                    ev.jbutton.button == BTN_SDL_A && backup_selected == 0) {
-                    create_backup();
-                    backup_msg_until = SDL_GetTicks() + 2000;
+                    ev.jbutton.button == BTN_SDL_A && backup_selected == 0 && !backup_creating) {
+                    backup_creating = true;
+                    backup_create_frame_shown = false;
                 }
                 if (ev.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN &&
                     ev.jbutton.button == BTN_SDL_A && backup_selected == 1) {
@@ -2178,6 +2185,17 @@ int main(void)
             led_repeat_next = now_ticks + 60;
         }
 
+        /* Creacion de backup diferida un frame (R01): deja repintar
+         * "Generando copia..." antes de bloquear en create_backup(). */
+        if (backup_creating) {
+            if (!backup_create_frame_shown) {
+                backup_create_frame_shown = true;
+            } else {
+                create_backup(backup_created_name, sizeof(backup_created_name));
+                backup_creating = false;
+                backup_msg_until = SDL_GetTicks() + 3000;
+            }
+        }
         /* Lógica OTA */
         if (state == STATE_UPDATE) {
             if (update_phase == UPD_CHECKING && !update_checked && !upd_check_frame_shown) {
@@ -2501,9 +2519,16 @@ int main(void)
                     draw_text(ren, f_med, BACKUP_MENU_ITEMS[i][current_lang], c_gray, mx + 8.0f, iy);
                 }
             }
-            if (backup_msg_until > 0 && SDL_GetTicks() < backup_msg_until) {
-                draw_text(ren, f_sm, tr("Copia creada correctamente", "Backup created successfully"),
-                          c_green, mx, bkm_y0 + BACKUP_MENU_COUNT * bkm_item_h + 20.0f);
+            if (backup_creating) {
+                draw_text(ren, f_sm, tr("Generando copia de seguridad...", "Creating backup..."),
+                          c_white, mx, bkm_y0 + BACKUP_MENU_COUNT * bkm_item_h + 20.0f);
+            } else if (backup_msg_until > 0 && SDL_GetTicks() < backup_msg_until) {
+                char msgbuf[128];
+                snprintf(msgbuf, sizeof(msgbuf), "%s: %s%s",
+                         tr("Copia creada", "Backup created"),
+                         BACKUP_DIR "/", backup_created_name);
+                draw_text_truncated(ren, f_sm, msgbuf,
+                          c_green, mx, bkm_y0 + BACKUP_MENU_COUNT * bkm_item_h + 20.0f, SCREEN_W - 40.0f);
             }
             draw_line(ren, mx, 438.0f, SCREEN_W - 20.0f, 438.0f, c_green);
             draw_footer(ren, f_sm, tr("[B] Seleccionar  [A] Volver", "[B] Select  [A] Back"), s_version);
@@ -2816,14 +2841,9 @@ int main(void)
             draw_line(ren, SI_MX, SI_SEP_H1, SCREEN_W - 20.0f, SI_SEP_H1, c_dkgreen);
             draw_line(ren, SI_MX, SI_SEP_H2, SCREEN_W - 20.0f, SI_SEP_H2, c_dkgreen);
 
-/* Macro auxiliar: título de bloque + línea de guiones */
+/* Macro auxiliar: título de bloque */
 #define SI_BLOCK_TITLE(xpos, ypos, title) do { \
     draw_text(ren, f_sm, title, c_green, (xpos), (ypos)); \
-    /* guiones bajo el título */ \
-    { char _dashes[32]; int _tl = (int)strlen(title); \
-      if (_tl > 31) _tl = 31; \
-      for (int _i=0;_i<_tl;_i++) _dashes[_i]='-'; _dashes[_tl]='\0'; \
-      draw_text(ren, f_sm, _dashes, c_dkgreen, (xpos), (ypos)+14.0f); } \
 } while(0)
 
 /* Macro fila: etiqueta fija + valor alineado a col_right */
