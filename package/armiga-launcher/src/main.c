@@ -986,6 +986,34 @@ static void draw_text(SDL_Renderer *r, TTF_Font *f, const char *t,
     SDL_DestroySurface(s);
 }
 
+/* Dibuja texto truncando con "..." si excede max_w (breadcrumbs largos). */
+static void draw_text_truncated(SDL_Renderer *r, TTF_Font *f, const char *t,
+                                 SDL_Color c, float x, float y, float max_w)
+{
+    int w = 0, h = 0;
+    TTF_GetStringSize(f, t, 0, &w, &h);
+    if ((float)w <= max_w) {
+        draw_text(r, f, t, c, x, y);
+        return;
+    }
+    char buf[256];
+    size_t len = strlen(t);
+    if (len >= sizeof(buf)) len = sizeof(buf) - 1;
+    memcpy(buf, t, len);
+    buf[len] = '\0';
+    while (len > 0) {
+        len--;
+        buf[len] = '\0';
+        char tmp[260];
+        snprintf(tmp, sizeof(tmp), "%s...", buf);
+        TTF_GetStringSize(f, tmp, 0, &w, &h);
+        if ((float)w <= max_w) {
+            draw_text(r, f, tmp, c, x, y);
+            return;
+        }
+    }
+    draw_text(r, f, "...", c, x, y);
+}
 static void draw_text_right(SDL_Renderer *r, TTF_Font *f, const char *t,
                             SDL_Color c, float right_x, float y)
 {
@@ -2239,7 +2267,7 @@ int main(void)
         }
 
         } else if (state == STATE_SETTINGS) {
-            draw_text(ren, f_sm, tr("Menú > Configuración", "Menu > Settings"), c_green, mx, 20.0f);
+            draw_text_truncated(ren, f_sm, tr("Menú > Configuración", "Menu > Settings"), c_green, mx, 20.0f, SCREEN_W - 190.0f);
             draw_statusbar(ren, f_sm, status_time, status_wifi_up, status_battery);
             draw_line(ren, mx, 44.0f, SCREEN_W - 20.0f, 44.0f, c_green);
 
@@ -2265,7 +2293,7 @@ int main(void)
             draw_footer(ren, f_sm, tr("[B] Seleccionar  [A] Volver", "[B] Select  [A] Back"), s_version);
 
         } else if (state == STATE_BRIGHTNESS_CONFIG) {
-            draw_text(ren, f_sm, tr("Menú > Configuración > Brillo de pantalla", "Menu > Settings > Screen Brightness"), c_green, mx, 20.0f);
+            draw_text_truncated(ren, f_sm, tr("Menú > Configuración > Brillo de pantalla", "Menu > Settings > Screen Brightness"), c_green, mx, 20.0f, SCREEN_W - 190.0f);
             draw_statusbar(ren, f_sm, status_time, status_wifi_up, status_battery);
             draw_line(ren, mx, 44.0f, SCREEN_W - 20.0f, 44.0f, c_green);
 
@@ -2286,7 +2314,7 @@ int main(void)
                 tr("[Arriba/Abajo] Ajustar  [B] Aplicar  [A] Volver", "[Up/Down] Adjust  [B] Apply  [A] Back"), s_version);
 
         } else if (state == STATE_TIMEZONE_CONFIG) {
-            draw_text(ren, f_sm, tr("Menú > Configuración > Zona horaria", "Menu > Settings > Time Zone"), c_green, mx, 20.0f);
+            draw_text_truncated(ren, f_sm, tr("Menú > Configuración > Zona horaria", "Menu > Settings > Time Zone"), c_green, mx, 20.0f, SCREEN_W - 190.0f);
             draw_statusbar(ren, f_sm, status_time, status_wifi_up, status_battery);
             draw_line(ren, mx, 44.0f, SCREEN_W - 20.0f, 44.0f, c_green);
 
@@ -2325,7 +2353,7 @@ int main(void)
                 tr("[B] Aplicar  [A] Volver", "[B] Apply  [A] Back"), s_version);
 
         } else if (state == STATE_SCREENDIM_CONFIG) {
-            draw_text(ren, f_sm, tr("Menú > Configuración > Ahorro de pantalla", "Menu > Settings > Screen Dimming"), c_green, mx, 20.0f);
+            draw_text_truncated(ren, f_sm, tr("Menú > Configuración > Ahorro de pantalla", "Menu > Settings > Screen Dimming"), c_green, mx, 20.0f, SCREEN_W - 190.0f);
             draw_statusbar(ren, f_sm, status_time, status_wifi_up, status_battery);
             draw_line(ren, mx, 44.0f, SCREEN_W - 20.0f, 44.0f, c_green);
 
@@ -2384,7 +2412,7 @@ int main(void)
                 tr("[B] Guardar  [A] Volver", "[B] Save  [A] Back"), s_version);
 
         } else if (state == STATE_BACKUP_MENU) {
-            draw_text(ren, f_sm, tr("Menú > Configuración > Copia de seguridad", "Menu > Settings > Backup"), c_green, mx, 20.0f);
+            draw_text_truncated(ren, f_sm, tr("Menú > Configuración > Copia de seguridad", "Menu > Settings > Backup"), c_green, mx, 20.0f, SCREEN_W - 190.0f);
             draw_statusbar(ren, f_sm, status_time, status_wifi_up, status_battery);
             draw_line(ren, mx, 44.0f, SCREEN_W - 20.0f, 44.0f, c_green);
             float bkm_y0 = 64.0f;
@@ -2412,7 +2440,7 @@ int main(void)
             draw_footer(ren, f_sm, tr("[B] Seleccionar  [A] Volver", "[B] Select  [A] Back"), s_version);
 
         } else if (state == STATE_BACKUP_LIST) {
-            draw_text(ren, f_sm, tr("Menú > Configuración > Copia de seguridad > Restaurar copia", "Menu > Settings > Backup > Restore Backup"), c_green, mx, 20.0f);
+            draw_text_truncated(ren, f_sm, tr("Menú > Configuración > Copia de seguridad > Restaurar copia", "Menu > Settings > Backup > Restore Backup"), c_green, mx, 20.0f, SCREEN_W - 190.0f);
             draw_statusbar(ren, f_sm, status_time, status_wifi_up, status_battery);
             draw_line(ren, mx, 44.0f, SCREEN_W - 20.0f, 44.0f, c_green);
             float bkl_y0 = 64.0f;
@@ -2440,7 +2468,7 @@ int main(void)
             draw_footer(ren, f_sm, tr("[B] Restaurar  [A] Volver", "[B] Restore  [A] Back"), s_version);
 
         } else if (state == STATE_WIFI_CONFIG) {
-            draw_text(ren, f_sm, tr("Menú > Configuración > Red inalámbrica", "Menu > Settings > Wireless Network"), c_green, mx, 20.0f);
+            draw_text_truncated(ren, f_sm, tr("Menú > Configuración > Red inalámbrica", "Menu > Settings > Wireless Network"), c_green, mx, 20.0f, SCREEN_W - 190.0f);
             draw_statusbar(ren, f_sm, status_time, status_wifi_up, status_battery);
             draw_line(ren, mx, 44.0f, SCREEN_W - 20.0f, 44.0f, c_green);
 
@@ -2500,7 +2528,7 @@ int main(void)
                 s_version);
 
         } else if (state == STATE_LED_CONFIG) {
-            draw_text(ren, f_sm, tr("Menú > Configuración > LED RGB analógicos", "Menu > Settings > Analog Stick LEDs"), c_green, mx, 20.0f);
+            draw_text_truncated(ren, f_sm, tr("Menú > Configuración > LED RGB analógicos", "Menu > Settings > Analog Stick LEDs"), c_green, mx, 20.0f, SCREEN_W - 190.0f);
             draw_statusbar(ren, f_sm, status_time, status_wifi_up, status_battery);
             draw_line(ren, mx, 44.0f, SCREEN_W - 20.0f, 44.0f, c_green);
 
@@ -2612,7 +2640,7 @@ int main(void)
 
         } else if (state == STATE_DEVMODE) {
             /* Titulo pequeño arriba a la izquierda */
-            draw_text(ren, f_sm, tr("Menú > Modo desarrollador", "Menu > Developer Mode"), c_green, mx, 20.0f);
+            draw_text_truncated(ren, f_sm, tr("Menú > Modo desarrollador", "Menu > Developer Mode"), c_green, mx, 20.0f, SCREEN_W - 190.0f);
             draw_statusbar(ren, f_sm, status_time, status_wifi_up, status_battery);
             draw_line(ren, mx, 44.0f, SCREEN_W - 20.0f, 44.0f, c_green);
             draw_line(ren, sep_x, 44.0f, sep_x, 438.0f, c_green);
@@ -2708,7 +2736,7 @@ int main(void)
             const float SI_SEP_H2 = SI_Y0 + SI_BLK_H * 2;  /* ~306 */
 
             /* Título y separador superior */
-            draw_text(ren, f_sm, tr("Menú > Diagnóstico del sistema", "Menu > System Diagnostics"), c_green, SI_MX, 20.0f);
+            draw_text_truncated(ren, f_sm, tr("Menú > Diagnóstico del sistema", "Menu > System Diagnostics"), c_green, SI_MX, 20.0f, SCREEN_W - 190.0f);
             draw_statusbar(ren, f_sm, status_time, status_wifi_up, status_battery);
             draw_line(ren, SI_MX, 44.0f, SCREEN_W - 20.0f, 44.0f, c_green);
 
@@ -2855,7 +2883,7 @@ int main(void)
             draw_footer(ren, f_sm, tr("[A] Volver", "[A] Back"), s_version);
         } else if (state == STATE_UPDATE) {
             const float UX = 20.0f;
-            draw_text(ren, f_sm, tr("Menú > Actualización de sistema", "Menu > System Update"), c_green, UX, 20.0f);
+            draw_text_truncated(ren, f_sm, tr("Menú > Actualización de sistema", "Menu > System Update"), c_green, UX, 20.0f, SCREEN_W - 190.0f);
             draw_statusbar(ren, f_sm, status_time, status_wifi_up, status_battery);
             draw_line(ren, UX, 44.0f, SCREEN_W - 20.0f, 44.0f, c_green);
 
