@@ -1,8 +1,6 @@
 <p align="center">
-  <img src="docs/assets/logo-armiga.png" alt="Armiga" width="200">
+  <img src="docs/assets/logo-armiga.png" alt="Armiga" width="400">
 </p>
-
-# Armiga
 
 Distribución Linux mínima basada en **Buildroot** para la consola **Anbernic RG40XX H** (Allwinner H700), enfocada en emulación de Commodore Amiga vía **RetroArch + núcleo PUAE**.
 
