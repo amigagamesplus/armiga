@@ -15,24 +15,25 @@ Distribución Linux mínima basada en **Buildroot** para la consola **Anbernic R
 
 ## Estado actual
 
-**Rama activa:** `feature/squashfs-rootfs-v2`
+**Versión:** 1.0
 
 ### Componentes funcionales
 
-- ✅ Arranque (U-Boot + kernel 7.0.11-armiga + DTB)
+- ✅ Arranque (U-Boot + kernel 7.0.14-armiga + DTB)
 - ✅ Esquema de particiones **A/B** con rollback automático (ver más abajo)
 - ✅ Rootfs en **SquashFS + zstd** (system/system_b, 300MB por slot, ro)
 - ✅ WiFi RTL8821CS (`wpa_supplicant` + `udhcpc`, config generada en `/tmp` — `/etc` es ro)
-- ✅ SSH (root, puerto 22)
-- ✅ CPU governor en `performance`
+- ✅ SSH (Dropbear, root, puerto 22) — activado por defecto, toggleable desde Configuración
+- ✅ CPU governor dinámico: `performance` en uso normal, `powersave` durante ahorro de pantalla
 - ✅ GPU governor forzado a `performance` (648MHz fijo — `simple_ondemand` no escalaba bien bajo carga real)
 - ✅ ZRAM swap (512MB, LZ4, `swappiness=100`)
 - ✅ Partición `amiga_data` (exFAT, autoexpansión al 100% de la SD en primer arranque)
 - ✅ Stack gráfico: SDL3 3.4.12 (kmsdrm) + Mesa 26.1.4 (GBM + Panfrost, `.so` stripped en overlay)
 - ✅ Launcher propio en C/SDL3 (`armiga-launcher`), interfaz bilingüe **Español/English** (toggle `L1`, persistente)
 - ✅ RetroArch 1.22.2 + núcleo PUAE 2021
-- ✅ Sistema de actualización OTA (GitHub Releases → descarga → verificación SHA256 → flasheo del slot inactivo)
+- ✅ Sistema de actualización OTA (GitHub Releases → descarga → verificación SHA256 → flasheo del slot inactivo, todo asíncrono sin bloquear la UI)
 - ✅ Rollback automático A/B ante fallo de arranque (contador de intentos + reversión de slot)
+- ✅ Menú Configuración: red inalámbrica, copia de seguridad (crear/restaurar/eliminar), LED RGB de los analógicos, zona horaria, ahorro de pantalla, brillo, SSH, restablecer valores de fábrica
 - ✅ Modo desarrollador (terminal, btop) accesible con combo `SELECT+START+L1`
 
 ### Particiones (MBR, nunca GPT) — esquema A/B
