@@ -409,7 +409,51 @@ static int semver_cmp(const char *a, const char *b)
 
 /* Consulta GitHub API y devuelve versión+URL del asset.
  * Usa curl para peticiones HTTPS. Devuelve 0 si OK. */
-static int check_update(const char *current_ver,
+/* PID del hijo curl para la consulta a la API de GitHub (async). */
+static pid_t s_checkjson_pid = -1;
+/* PID del hijo curl para la descarga del .sha256 (async, fase VERIFYING). */
+static pid_t s_sha_pid = -1;
+#define CHECK_JSON_TMP "/tmp/armiga_release.json"
+/* Lanza curl en background hacia out_path, sin pasar por shell (B01). */
+static pid_t spawn_curl_to_file(const char *url, const char *out_path, const char *max_time_secs)
+{
+    pid_t pid = fork();
+    if (pid < 0) return -1;
+    if (pid == 0) {
+        int fd = open("/dev/null", O_WRONLY);
+        if (fd >= 0) { dup2(fd, STDOUT_FILENO); dup2(fd, STDERR_FILENO); close(fd); }
+        execlp("curl", "curl", "-s", "--max-time", max_time_secs, "-L",
+               "-o", out_path, url, (char *)NULL);
+        _exit(127);
+    }
+    return pid;
+}
+/* Sondea un curl lanzado con spawn_curl_to_file. Devuelve: 0=en curso,
+ * 1=completado con exito (fichero existe y pesa >= min_size_ok),
+ * -1=error (proceso fallo o fichero vacio/ausente). */
+static int poll_curl_pid(pid_t *pid_var, const char *out_path, long min_size_ok)
+{
+    if (*pid_var <= 0) return -1;
+    int status = 0;
+    pid_t r = waitpid(*pid_var, &status, WNOHANG);
+    if (r == 0) return 0;
+    *pid_var = -1;
+    if (r > 0 && WIFEXITED(status) && WEXITSTATUS(status) == 0) {
+        struct stat st;
+        if (stat(out_path, &st) == 0 && st.st_size >= min_size_ok) return 1;
+    }
+    return -1;
+}
+/* Lanza en background la consulta a la API de GitHub (R01: permite animar
+ * "Comprobando..." mientras se espera la respuesta de red). */
+static void start_check_update_async(void)
+{
+    unlink(CHECK_JSON_TMP);
+    s_checkjson_pid = spawn_curl_to_file(GITHUB_API_URL, CHECK_JSON_TMP, "10");
+}
+/* Parsea el JSON ya descargado por start_check_update_async(). Llamar solo
+ * cuando poll_curl_pid() haya devuelto != 0 para el fetch. */
+static int finish_check_update(const char *current_ver,
                         char *new_ver, size_t new_ver_sz,
                         char *dl_url, size_t dl_url_sz,
                         char *sha_url, size_t sha_url_sz)
@@ -417,33 +461,20 @@ static int check_update(const char *current_ver,
     safe_copy(new_ver, "", new_ver_sz);
     safe_copy(dl_url,  "", dl_url_sz);
     safe_copy(sha_url, "", sha_url_sz);
-
-    /* Descargar JSON de la API a un fichero temporal */
-    const char *tmp = "/tmp/armiga_release.json";
-    char cmd[512];
-    snprintf(cmd, sizeof(cmd),
-             "curl -s --max-time 10 -L -o %s "
-             "\"" GITHUB_API_URL "\" 2>/dev/null", tmp);
-    if (system(cmd) != 0) return -1;
-
-    FILE *f = fopen(tmp, "r");
+    FILE *f = fopen(CHECK_JSON_TMP, "r");
     if (!f) return -1;
-
     char line[512];
     char tag[32] = "";
     char asset_url[512] = "";
     char sha_asset_url[512] = "";
     bool in_assets = false;
     char last_name[128] = "";
-
     while (fgets(line, sizeof(line), f)) {
-        /* Extraer tag_name */
         char *p;
         if ((p = strstr(line, "\"tag_name\""))) {
             sscanf(p, "\"tag_name\" : \"%31[^\"]\"", tag);
             if (!tag[0]) sscanf(p, "\"tag_name\":\"%31[^\"]\"", tag);
         }
-        /* Detectar sección assets */
         if (strstr(line, "\"assets\"")) in_assets = true;
         if (in_assets) {
             if ((p = strstr(line, "\"name\"")))
@@ -457,25 +488,20 @@ static int check_update(const char *current_ver,
                     safe_copy(asset_url, url, sizeof(asset_url));
                 if (strstr(last_name, ".sha256"))
                     safe_copy(sha_asset_url, url, sizeof(sha_asset_url));
-                /* Parar tras obtener ambos assets de la primera release */
                 if (asset_url[0] && sha_asset_url[0]) goto parse_done;
             }
         }
     }
     parse_done:
     fclose(f);
-    unlink(tmp);
-
-    if (!tag[0] || !asset_url[0]) return 0; /* peticion OK pero sin releases publicadas: no hay update */
-
-    /* Normalizar tag: quitar 'v' inicial */
+    unlink(CHECK_JSON_TMP);
+    if (!tag[0] || !asset_url[0]) return 0;
     const char *ver = tag;
     if (ver[0] == 'v') ver++;
     safe_copy(new_ver, ver, new_ver_sz);
     safe_copy(dl_url,  asset_url,     dl_url_sz);
     safe_copy(sha_url, sha_asset_url, sha_url_sz);
-
-    return semver_cmp(ver, current_ver) > 0 ? 1 : 0; /* 1=hay update, 0=al día */
+    return semver_cmp(ver, current_ver) > 0 ? 1 : 0;
 }
 
 /* Descarga el .img.gz con progreso. Ejecuta curl en background y
@@ -946,30 +972,63 @@ static void factory_reset(void)
 }
 #define BACKUP_DIR "/media/amiga_data/backups"
 #define BACKUP_MAX 3
-static void create_backup(void)
+/* PID del hijo tar en curso (backup async), -1 si no hay ninguno. */
+static pid_t s_backup_pid = -1;
+/* Lanza la creacion del backup en background via fork+execvp (sin shell,
+ * coherente con B01). Escribe el nombre de fichero generado en out_name. */
+static void start_backup_async(char *out_name, size_t out_name_sz)
 {
     system("mkdir -p " BACKUP_DIR);
     char ts[32];
     time_t now = time(NULL);
     struct tm *tm_now = localtime(&now);
     strftime(ts, sizeof(ts), "%Y%m%d_%H%M%S", tm_now);
-    char cmd[768];
-    snprintf(cmd, sizeof(cmd),
-        "cd /media/amiga_data && tar caf " BACKUP_DIR "/backup_%s.tar.gz "
-        "armiga.cfg wifi.conf "
-        "retroarch/retroarch.cfg retroarch/config "
-        "retroarch/saves retroarch/states "
-        "retroarch/playlists retroarch/thumbnails "
-        "2>/dev/null", ts);
-    system(cmd);
-    /* Rotar: mantener solo los BACKUP_MAX mas recientes */
-    {
-        char rot_cmd[160];
-        snprintf(rot_cmd, sizeof(rot_cmd),
-            "cd " BACKUP_DIR " && ls -t backup_*.tar.gz 2>/dev/null | "
-            "tail -n +%d | xargs -r rm -f", BACKUP_MAX + 1);
-        system(rot_cmd);
+    char backup_path[256];
+    snprintf(backup_path, sizeof(backup_path), BACKUP_DIR "/backup_%s.tar.gz", ts);
+    if (out_name && out_name_sz > 0)
+        snprintf(out_name, out_name_sz, "backup_%s.tar.gz", ts);
+
+    s_backup_pid = -1;
+    pid_t pid = fork();
+    if (pid < 0) return; /* fork fallo, poll_backup_progress lo detectara como error */
+    if (pid == 0) {
+        chdir("/media/amiga_data");
+        int fd = open("/dev/null", O_WRONLY);
+        if (fd >= 0) { dup2(fd, STDERR_FILENO); close(fd); }
+        execlp("tar", "tar", "caf", backup_path,
+               "armiga.cfg", "wifi.conf",
+               "retroarch/retroarch.cfg", "retroarch/config",
+               "retroarch/saves", "retroarch/states",
+               "retroarch/playlists", "retroarch/thumbnails",
+               (char *)NULL);
+        _exit(127); /* solo si execlp falla */
     }
+    s_backup_pid = pid;
+}
+/* Rota backups antiguos, mantiene solo BACKUP_MAX. Llamar tras confirmar
+ * que el tar en background termino con exito. */
+static void rotate_backups(void)
+{
+    char rot_cmd[160];
+    snprintf(rot_cmd, sizeof(rot_cmd),
+        "cd " BACKUP_DIR " && ls -t backup_*.tar.gz 2>/dev/null | "
+        "tail -n +%d | xargs -r rm -f", BACKUP_MAX + 1);
+    system(rot_cmd);
+}
+/* Sondea el estado del backup en curso. Devuelve: 0=en curso, 1=completado
+ * con exito (ya rotado), -1=error. */
+static int poll_backup_progress(void)
+{
+    if (s_backup_pid <= 0) return -1;
+    int status = 0;
+    pid_t r = waitpid(s_backup_pid, &status, WNOHANG);
+    if (r == 0) return 0; /* sigue en curso */
+    s_backup_pid = -1;
+    if (r > 0 && WIFEXITED(status) && WEXITSTATUS(status) == 0) {
+        rotate_backups();
+        return 1;
+    }
+    return -1;
 }
 static int list_backups(char names[][64], int max_names)
 {
@@ -1035,6 +1094,18 @@ static void draw_text(SDL_Renderer *r, TTF_Font *f, const char *t,
     SDL_DestroySurface(s);
 }
 
+/* Dibuja label + puntos animados ciclicos (.  ..  ...) segun ticks. */
+static void draw_text_animdots(SDL_Renderer *r, TTF_Font *f, const char *label,
+                                SDL_Color c, float x, float y, Uint64 ticks)
+{
+    char dots[4];
+    int ndots = (int)((ticks / 400) % 4);
+    memset(dots, '.', ndots);
+    dots[ndots] = '\0';
+    char buf[96];
+    snprintf(buf, sizeof(buf), "%s%s", label, dots);
+    draw_text(r, f, buf, c, x, y);
+}
 /* Dibuja texto truncando con "..." si excede max_w (breadcrumbs largos). */
 static void draw_text_truncated(SDL_Renderer *r, TTF_Font *f, const char *t,
                                  SDL_Color c, float x, float y, float max_w)
@@ -1381,6 +1452,9 @@ int main(void)
     int settings_selected = 0;
     int backup_selected = 0;
     Uint64 backup_msg_until = 0;
+    char backup_created_name[64] = "";
+    bool backup_creating = false;      /* R01: en curso, mostrar "Generando..." */
+    bool backup_create_frame_shown = false; /* deja repintar antes de bloquear */
     #define BACKUP_LIST_MAX BACKUP_MAX
     char backup_list[BACKUP_LIST_MAX][64];
     int backup_count = 0;
@@ -1460,6 +1534,7 @@ int main(void)
     UpdatePhase update_phase   = UPD_CHECKING;
     bool  update_checked       = false;
     bool  upd_check_frame_shown = false; /* R01: deja repintar "Comprobando..." antes de bloquear */
+    bool  upd_verify_dl_started = false; /* fase VERIFYING: descarga async del .sha256 ya lanzada */
     char  upd_new_ver[32]      = "";
     char  upd_dl_url[512]      = "";
     char  upd_sha_url[512]     = "";
@@ -1817,9 +1892,9 @@ int main(void)
                         backup_selected = (backup_selected + 1) % BACKUP_MENU_COUNT;
                 }
                 if (ev.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN &&
-                    ev.jbutton.button == BTN_SDL_A && backup_selected == 0) {
-                    create_backup();
-                    backup_msg_until = SDL_GetTicks() + 2000;
+                    ev.jbutton.button == BTN_SDL_A && backup_selected == 0 && !backup_creating) {
+                    backup_creating = true;
+                    backup_create_frame_shown = false;
                 }
                 if (ev.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN &&
                     ev.jbutton.button == BTN_SDL_A && backup_selected == 1) {
@@ -2136,6 +2211,7 @@ int main(void)
                 update_phase = UPD_CHECKING;
                 update_checked = false;
                 upd_check_frame_shown = false;
+                upd_verify_dl_started = false;
             } else if (action == ACTION_INFO) {
                 state = STATE_SYSINFO;
                 last_sysinfo_update = 0; /* forzar refresco inmediato */
@@ -2178,23 +2254,46 @@ int main(void)
             led_repeat_next = now_ticks + 60;
         }
 
-        /* Lógica OTA */
+        /* Creacion de backup async (B01/B02 pattern): tar corre en
+         * background, se sondea cada frame sin bloquear la UI. */
+        if (backup_creating) {
+            if (!backup_create_frame_shown) {
+                backup_create_frame_shown = true;
+                start_backup_async(backup_created_name, sizeof(backup_created_name));
+            } else {
+                int r = poll_backup_progress();
+                if (r != 0) {
+                    backup_creating = false;
+                    backup_msg_until = SDL_GetTicks() + 3000;
+                    if (r < 0) backup_created_name[0] = '\0'; /* error: sin nombre que mostrar */
+                }
+            }
+        }
+        /* Lógica OTA (async: fork+exec en background, sondeo por frame,
+         * la UI nunca bloquea y la animacion de puntos avanza de verdad) */
         if (state == STATE_UPDATE) {
             if (update_phase == UPD_CHECKING && !update_checked && !upd_check_frame_shown) {
-                /* Deja que este frame se repinte con "Comprobando..." antes
-                 * de bloquear en la llamada de red (R01). */
                 upd_check_frame_shown = true;
-            } else if (update_phase == UPD_CHECKING && !update_checked) {
-                update_checked = true;
                 upd_check_start = now_ticks;
-                int res = check_update(s_version,
-                                       upd_new_ver, sizeof(upd_new_ver),
-                                       upd_dl_url,  sizeof(upd_dl_url),
-                                       upd_sha_url, sizeof(upd_sha_url));
-                if (res == 1)       update_phase = UPD_CONFIRM;
-                else if (res == 0)  update_phase = UPD_NO_UPDATE;
-                else { update_phase = UPD_ERROR;
-                       strncpy(upd_msg, "Error al conectar con el servidor.", sizeof(upd_msg)); }
+                start_check_update_async();
+            } else if (update_phase == UPD_CHECKING && !update_checked) {
+                int r = poll_curl_pid(&s_checkjson_pid, CHECK_JSON_TMP, 1);
+                if (r != 0) {
+                    update_checked = true;
+                    if (r > 0) {
+                        int res = finish_check_update(s_version,
+                                               upd_new_ver, sizeof(upd_new_ver),
+                                               upd_dl_url,  sizeof(upd_dl_url),
+                                               upd_sha_url, sizeof(upd_sha_url));
+                        if (res == 1)       update_phase = UPD_CONFIRM;
+                        else if (res == 0)  update_phase = UPD_NO_UPDATE;
+                        else { update_phase = UPD_ERROR;
+                               strncpy(upd_msg, "Error al conectar con el servidor.", sizeof(upd_msg)); }
+                    } else {
+                        update_phase = UPD_ERROR;
+                        strncpy(upd_msg, "Error al conectar con el servidor.", sizeof(upd_msg));
+                    }
+                }
             }
             if (update_phase == UPD_DOWNLOADING) {
                 if (upd_progress == 0.0f) {
@@ -2213,21 +2312,35 @@ int main(void)
                 }
             }
             if (update_phase == UPD_VERIFYING) {
-                /* Descargar el .sha256 primero */
                 if (upd_sha_url[0]) {
-                    char cmd[512];
-                    snprintf(cmd, sizeof(cmd),
-                             "curl -s -L -o \"" UPDATE_SHA256 "\" \"%s\"", upd_sha_url);
-                    (void)system(cmd);
-                }
-                if (verify_sha256() == 0) {
-                    write_update_flag();
-                    update_phase = UPD_READY;
+                    if (!upd_verify_dl_started) {
+                        upd_verify_dl_started = true;
+                        s_sha_pid = spawn_curl_to_file(upd_sha_url, UPDATE_SHA256, "10");
+                    } else {
+                        int r = poll_curl_pid(&s_sha_pid, UPDATE_SHA256, 1);
+                        if (r != 0) {
+                            if (verify_sha256() == 0) {
+                                write_update_flag();
+                                update_phase = UPD_READY;
+                            } else {
+                                update_phase = UPD_ERROR;
+                                strncpy(upd_msg, "Error de verificacion SHA256.", sizeof(upd_msg));
+                                unlink(UPDATE_IMG);
+                                unlink(UPDATE_SHA256);
+                            }
+                        }
+                    }
                 } else {
-                    update_phase = UPD_ERROR;
-                    strncpy(upd_msg, "Error de verificacion SHA256.", sizeof(upd_msg));
-                    unlink(UPDATE_IMG);
-                    unlink(UPDATE_SHA256);
+                    /* sin sha_url: verify_sha256() rechazara igualmente (B06) */
+                    if (verify_sha256() == 0) {
+                        write_update_flag();
+                        update_phase = UPD_READY;
+                    } else {
+                        update_phase = UPD_ERROR;
+                        strncpy(upd_msg, "Error de verificacion SHA256.", sizeof(upd_msg));
+                        unlink(UPDATE_IMG);
+                        unlink(UPDATE_SHA256);
+                    }
                 }
             }
         }
@@ -2501,9 +2614,24 @@ int main(void)
                     draw_text(ren, f_med, BACKUP_MENU_ITEMS[i][current_lang], c_gray, mx + 8.0f, iy);
                 }
             }
-            if (backup_msg_until > 0 && SDL_GetTicks() < backup_msg_until) {
-                draw_text(ren, f_sm, tr("Copia creada correctamente", "Backup created successfully"),
-                          c_green, mx, bkm_y0 + BACKUP_MENU_COUNT * bkm_item_h + 20.0f);
+            if (backup_creating) {
+                draw_text_animdots(ren, f_sm, tr("Generando copia de seguridad", "Creating backup"),
+                          c_white, mx, bkm_y0 + BACKUP_MENU_COUNT * bkm_item_h + 20.0f, now_ticks);
+            } else if (backup_msg_until > 0 && SDL_GetTicks() < backup_msg_until) {
+                char msgbuf[128];
+                SDL_Color msgc;
+                SDL_Color c_red = COL_RED;
+                if (backup_created_name[0]) {
+                    snprintf(msgbuf, sizeof(msgbuf), "%s: %s%s",
+                             tr("Copia creada", "Backup created"),
+                             BACKUP_DIR "/", backup_created_name);
+                    msgc = c_green;
+                } else {
+                    safe_copy(msgbuf, tr("Error al crear la copia de seguridad", "Error creating backup"), sizeof(msgbuf));
+                    msgc = c_red;
+                }
+                draw_text_truncated(ren, f_sm, msgbuf,
+                          msgc, mx, bkm_y0 + BACKUP_MENU_COUNT * bkm_item_h + 20.0f, SCREEN_W - 40.0f);
             }
             draw_line(ren, mx, 438.0f, SCREEN_W - 20.0f, 438.0f, c_green);
             draw_footer(ren, f_sm, tr("[B] Seleccionar  [A] Volver", "[B] Select  [A] Back"), s_version);
@@ -2816,14 +2944,9 @@ int main(void)
             draw_line(ren, SI_MX, SI_SEP_H1, SCREEN_W - 20.0f, SI_SEP_H1, c_dkgreen);
             draw_line(ren, SI_MX, SI_SEP_H2, SCREEN_W - 20.0f, SI_SEP_H2, c_dkgreen);
 
-/* Macro auxiliar: título de bloque + línea de guiones */
+/* Macro auxiliar: título de bloque */
 #define SI_BLOCK_TITLE(xpos, ypos, title) do { \
     draw_text(ren, f_sm, title, c_green, (xpos), (ypos)); \
-    /* guiones bajo el título */ \
-    { char _dashes[32]; int _tl = (int)strlen(title); \
-      if (_tl > 31) _tl = 31; \
-      for (int _i=0;_i<_tl;_i++) _dashes[_i]='-'; _dashes[_tl]='\0'; \
-      draw_text(ren, f_sm, _dashes, c_dkgreen, (xpos), (ypos)+14.0f); } \
 } while(0)
 
 /* Macro fila: etiqueta fija + valor alineado a col_right */
@@ -2964,7 +3087,7 @@ int main(void)
             }
 
             if (update_phase == UPD_CHECKING) {
-                draw_text(ren, f_sm, tr("Comprobando actualizaciones...", "Checking for updates..."), c_white, UX, 100.0f);
+                draw_text_animdots(ren, f_sm, tr("Comprobando actualizaciones", "Checking for updates"), c_white, UX, 100.0f, now_ticks);
 
             } else if (update_phase == UPD_NO_UPDATE) {
                 draw_text(ren, f_sm, tr("El sistema está actualizado.", "System is up to date."), c_green, UX, 100.0f);
@@ -2980,7 +3103,7 @@ int main(void)
                 draw_text(ren, f_med, tr("[A] Cancelar", "[A] Cancel"),             c_gray,   UX + 260.0f, 188.0f);
 
             } else if (update_phase == UPD_DOWNLOADING) {
-                draw_text(ren, f_sm, tr("Descargando actualización...", "Downloading update..."), c_white, UX, 100.0f);
+                draw_text_animdots(ren, f_sm, tr("Descargando actualización", "Downloading update"), c_white, UX, 100.0f, now_ticks);
                 /* Barra de progreso */
                 int pct = (int)(upd_progress * 100.0f);
                 char pct_buf[8]; snprintf(pct_buf, sizeof(pct_buf), "%d%%", pct);
@@ -2989,7 +3112,7 @@ int main(void)
                 draw_text(ren, f_sm, tr("No apagues el dispositivo durante la descarga.", "Do not turn off the device during download."), c_gray, UX, 144.0f);
 
             } else if (update_phase == UPD_VERIFYING) {
-                draw_text(ren, f_sm, tr("Verificando integridad...", "Verifying integrity..."), c_white, UX, 100.0f);
+                draw_text_animdots(ren, f_sm, tr("Verificando integridad", "Verifying integrity"), c_white, UX, 100.0f, now_ticks);
 
             } else if (update_phase == UPD_READY) {
                 draw_text(ren, f_sm, tr("Actualización lista. Reiniciando...", "Update ready. Restarting..."), c_green, UX, 100.0f);
