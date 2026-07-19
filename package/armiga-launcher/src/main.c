@@ -34,7 +34,7 @@ static void safe_copy(char *dst, const char *src, size_t sz) {
 #define FONT_MED     13
 #define FONT_SM      12
 
-#define COL_BG       { 26,  26,  26, 255}
+#define COL_BG       { 16,  16,  16, 255}
 #define COL_GREEN    {  0, 255, 136, 255}
 #define COL_DKGREEN  {  0, 119,  68, 255}
 #define COL_WHITE    {220, 220, 220, 255}
@@ -154,9 +154,10 @@ static const char *SETTINGS_MENU_ITEMS[][2] = {
     {"Zona horaria",                "Time Zone"},
     {"Ahorro de pantalla",          "Screen Dimming"},
     {"Brillo de pantalla",          "Screen Brightness"},
+    {"SSH",                         "SSH"},
     {"Restablecer valores de fábrica", "Factory reset"},
 };
-#define SETTINGS_MENU_COUNT 7
+#define SETTINGS_MENU_COUNT 8
 #define SETTINGS_ACTION_FACTORY_RESET 10
 
 /* Tiempos de inactividad seleccionables, en segundos. 0 = Nunca. */
@@ -806,6 +807,54 @@ static void save_brightness_config(int pct)
     fprintf(f, "BRIGHTNESS_PCT=%d\n", pct);
     fclose(f);
 }
+/* Lee SSH_ENABLED de armiga.cfg. Default: activado (1). */
+static int read_ssh_enabled(void)
+{
+    int enabled = 1;
+    FILE *f = fopen(ARMIGA_CONFIG_PATH, "r");
+    if (!f) return enabled;
+    char line[128];
+    while (fgets(line, sizeof(line), f)) {
+        char key[32], val[96];
+        if (sscanf(line, "%31[^=]=%95s", key, val) == 2) {
+            if (!strcmp(key, "SSH_ENABLED")) enabled = atoi(val);
+        }
+    }
+    fclose(f);
+    return enabled ? 1 : 0;
+}
+/* Guarda SSH_ENABLED en armiga.cfg, preservando otras claves,
+ * mismo patron que save_brightness_config. */
+static void save_ssh_enabled(int enabled)
+{
+    char lines[32][128];
+    int n = 0;
+    FILE *f = fopen(ARMIGA_CONFIG_PATH, "r");
+    if (f) {
+        while (n < 32 && fgets(lines[n], sizeof(lines[n]), f)) {
+            char key[32], val[96];
+            if (sscanf(lines[n], "%31[^=]=%95s", key, val) == 2 &&
+                !strcmp(key, "SSH_ENABLED")) {
+                continue; /* se reescribe al final, no duplicar */
+            }
+            n++;
+        }
+        fclose(f);
+    }
+    f = fopen(ARMIGA_CONFIG_PATH, "w");
+    if (!f) return;
+    for (int i = 0; i < n; i++) fputs(lines[i], f);
+    fprintf(f, "SSH_ENABLED=%d\n", enabled ? 1 : 0);
+    fclose(f);
+}
+/* Aplica el estado SSH en caliente, sin reiniciar. */
+static void apply_ssh_enabled(int enabled)
+{
+    if (enabled)
+        system("/etc/init.d/S50dropbear start >/dev/null 2>&1");
+    else
+        system("/etc/init.d/S50dropbear stop >/dev/null 2>&1");
+}
 #define LED_CONF_PATH "/media/amiga_data/led.conf"
 static void read_led_conf(int *r_right, int *g_right, int *b_right,
                            int *r_left, int *g_left, int *b_left,
@@ -986,6 +1035,34 @@ static void draw_text(SDL_Renderer *r, TTF_Font *f, const char *t,
     SDL_DestroySurface(s);
 }
 
+/* Dibuja texto truncando con "..." si excede max_w (breadcrumbs largos). */
+static void draw_text_truncated(SDL_Renderer *r, TTF_Font *f, const char *t,
+                                 SDL_Color c, float x, float y, float max_w)
+{
+    int w = 0, h = 0;
+    TTF_GetStringSize(f, t, 0, &w, &h);
+    if ((float)w <= max_w) {
+        draw_text(r, f, t, c, x, y);
+        return;
+    }
+    char buf[256];
+    size_t len = strlen(t);
+    if (len >= sizeof(buf)) len = sizeof(buf) - 1;
+    memcpy(buf, t, len);
+    buf[len] = '\0';
+    while (len > 0) {
+        len--;
+        buf[len] = '\0';
+        char tmp[260];
+        snprintf(tmp, sizeof(tmp), "%s...", buf);
+        TTF_GetStringSize(f, tmp, 0, &w, &h);
+        if ((float)w <= max_w) {
+            draw_text(r, f, tmp, c, x, y);
+            return;
+        }
+    }
+    draw_text(r, f, "...", c, x, y);
+}
 static void draw_text_right(SDL_Renderer *r, TTF_Font *f, const char *t,
                             SDL_Color c, float right_x, float y)
 {
@@ -1343,6 +1420,7 @@ int main(void)
     int brightness_pct = read_brightness_config();
     write_brightness((int)((int64_t)2499 * brightness_pct / 100));
     int dim_max_brightness = read_max_brightness();
+    int ssh_enabled = read_ssh_enabled(); /* aplicado ya por S51ssh-toggle en boot, solo reflejar estado en UI */
     int dim_saved_brightness = -1; /* brillo del usuario antes de atenuar, -1 = no atenuado */
     bool dim_active = false;
     Uint64 last_input_ticks = SDL_GetTicks();
@@ -1533,6 +1611,11 @@ int main(void)
                         state = STATE_BRIGHTNESS_CONFIG;
                     }
                     if (ev.key.key == SDLK_RETURN && settings_selected == 6) {
+                        ssh_enabled = !ssh_enabled;
+                        save_ssh_enabled(ssh_enabled);
+                        apply_ssh_enabled(ssh_enabled);
+                    }
+                    if (ev.key.key == SDLK_RETURN && settings_selected == 7) {
                         confirm_target = SETTINGS_ACTION_FACTORY_RESET;
                         confirm_return_state = STATE_SETTINGS;
                         state = STATE_CONFIRM;
@@ -1576,6 +1659,12 @@ int main(void)
                 }
                 if (ev.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN &&
                     ev.jbutton.button == BTN_SDL_A && settings_selected == 6) {
+                    ssh_enabled = !ssh_enabled;
+                    save_ssh_enabled(ssh_enabled);
+                    apply_ssh_enabled(ssh_enabled);
+                }
+                if (ev.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN &&
+                    ev.jbutton.button == BTN_SDL_A && settings_selected == 7) {
                     confirm_target = SETTINGS_ACTION_FACTORY_RESET;
                     confirm_return_state = STATE_SETTINGS;
                     state = STATE_CONFIRM;
@@ -2239,7 +2328,7 @@ int main(void)
         }
 
         } else if (state == STATE_SETTINGS) {
-            draw_text(ren, f_sm, tr("CONFIGURACIÓN", "SETTINGS"), c_green, mx, 20.0f);
+            draw_text_truncated(ren, f_sm, tr("Menú > Configuración", "Menu > Settings"), c_green, mx, 20.0f, SCREEN_W - 190.0f);
             draw_statusbar(ren, f_sm, status_time, status_wifi_up, status_battery);
             draw_line(ren, mx, 44.0f, SCREEN_W - 20.0f, 44.0f, c_green);
 
@@ -2247,17 +2336,25 @@ int main(void)
             float settings_item_h = 30.0f;
             for (int i = 0; i < SETTINGS_MENU_COUNT; i++) {
                 float iy = settings_y0 + i * settings_item_h;
+                char item_label[64];
+                if (i == 6) {
+                    snprintf(item_label, sizeof(item_label), "%s: %s",
+                             SETTINGS_MENU_ITEMS[i][current_lang],
+                             ssh_enabled ? tr("Activado", "Enabled") : tr("Desactivado", "Disabled"));
+                } else {
+                    safe_copy(item_label, SETTINGS_MENU_ITEMS[i][current_lang], sizeof(item_label));
+                }
                 if (i == settings_selected) {
                     int text_w = 0, text_h = 0;
-                    TTF_GetStringSize(f_med, SETTINGS_MENU_ITEMS[i][current_lang], 0, &text_w, &text_h);
+                    TTF_GetStringSize(f_med, item_label, 0, &text_w, &text_h);
                     float sel_w = (float)text_w + 24.0f; /* padding izquierdo (8) + derecho (16) */
                     draw_rounded_rect_filled(ren, mx - 4.0f, iy - 4.0f,
                                      sel_w, settings_item_h - 2.0f, 8.0f, c_selbg);
                     draw_rect_filled(ren, mx - 4.0f, iy - 4.0f,
                                      4.0f, settings_item_h - 2.0f, c_green);
-                    draw_text(ren, f_med, SETTINGS_MENU_ITEMS[i][current_lang], c_green, mx + 8.0f, iy);
+                    draw_text(ren, f_med, item_label, c_green, mx + 8.0f, iy);
                 } else {
-                    draw_text(ren, f_med, SETTINGS_MENU_ITEMS[i][current_lang], c_gray, mx + 8.0f, iy);
+                    draw_text(ren, f_med, item_label, c_gray, mx + 8.0f, iy);
                 }
             }
 
@@ -2265,7 +2362,7 @@ int main(void)
             draw_footer(ren, f_sm, tr("[B] Seleccionar  [A] Volver", "[B] Select  [A] Back"), s_version);
 
         } else if (state == STATE_BRIGHTNESS_CONFIG) {
-            draw_text(ren, f_sm, tr("BRILLO DE PANTALLA", "SCREEN BRIGHTNESS"), c_green, mx, 20.0f);
+            draw_text_truncated(ren, f_sm, tr("Menú > Configuración > Brillo de pantalla", "Menu > Settings > Screen Brightness"), c_green, mx, 20.0f, SCREEN_W - 190.0f);
             draw_statusbar(ren, f_sm, status_time, status_wifi_up, status_battery);
             draw_line(ren, mx, 44.0f, SCREEN_W - 20.0f, 44.0f, c_green);
 
@@ -2286,7 +2383,7 @@ int main(void)
                 tr("[Arriba/Abajo] Ajustar  [B] Aplicar  [A] Volver", "[Up/Down] Adjust  [B] Apply  [A] Back"), s_version);
 
         } else if (state == STATE_TIMEZONE_CONFIG) {
-            draw_text(ren, f_sm, tr("ZONA HORARIA", "TIME ZONE"), c_green, mx, 20.0f);
+            draw_text_truncated(ren, f_sm, tr("Menú > Configuración > Zona horaria", "Menu > Settings > Time Zone"), c_green, mx, 20.0f, SCREEN_W - 190.0f);
             draw_statusbar(ren, f_sm, status_time, status_wifi_up, status_battery);
             draw_line(ren, mx, 44.0f, SCREEN_W - 20.0f, 44.0f, c_green);
 
@@ -2325,7 +2422,7 @@ int main(void)
                 tr("[B] Aplicar  [A] Volver", "[B] Apply  [A] Back"), s_version);
 
         } else if (state == STATE_SCREENDIM_CONFIG) {
-            draw_text(ren, f_sm, tr("AHORRO DE PANTALLA", "SCREEN DIMMING"), c_green, mx, 20.0f);
+            draw_text_truncated(ren, f_sm, tr("Menú > Configuración > Ahorro de pantalla", "Menu > Settings > Screen Dimming"), c_green, mx, 20.0f, SCREEN_W - 190.0f);
             draw_statusbar(ren, f_sm, status_time, status_wifi_up, status_battery);
             draw_line(ren, mx, 44.0f, SCREEN_W - 20.0f, 44.0f, c_green);
 
@@ -2384,7 +2481,7 @@ int main(void)
                 tr("[B] Guardar  [A] Volver", "[B] Save  [A] Back"), s_version);
 
         } else if (state == STATE_BACKUP_MENU) {
-            draw_text(ren, f_sm, tr("COPIA DE SEGURIDAD", "BACKUP"), c_green, mx, 20.0f);
+            draw_text_truncated(ren, f_sm, tr("Menú > Configuración > Copia de seguridad", "Menu > Settings > Backup"), c_green, mx, 20.0f, SCREEN_W - 190.0f);
             draw_statusbar(ren, f_sm, status_time, status_wifi_up, status_battery);
             draw_line(ren, mx, 44.0f, SCREEN_W - 20.0f, 44.0f, c_green);
             float bkm_y0 = 64.0f;
@@ -2412,7 +2509,7 @@ int main(void)
             draw_footer(ren, f_sm, tr("[B] Seleccionar  [A] Volver", "[B] Select  [A] Back"), s_version);
 
         } else if (state == STATE_BACKUP_LIST) {
-            draw_text(ren, f_sm, tr("RESTAURAR COPIA", "RESTORE BACKUP"), c_green, mx, 20.0f);
+            draw_text_truncated(ren, f_sm, tr("Menú > Configuración > Copia de seguridad > Restaurar copia", "Menu > Settings > Backup > Restore Backup"), c_green, mx, 20.0f, SCREEN_W - 190.0f);
             draw_statusbar(ren, f_sm, status_time, status_wifi_up, status_battery);
             draw_line(ren, mx, 44.0f, SCREEN_W - 20.0f, 44.0f, c_green);
             float bkl_y0 = 64.0f;
@@ -2440,7 +2537,7 @@ int main(void)
             draw_footer(ren, f_sm, tr("[B] Restaurar  [A] Volver", "[B] Restore  [A] Back"), s_version);
 
         } else if (state == STATE_WIFI_CONFIG) {
-            draw_text(ren, f_sm, tr("RED INALÁMBRICA", "WIRELESS NETWORK"), c_green, mx, 20.0f);
+            draw_text_truncated(ren, f_sm, tr("Menú > Configuración > Red inalámbrica", "Menu > Settings > Wireless Network"), c_green, mx, 20.0f, SCREEN_W - 190.0f);
             draw_statusbar(ren, f_sm, status_time, status_wifi_up, status_battery);
             draw_line(ren, mx, 44.0f, SCREEN_W - 20.0f, 44.0f, c_green);
 
@@ -2500,7 +2597,7 @@ int main(void)
                 s_version);
 
         } else if (state == STATE_LED_CONFIG) {
-            draw_text(ren, f_sm, tr("LED RGB ANALÓGICOS", "ANALOG STICK LEDS"), c_green, mx, 20.0f);
+            draw_text_truncated(ren, f_sm, tr("Menú > Configuración > LED RGB analógicos", "Menu > Settings > Analog Stick LEDs"), c_green, mx, 20.0f, SCREEN_W - 190.0f);
             draw_statusbar(ren, f_sm, status_time, status_wifi_up, status_battery);
             draw_line(ren, mx, 44.0f, SCREEN_W - 20.0f, 44.0f, c_green);
 
@@ -2612,7 +2709,7 @@ int main(void)
 
         } else if (state == STATE_DEVMODE) {
             /* Titulo pequeño arriba a la izquierda */
-            draw_text(ren, f_sm, tr("MODO DESARROLLADOR", "DEVELOPER MODE"), c_green, mx, 20.0f);
+            draw_text_truncated(ren, f_sm, tr("Menú > Modo desarrollador", "Menu > Developer Mode"), c_green, mx, 20.0f, SCREEN_W - 190.0f);
             draw_statusbar(ren, f_sm, status_time, status_wifi_up, status_battery);
             draw_line(ren, mx, 44.0f, SCREEN_W - 20.0f, 44.0f, c_green);
             draw_line(ren, sep_x, 44.0f, sep_x, 438.0f, c_green);
@@ -2708,7 +2805,7 @@ int main(void)
             const float SI_SEP_H2 = SI_Y0 + SI_BLK_H * 2;  /* ~306 */
 
             /* Título y separador superior */
-            draw_text(ren, f_sm, tr("DIAGNÓSTICO DEL SISTEMA", "SYSTEM DIAGNOSTICS"), c_green, SI_MX, 20.0f);
+            draw_text_truncated(ren, f_sm, tr("Menú > Diagnóstico del sistema", "Menu > System Diagnostics"), c_green, SI_MX, 20.0f, SCREEN_W - 190.0f);
             draw_statusbar(ren, f_sm, status_time, status_wifi_up, status_battery);
             draw_line(ren, SI_MX, 44.0f, SCREEN_W - 20.0f, 44.0f, c_green);
 
@@ -2855,7 +2952,7 @@ int main(void)
             draw_footer(ren, f_sm, tr("[A] Volver", "[A] Back"), s_version);
         } else if (state == STATE_UPDATE) {
             const float UX = 20.0f;
-            draw_text(ren, f_sm, tr("ACTUALIZACIÓN DE SISTEMA", "SYSTEM UPDATE"), c_green, UX, 20.0f);
+            draw_text_truncated(ren, f_sm, tr("Menú > Actualización de sistema", "Menu > System Update"), c_green, UX, 20.0f, SCREEN_W - 190.0f);
             draw_statusbar(ren, f_sm, status_time, status_wifi_up, status_battery);
             draw_line(ren, UX, 44.0f, SCREEN_W - 20.0f, 44.0f, c_green);
 
