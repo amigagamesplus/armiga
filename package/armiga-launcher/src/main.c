@@ -230,6 +230,7 @@ static const char *DEV_MENU_ITEMS[] = {
 #define BTN_SDL_R1     5
 #define BTN_SDL_SELECT 8
 #define BTN_SDL_START  9
+#define BTN_SDL_X      3
 
 #define DEVMODE_HOLD_MS 3000
 
@@ -1046,6 +1047,13 @@ static int list_backups(char names[][64], int max_names)
     }
     pclose(p);
     return n;
+}
+/* Borra un backup por nombre (sin system(), sin riesgo de inyeccion). */
+static void delete_backup(const char *filename)
+{
+    char path[288];
+    snprintf(path, sizeof(path), BACKUP_DIR "/%s", filename);
+    unlink(path);
 }
 static void restore_backup(const char *filename)
 {
@@ -2005,6 +2013,13 @@ int main(void)
                     exec_req = EXEC_REBOOT;
                 }
                 if (ev.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN &&
+                    ev.jbutton.button == BTN_SDL_X && backup_count > 0) {
+                    delete_backup(backup_list[backup_list_selected]);
+                    backup_count = list_backups(backup_list, BACKUP_LIST_MAX);
+                    if (backup_list_selected >= backup_count)
+                        backup_list_selected = backup_count > 0 ? backup_count - 1 : 0;
+                }
+                if (ev.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN &&
                     ev.jbutton.button == BTN_SDL_B)
                     state = STATE_BACKUP_MENU;
             }
@@ -2396,7 +2411,7 @@ int main(void)
                                  4.0f, item_h - 2.0f, c_green);
                 draw_text(ren, f_med, MENU_ICONS[i], c_green, mx + 8.0f, iy);
                 draw_text(ren, f_med, MENU_ITEMS[i][current_lang], c_green, mx + 46.0f, iy);
-                draw_text(ren, f_med, ">", c_green, mx + sel_w - 20.0f, iy);
+                draw_text(ren, f_med, ">", c_green, mx + mw - 20.0f, iy);
             } else {
                 draw_text(ren, f_med, MENU_ICONS[i], c_gray, mx + 8.0f, iy);
                 draw_text(ren, f_med, MENU_ITEMS[i][current_lang], c_gray, mx + 46.0f, iy);
@@ -2662,7 +2677,7 @@ int main(void)
                 }
             }
             draw_line(ren, mx, 438.0f, SCREEN_W - 20.0f, 438.0f, c_green);
-            draw_footer(ren, f_sm, tr("[B] Restaurar  [A] Volver", "[B] Restore  [A] Back"), s_version);
+            draw_footer(ren, f_sm, tr("[B] Restaurar  [X] Eliminar  [A] Volver", "[B] Restore  [X] Delete  [A] Back"), s_version);
 
         } else if (state == STATE_WIFI_CONFIG) {
             draw_text_truncated(ren, f_sm, tr("Menú > Configuración > Red inalámbrica", "Menu > Settings > Wireless Network"), c_green, mx, 20.0f, SCREEN_W - 190.0f);
