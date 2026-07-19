@@ -154,9 +154,10 @@ static const char *SETTINGS_MENU_ITEMS[][2] = {
     {"Zona horaria",                "Time Zone"},
     {"Ahorro de pantalla",          "Screen Dimming"},
     {"Brillo de pantalla",          "Screen Brightness"},
+    {"SSH",                         "SSH"},
     {"Restablecer valores de fábrica", "Factory reset"},
 };
-#define SETTINGS_MENU_COUNT 7
+#define SETTINGS_MENU_COUNT 8
 #define SETTINGS_ACTION_FACTORY_RESET 10
 
 /* Tiempos de inactividad seleccionables, en segundos. 0 = Nunca. */
@@ -806,6 +807,54 @@ static void save_brightness_config(int pct)
     fprintf(f, "BRIGHTNESS_PCT=%d\n", pct);
     fclose(f);
 }
+/* Lee SSH_ENABLED de armiga.cfg. Default: activado (1). */
+static int read_ssh_enabled(void)
+{
+    int enabled = 1;
+    FILE *f = fopen(ARMIGA_CONFIG_PATH, "r");
+    if (!f) return enabled;
+    char line[128];
+    while (fgets(line, sizeof(line), f)) {
+        char key[32], val[96];
+        if (sscanf(line, "%31[^=]=%95s", key, val) == 2) {
+            if (!strcmp(key, "SSH_ENABLED")) enabled = atoi(val);
+        }
+    }
+    fclose(f);
+    return enabled ? 1 : 0;
+}
+/* Guarda SSH_ENABLED en armiga.cfg, preservando otras claves,
+ * mismo patron que save_brightness_config. */
+static void save_ssh_enabled(int enabled)
+{
+    char lines[32][128];
+    int n = 0;
+    FILE *f = fopen(ARMIGA_CONFIG_PATH, "r");
+    if (f) {
+        while (n < 32 && fgets(lines[n], sizeof(lines[n]), f)) {
+            char key[32], val[96];
+            if (sscanf(lines[n], "%31[^=]=%95s", key, val) == 2 &&
+                !strcmp(key, "SSH_ENABLED")) {
+                continue; /* se reescribe al final, no duplicar */
+            }
+            n++;
+        }
+        fclose(f);
+    }
+    f = fopen(ARMIGA_CONFIG_PATH, "w");
+    if (!f) return;
+    for (int i = 0; i < n; i++) fputs(lines[i], f);
+    fprintf(f, "SSH_ENABLED=%d\n", enabled ? 1 : 0);
+    fclose(f);
+}
+/* Aplica el estado SSH en caliente, sin reiniciar. */
+static void apply_ssh_enabled(int enabled)
+{
+    if (enabled)
+        system("/etc/init.d/S50dropbear start >/dev/null 2>&1");
+    else
+        system("/etc/init.d/S50dropbear stop >/dev/null 2>&1");
+}
 #define LED_CONF_PATH "/media/amiga_data/led.conf"
 static void read_led_conf(int *r_right, int *g_right, int *b_right,
                            int *r_left, int *g_left, int *b_left,
@@ -1371,6 +1420,7 @@ int main(void)
     int brightness_pct = read_brightness_config();
     write_brightness((int)((int64_t)2499 * brightness_pct / 100));
     int dim_max_brightness = read_max_brightness();
+    int ssh_enabled = read_ssh_enabled(); /* aplicado ya por S51ssh-toggle en boot, solo reflejar estado en UI */
     int dim_saved_brightness = -1; /* brillo del usuario antes de atenuar, -1 = no atenuado */
     bool dim_active = false;
     Uint64 last_input_ticks = SDL_GetTicks();
@@ -1561,6 +1611,11 @@ int main(void)
                         state = STATE_BRIGHTNESS_CONFIG;
                     }
                     if (ev.key.key == SDLK_RETURN && settings_selected == 6) {
+                        ssh_enabled = !ssh_enabled;
+                        save_ssh_enabled(ssh_enabled);
+                        apply_ssh_enabled(ssh_enabled);
+                    }
+                    if (ev.key.key == SDLK_RETURN && settings_selected == 7) {
                         confirm_target = SETTINGS_ACTION_FACTORY_RESET;
                         confirm_return_state = STATE_SETTINGS;
                         state = STATE_CONFIRM;
@@ -1604,6 +1659,12 @@ int main(void)
                 }
                 if (ev.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN &&
                     ev.jbutton.button == BTN_SDL_A && settings_selected == 6) {
+                    ssh_enabled = !ssh_enabled;
+                    save_ssh_enabled(ssh_enabled);
+                    apply_ssh_enabled(ssh_enabled);
+                }
+                if (ev.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN &&
+                    ev.jbutton.button == BTN_SDL_A && settings_selected == 7) {
                     confirm_target = SETTINGS_ACTION_FACTORY_RESET;
                     confirm_return_state = STATE_SETTINGS;
                     state = STATE_CONFIRM;
@@ -2275,17 +2336,25 @@ int main(void)
             float settings_item_h = 30.0f;
             for (int i = 0; i < SETTINGS_MENU_COUNT; i++) {
                 float iy = settings_y0 + i * settings_item_h;
+                char item_label[64];
+                if (i == 6) {
+                    snprintf(item_label, sizeof(item_label), "%s: %s",
+                             SETTINGS_MENU_ITEMS[i][current_lang],
+                             ssh_enabled ? tr("Activado", "Enabled") : tr("Desactivado", "Disabled"));
+                } else {
+                    safe_copy(item_label, SETTINGS_MENU_ITEMS[i][current_lang], sizeof(item_label));
+                }
                 if (i == settings_selected) {
                     int text_w = 0, text_h = 0;
-                    TTF_GetStringSize(f_med, SETTINGS_MENU_ITEMS[i][current_lang], 0, &text_w, &text_h);
+                    TTF_GetStringSize(f_med, item_label, 0, &text_w, &text_h);
                     float sel_w = (float)text_w + 24.0f; /* padding izquierdo (8) + derecho (16) */
                     draw_rounded_rect_filled(ren, mx - 4.0f, iy - 4.0f,
                                      sel_w, settings_item_h - 2.0f, 8.0f, c_selbg);
                     draw_rect_filled(ren, mx - 4.0f, iy - 4.0f,
                                      4.0f, settings_item_h - 2.0f, c_green);
-                    draw_text(ren, f_med, SETTINGS_MENU_ITEMS[i][current_lang], c_green, mx + 8.0f, iy);
+                    draw_text(ren, f_med, item_label, c_green, mx + 8.0f, iy);
                 } else {
-                    draw_text(ren, f_med, SETTINGS_MENU_ITEMS[i][current_lang], c_gray, mx + 8.0f, iy);
+                    draw_text(ren, f_med, item_label, c_gray, mx + 8.0f, iy);
                 }
             }
 
