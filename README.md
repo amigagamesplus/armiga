@@ -114,16 +114,6 @@ make BR2_EXTERNAL=$PWD -C buildroot-2026.02.2 O=$PWD/output armiga_defconfig
 make -C output -j$(nproc)
 ```
 
-### Flashear SD
-
-Herramienta interna `flash.sh` (no versionada, contiene credenciales WiFi — uso exclusivo de desarrollo):
-
-```bash
-sudo bash flash.sh /dev/sdX
-```
-
-Dos modos: **Actualización** (boot+system+system_b, preserva `amiga_data`) e **Imagen completa** (destructivo, reparticiona todo). El usuario final flashea con Rufus/balenaEtcher o recibe actualizaciones vía OTA — nunca usa `flash.sh`.
-
 ## Notas críticas
 
 - **Rootfs es SquashFS de solo lectura.** Cualquier código que escriba en tiempo de ejecución debe apuntar a `/media/amiga_data` o a tmpfs (`/tmp`, `/var/*`), nunca a rutas de rootfs. Esto incluye configs generadas (`wpa_supplicant.conf`), caches (shader cache de Mesa), y mountpoints (deben existir ya en el overlay, no crearse con `mkdir` en runtime).
