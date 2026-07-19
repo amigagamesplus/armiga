@@ -1381,6 +1381,7 @@ int main(void)
     /* Variables de actualización OTA */
     UpdatePhase update_phase   = UPD_CHECKING;
     bool  update_checked       = false;
+    bool  upd_check_frame_shown = false; /* R01: deja repintar "Comprobando..." antes de bloquear */
     char  upd_new_ver[32]      = "";
     char  upd_dl_url[512]      = "";
     char  upd_sha_url[512]     = "";
@@ -2045,6 +2046,7 @@ int main(void)
                 state = STATE_UPDATE;
                 update_phase = UPD_CHECKING;
                 update_checked = false;
+                upd_check_frame_shown = false;
             } else if (action == ACTION_INFO) {
                 state = STATE_SYSINFO;
                 last_sysinfo_update = 0; /* forzar refresco inmediato */
@@ -2089,7 +2091,11 @@ int main(void)
 
         /* Lógica OTA */
         if (state == STATE_UPDATE) {
-            if (update_phase == UPD_CHECKING && !update_checked) {
+            if (update_phase == UPD_CHECKING && !update_checked && !upd_check_frame_shown) {
+                /* Deja que este frame se repinte con "Comprobando..." antes
+                 * de bloquear en la llamada de red (R01). */
+                upd_check_frame_shown = true;
+            } else if (update_phase == UPD_CHECKING && !update_checked) {
                 update_checked = true;
                 upd_check_start = now_ticks;
                 int res = check_update(s_version,
