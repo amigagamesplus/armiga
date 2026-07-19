@@ -191,30 +191,38 @@ jobs:
           tag_name: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || format('build-{0}', github.run_number) }}
           name: "${{ startsWith(github.ref, 'refs/tags/') && format('Armiga {0}', github.ref_name) || format('Armiga Build #{0}', github.run_number) }}"
           body: |
-            - Versión: ${{ env.ARMIGA_VER }}
-            - Kernel: ${{ env.KERNEL_VER }}
-            - Mesa: ${{ env.MESA_VER }}
-            - RetroArch: ${{ env.RETROARCH_VER }}
-            - SDL3: ${{ env.SDL3_VER }}
-            - Buildroot: ${{ env.BR_VERSION }}
-            - Commit: ${{ github.sha }}
+            # Armiga ${{ env.ARMIGA_VER }}
 
-            ### Cambios desde el release anterior
+            ## Componentes
+
+            - RetroArch ${{ env.RETROARCH_VER }} + núcleo PUAE
+            - Launcher propio en C/SDL3, interfaz bilingüe Español/English
+            - Kernel ${{ env.KERNEL_VER }}
+            - Mesa ${{ env.MESA_VER }}
+
+            ## Cambios desde el release anterior
+
             ${{ env.CHANGELOG }}
 
-            ### Instalación
-            ```
-            sudo bash flash.sh /dev/sdX
-            ```
-            Escribe solo boot+system, preserva amiga_data (kickstarts, roms, configs).
+            ## Instalación
 
-            ### Actualización OTA
-            Disponible desde el launcher: Actualización de sistema.
+            Descarga `armiga.img.gz`, descomprímelo y flashea la imagen en una microSD con balenaEtcher o Rufus. Ver [guía de usuario](../../blob/main/GUIA-USUARIO.md) para el manejo del dispositivo.
 
-            ### Verificación
-            ```
-            sha256sum -c armiga.img.gz.sha256
-            ```
+            ## Actualización OTA
+
+            Disponible desde el launcher: Configuración → Actualización de sistema.
+
+            ## Verificación de integridad
+
+            Ejecuta `sha256sum -c armiga.img.gz.sha256` en la misma carpeta donde descargaste ambos ficheros.
+
+            ## Hardware compatible
+
+            Anbernic RG40XX H (Allwinner H700, Mali-G31 MP2, 1GB LPDDR4)
+
+            ---
+
+            💬 [Únete al grupo de Telegram](https://t.me/amigagames)
           files: |
             output/images/armiga.img.gz
             output/images/armiga.img.gz.sha256
