@@ -744,6 +744,20 @@ static int read_current_brightness(void)
     fclose(f);
     return v;
 }
+/* Cambia el gobernador de CPU en todos los cores. Usado al atenuar/
+ * restaurar pantalla (ahorro de bateria durante inactividad). */
+static void set_cpu_governor(const char *gov)
+{
+    for (int i = 0; i < 8; i++) {
+        char path[80];
+        snprintf(path, sizeof(path),
+                 "/sys/devices/system/cpu/cpu%d/cpufreq/scaling_governor", i);
+        FILE *f = fopen(path, "w");
+        if (!f) continue; /* ese core puede no existir, no es error */
+        fprintf(f, "%s", gov);
+        fclose(f);
+    }
+}
 static void write_brightness(int value)
 {
     FILE *f = fopen(DIM_BACKLIGHT_PATH, "w");
@@ -1580,6 +1594,7 @@ int main(void)
                 if (dim_active) {
                     write_brightness(dim_saved_brightness);
                     dim_active = false;
+                    set_cpu_governor("performance");
                 }
             }
             if (ev.type == SDL_EVENT_KEY_DOWN && ev.key.key == SDLK_ESCAPE) {
@@ -1878,6 +1893,7 @@ int main(void)
                     if (dim_active) {
                         write_brightness(dim_saved_brightness);
                         dim_active = false;
+                        set_cpu_governor("performance");
                     }
                     last_input_ticks = SDL_GetTicks();
                     state = STATE_SETTINGS;
@@ -2251,6 +2267,7 @@ int main(void)
                 if (target < 1) target = 1; /* nunca apagar del todo, sigue siendo legible */
                 write_brightness(target);
                 dim_active = true;
+                set_cpu_governor("powersave");
             }
         }
         if (state == STATE_LED_CONFIG && led_repeat_dir != 0 &&
