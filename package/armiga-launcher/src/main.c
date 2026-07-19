@@ -56,7 +56,8 @@ typedef enum {
     STATE_BACKUP_LIST,
     STATE_LED_CONFIG,
     STATE_TIMEZONE_CONFIG,
-    STATE_SCREENDIM_CONFIG
+    STATE_SCREENDIM_CONFIG,
+    STATE_BRIGHTNESS_CONFIG
 } AppState;
 
 typedef enum {
@@ -151,9 +152,10 @@ static const char *SETTINGS_MENU_ITEMS[][2] = {
     {"LED RGB analógicos",          "Analog Stick LEDs"},
     {"Zona horaria",                "Time Zone"},
     {"Ahorro de pantalla",          "Screen Dimming"},
+    {"Brillo de pantalla",          "Screen Brightness"},
     {"Restablecer valores de fábrica", "Factory reset"},
 };
-#define SETTINGS_MENU_COUNT 6
+#define SETTINGS_MENU_COUNT 7
 #define SETTINGS_ACTION_FACTORY_RESET 10
 
 /* Tiempos de inactividad seleccionables, en segundos. 0 = Nunca. */
@@ -755,6 +757,48 @@ static void save_dim_config(int timeout_sec, int dim_percent)
     fprintf(f, "DIM_TIMEOUT=%d\nDIM_PERCENT=%d\n", timeout_sec, dim_percent);
     fclose(f);
 }
+/* Lee BRIGHTNESS_PCT de armiga.cfg. Default: 80%. */
+static int read_brightness_config(void)
+{
+    int pct = 80;
+    FILE *f = fopen(ARMIGA_CONFIG_PATH, "r");
+    if (!f) return pct;
+    char line[128];
+    while (fgets(line, sizeof(line), f)) {
+        char key[32], val[96];
+        if (sscanf(line, "%31[^=]=%95s", key, val) == 2) {
+            if (!strcmp(key, "BRIGHTNESS_PCT")) pct = atoi(val);
+        }
+    }
+    fclose(f);
+    if (pct < 5) pct = 5;
+    if (pct > 100) pct = 100;
+    return pct;
+}
+/* Guarda BRIGHTNESS_PCT en armiga.cfg, preservando otras claves,
+ * mismo patron que save_dim_config/save_timezone_config. */
+static void save_brightness_config(int pct)
+{
+    char lines[32][128];
+    int n = 0;
+    FILE *f = fopen(ARMIGA_CONFIG_PATH, "r");
+    if (f) {
+        while (n < 32 && fgets(lines[n], sizeof(lines[n]), f)) {
+            char key[32], val[96];
+            if (sscanf(lines[n], "%31[^=]=%95s", key, val) == 2 &&
+                !strcmp(key, "BRIGHTNESS_PCT")) {
+                continue; /* se reescribe al final, no duplicar */
+            }
+            n++;
+        }
+        fclose(f);
+    }
+    f = fopen(ARMIGA_CONFIG_PATH, "w");
+    if (!f) return;
+    for (int i = 0; i < n; i++) fputs(lines[i], f);
+    fprintf(f, "BRIGHTNESS_PCT=%d\n", pct);
+    fclose(f);
+}
 #define LED_CONF_PATH "/media/amiga_data/led.conf"
 static void read_led_conf(int *r_right, int *g_right, int *b_right,
                            int *r_left, int *g_left, int *b_left,
@@ -1289,6 +1333,8 @@ int main(void)
         if (DIM_TIMEOUT_OPTIONS[i] == dim_timeout_sec) { dim_timeout_selected = i; break; }
     }
     int dim_field_selected = 0; /* 0 = tiempo, 1 = porcentaje */
+    int brightness_pct = read_brightness_config();
+    write_brightness((int)((int64_t)2499 * brightness_pct / 100));
     int dim_max_brightness = read_max_brightness();
     int dim_saved_brightness = -1; /* brillo del usuario antes de atenuar, -1 = no atenuado */
     bool dim_active = false;
@@ -1476,6 +1522,9 @@ int main(void)
                         state = STATE_SCREENDIM_CONFIG;
                     }
                     if (ev.key.key == SDLK_RETURN && settings_selected == 5) {
+                        state = STATE_BRIGHTNESS_CONFIG;
+                    }
+                    if (ev.key.key == SDLK_RETURN && settings_selected == 6) {
                         confirm_target = SETTINGS_ACTION_FACTORY_RESET;
                         confirm_return_state = STATE_SETTINGS;
                         state = STATE_CONFIRM;
@@ -1515,6 +1564,10 @@ int main(void)
                 }
                 if (ev.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN &&
                     ev.jbutton.button == BTN_SDL_A && settings_selected == 5) {
+                    state = STATE_BRIGHTNESS_CONFIG;
+                }
+                if (ev.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN &&
+                    ev.jbutton.button == BTN_SDL_A && settings_selected == 6) {
                     confirm_target = SETTINGS_ACTION_FACTORY_RESET;
                     confirm_return_state = STATE_SETTINGS;
                     state = STATE_CONFIRM;
@@ -1522,6 +1575,50 @@ int main(void)
                 if (ev.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN &&
                     ev.jbutton.button == BTN_SDL_B)
                     state = STATE_MENU;
+            }
+            else if (state == STATE_BRIGHTNESS_CONFIG) {
+                int brightness_pct_prev = brightness_pct;
+                if (ev.type == SDL_EVENT_KEY_DOWN) {
+                    if (ev.key.key == SDLK_UP) {
+                        brightness_pct += 5;
+                        if (brightness_pct > 100) brightness_pct = 100;
+                    }
+                    if (ev.key.key == SDLK_DOWN) {
+                        brightness_pct -= 5;
+                        if (brightness_pct < 5) brightness_pct = 5;
+                    }
+                    if (ev.key.key == SDLK_RETURN) {
+                        save_brightness_config(brightness_pct);
+                        state = STATE_SETTINGS;
+                    }
+                    if (ev.key.key == SDLK_ESCAPE) {
+                        brightness_pct = read_brightness_config();
+                        write_brightness((int)((int64_t)2499 * brightness_pct / 100));
+                        state = STATE_SETTINGS;
+                    }
+                }
+                if (ev.type == SDL_EVENT_JOYSTICK_HAT_MOTION) {
+                    if (ev.jhat.value == SDL_HAT_UP) {
+                        brightness_pct += 5;
+                        if (brightness_pct > 100) brightness_pct = 100;
+                    } else if (ev.jhat.value == SDL_HAT_DOWN) {
+                        brightness_pct -= 5;
+                        if (brightness_pct < 5) brightness_pct = 5;
+                    }
+                }
+                if (ev.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN &&
+                    ev.jbutton.button == BTN_SDL_A) {
+                    save_brightness_config(brightness_pct);
+                    state = STATE_SETTINGS;
+                }
+                if (ev.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN &&
+                    ev.jbutton.button == BTN_SDL_B) {
+                    brightness_pct = read_brightness_config();
+                    write_brightness((int)((int64_t)2499 * brightness_pct / 100));
+                    state = STATE_SETTINGS;
+                }
+                if (brightness_pct != brightness_pct_prev)
+                    write_brightness((int)((int64_t)2499 * brightness_pct / 100));
             }
             else if (state == STATE_TIMEZONE_CONFIG) {
                 if (ev.type == SDL_EVENT_KEY_DOWN) {
@@ -2153,6 +2250,27 @@ int main(void)
 
             draw_line(ren, mx, 438.0f, SCREEN_W - 20.0f, 438.0f, c_green);
             draw_footer(ren, f_sm, tr("[B] Seleccionar  [A] Volver", "[B] Select  [A] Back"), s_version);
+
+        } else if (state == STATE_BRIGHTNESS_CONFIG) {
+            draw_text(ren, f_sm, tr("BRILLO DE PANTALLA", "SCREEN BRIGHTNESS"), c_green, mx, 20.0f);
+            draw_statusbar(ren, f_sm, status_time, status_wifi_up, status_battery);
+            draw_line(ren, mx, 44.0f, SCREEN_W - 20.0f, 44.0f, c_green);
+
+            {
+                float iy = 90.0f;
+                float bar_w = 220.0f, bar_h = 10.0f;
+                char valbuf[8];
+                snprintf(valbuf, sizeof(valbuf), "%d%%", brightness_pct);
+                draw_text(ren, f_sm, tr("Brillo", "Brightness"), c_green, mx + 8.0f, iy);
+                draw_text(ren, f_med, valbuf, c_white, mx + 8.0f, iy + 16.0f);
+                float frac = brightness_pct / 100.0f;
+                draw_rect_filled(ren, mx + 8.0f, iy + 44.0f, bar_w, bar_h, c_gray);
+                draw_rect_filled(ren, mx + 8.0f, iy + 44.0f, bar_w * frac, bar_h, c_green);
+            }
+
+            draw_line(ren, mx, 438.0f, SCREEN_W - 20.0f, 438.0f, c_green);
+            draw_footer(ren, f_sm,
+                tr("[Arriba/Abajo] Ajustar  [B] Aplicar  [A] Volver", "[Up/Down] Adjust  [B] Apply  [A] Back"), s_version);
 
         } else if (state == STATE_TIMEZONE_CONFIG) {
             draw_text(ren, f_sm, tr("ZONA HORARIA", "TIME ZONE"), c_green, mx, 20.0f);
