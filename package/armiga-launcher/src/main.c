@@ -1039,6 +1039,18 @@ static void draw_text(SDL_Renderer *r, TTF_Font *f, const char *t,
     SDL_DestroySurface(s);
 }
 
+/* Dibuja label + puntos animados ciclicos (.  ..  ...) segun ticks. */
+static void draw_text_animdots(SDL_Renderer *r, TTF_Font *f, const char *label,
+                                SDL_Color c, float x, float y, Uint64 ticks)
+{
+    char dots[4];
+    int ndots = (int)((ticks / 400) % 4);
+    memset(dots, '.', ndots);
+    dots[ndots] = '\0';
+    char buf[96];
+    snprintf(buf, sizeof(buf), "%s%s", label, dots);
+    draw_text(r, f, buf, c, x, y);
+}
 /* Dibuja texto truncando con "..." si excede max_w (breadcrumbs largos). */
 static void draw_text_truncated(SDL_Renderer *r, TTF_Font *f, const char *t,
                                  SDL_Color c, float x, float y, float max_w)
@@ -2520,15 +2532,8 @@ int main(void)
                 }
             }
             if (backup_creating) {
-                char dots[4];
-                int ndots = (int)((now_ticks / 400) % 4);
-                memset(dots, '.', ndots);
-                dots[ndots] = '\0';
-                char animbuf[64];
-                snprintf(animbuf, sizeof(animbuf), "%s%s",
-                         tr("Generando copia de seguridad", "Creating backup"), dots);
-                draw_text(ren, f_sm, animbuf,
-                          c_white, mx, bkm_y0 + BACKUP_MENU_COUNT * bkm_item_h + 20.0f);
+                draw_text_animdots(ren, f_sm, tr("Generando copia de seguridad", "Creating backup"),
+                          c_white, mx, bkm_y0 + BACKUP_MENU_COUNT * bkm_item_h + 20.0f, now_ticks);
             } else if (backup_msg_until > 0 && SDL_GetTicks() < backup_msg_until) {
                 char msgbuf[128];
                 snprintf(msgbuf, sizeof(msgbuf), "%s: %s%s",
@@ -2991,7 +2996,7 @@ int main(void)
             }
 
             if (update_phase == UPD_CHECKING) {
-                draw_text(ren, f_sm, tr("Comprobando actualizaciones...", "Checking for updates..."), c_white, UX, 100.0f);
+                draw_text_animdots(ren, f_sm, tr("Comprobando actualizaciones", "Checking for updates"), c_white, UX, 100.0f, now_ticks);
 
             } else if (update_phase == UPD_NO_UPDATE) {
                 draw_text(ren, f_sm, tr("El sistema está actualizado.", "System is up to date."), c_green, UX, 100.0f);
@@ -3007,7 +3012,7 @@ int main(void)
                 draw_text(ren, f_med, tr("[A] Cancelar", "[A] Cancel"),             c_gray,   UX + 260.0f, 188.0f);
 
             } else if (update_phase == UPD_DOWNLOADING) {
-                draw_text(ren, f_sm, tr("Descargando actualización...", "Downloading update..."), c_white, UX, 100.0f);
+                draw_text_animdots(ren, f_sm, tr("Descargando actualización", "Downloading update"), c_white, UX, 100.0f, now_ticks);
                 /* Barra de progreso */
                 int pct = (int)(upd_progress * 100.0f);
                 char pct_buf[8]; snprintf(pct_buf, sizeof(pct_buf), "%d%%", pct);
@@ -3016,7 +3021,7 @@ int main(void)
                 draw_text(ren, f_sm, tr("No apagues el dispositivo durante la descarga.", "Do not turn off the device during download."), c_gray, UX, 144.0f);
 
             } else if (update_phase == UPD_VERIFYING) {
-                draw_text(ren, f_sm, tr("Verificando integridad...", "Verifying integrity..."), c_white, UX, 100.0f);
+                draw_text_animdots(ren, f_sm, tr("Verificando integridad", "Verifying integrity"), c_white, UX, 100.0f, now_ticks);
 
             } else if (update_phase == UPD_READY) {
                 draw_text(ren, f_sm, tr("Actualización lista. Reiniciando...", "Update ready. Restarting..."), c_green, UX, 100.0f);
