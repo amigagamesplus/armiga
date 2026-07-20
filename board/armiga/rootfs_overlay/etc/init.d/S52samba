@@ -6,7 +6,7 @@
 case "$1" in
   start)
     echo "Iniciando Samba..."
-    mkdir -p /var/lock/samba /var/log/samba /run/samba
+    mkdir -p /var/lock/samba /var/log/samba /run/samba /var/lib/samba/private
     smbd -D
     nmbd -D
     ;;

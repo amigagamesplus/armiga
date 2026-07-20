@@ -64,6 +64,10 @@ mkdir -p "$TARGET_DIR/etc/init.d"
 cp "$(dirname "$0")/rootfs_overlay/etc/init.d/S43update" "$TARGET_DIR/etc/init.d/S43update"
 chmod +x "$TARGET_DIR/etc/init.d/S43update"
 
+# --- S52samba ------------------------------------------------------------
+cp "$(dirname "$0")/rootfs_overlay/etc/init.d/S52samba" "$TARGET_DIR/etc/init.d/S52samba"
+chmod +x "$TARGET_DIR/etc/init.d/S52samba"
+
 echo ">>> Armiga post-build.sh: done"
 
 # --- OS name -----------------------------------------------------------------
