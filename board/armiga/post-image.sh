@@ -88,7 +88,7 @@ rm -rf "$GENIMAGE_TMP"
 
 # --- Escribir U-Boot en raw (offset 8K = 16 sectores de 512B) ---------------
 UBOOT_BIN="$BOARD_DIR/bootloader/u-boot.bin"
-SDCARD_IMG="$IMAGES_DIR/sdcard.img"
+SDCARD_IMG="$IMAGES_DIR/armiga.img"
 
 if [ -f "$UBOOT_BIN" ]; then
     echo ">>> Escribiendo U-Boot en offset 8K..."
