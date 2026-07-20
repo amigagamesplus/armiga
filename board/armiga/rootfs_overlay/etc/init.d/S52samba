@@ -1,0 +1,28 @@
+#!/bin/sh
+#
+# Arranca Samba (smbd + nmbd) para compartir amiga_data via \\h700
+#
+
+case "$1" in
+  start)
+    echo "Iniciando Samba..."
+    mkdir -p /var/lock/samba /var/log/samba /run/samba
+    smbd -D
+    nmbd -D
+    ;;
+  stop)
+    echo "Deteniendo Samba..."
+    killall smbd nmbd 2>/dev/null
+    ;;
+  restart)
+    "$0" stop
+    sleep 1
+    "$0" start
+    ;;
+  *)
+    echo "Uso: $0 {start|stop|restart}"
+    exit 1
+    ;;
+esac
+
+exit 0
