@@ -1840,13 +1840,13 @@ int main(void)
             else if (state == STATE_BRIGHTNESS_CONFIG) {
                 int brightness_pct_prev = brightness_pct;
                 if (ev.type == SDL_EVENT_KEY_DOWN) {
-                    if (ev.key.key == SDLK_UP) {
-                        brightness_pct += 5;
-                        if (brightness_pct > 100) brightness_pct = 100;
-                    }
-                    if (ev.key.key == SDLK_DOWN) {
+                    if (ev.key.key == SDLK_LEFT) {
                         brightness_pct -= 5;
                         if (brightness_pct < 5) brightness_pct = 5;
+                    }
+                    if (ev.key.key == SDLK_RIGHT) {
+                        brightness_pct += 5;
+                        if (brightness_pct > 100) brightness_pct = 100;
                     }
                     if (ev.key.key == SDLK_RETURN) {
                         save_brightness_config(brightness_pct);
@@ -1859,12 +1859,12 @@ int main(void)
                     }
                 }
                 if (ev.type == SDL_EVENT_JOYSTICK_HAT_MOTION) {
-                    if (ev.jhat.value == SDL_HAT_UP) {
-                        brightness_pct += 5;
-                        if (brightness_pct > 100) brightness_pct = 100;
-                    } else if (ev.jhat.value == SDL_HAT_DOWN) {
+                    if (ev.jhat.value == SDL_HAT_LEFT) {
                         brightness_pct -= 5;
                         if (brightness_pct < 5) brightness_pct = 5;
+                    } else if (ev.jhat.value == SDL_HAT_RIGHT) {
+                        brightness_pct += 5;
+                        if (brightness_pct > 100) brightness_pct = 100;
                     }
                 }
                 if (ev.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN &&
