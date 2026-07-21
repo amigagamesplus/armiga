@@ -1242,10 +1242,17 @@ static void draw_statusbar(SDL_Renderer *ren, TTF_Font *f,
 
     /* BATERIA */
     char batt_buf[8];
-    if (battery >= 0) snprintf(batt_buf, sizeof(batt_buf), "%d%%", battery);
-    else              strncpy(batt_buf, "--", sizeof(batt_buf));
+    SDL_Color batt_col = c_white;
+    if (battery >= 0) {
+        snprintf(batt_buf, sizeof(batt_buf), "%d%%", battery);
+        if (battery <= 20)      batt_col = c_red;
+        else if (battery <= 70) batt_col = (SDL_Color){255, 165, 0, 255}; /* naranja */
+        else                    batt_col = c_green;
+    } else {
+        strncpy(batt_buf, "--", sizeof(batt_buf));
+    }
     TTF_GetStringSize(f, batt_buf, 0, &w, &h);
-    draw_text(ren, f, batt_buf, c_white, right - (float)w, y);
+    draw_text(ren, f, batt_buf, batt_col, right - (float)w, y);
     right -= (float)w + gap;
 
     /* Separador */
@@ -2595,7 +2602,7 @@ int main(void)
 
             draw_line(ren, mx, 438.0f, SCREEN_W - 20.0f, 438.0f, c_green);
             draw_footer(ren, f_sm,
-                tr("[Arriba/Abajo] Ajustar  [B] Aplicar  [A] Volver", "[Up/Down] Adjust  [B] Apply  [A] Back"), s_version);
+                tr("[<>] Ajustar  [B] Aplicar  [A] Volver", "[<>] Adjust  [B] Apply  [A] Back"), s_version);
 
         } else if (state == STATE_TIMEZONE_CONFIG) {
             draw_text_truncated(ren, f_sm, tr("Menú > Configuración > Zona horaria", "Menu > Settings > Time Zone"), c_green, mx, 20.0f, SCREEN_W - 190.0f);
