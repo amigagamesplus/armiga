@@ -3,7 +3,11 @@
 case "$1" in
     start)
         if [ -f /usr/share/armiga/splash.raw ]; then
-            cat /usr/share/armiga/splash.raw > /dev/fb0 &
+            cat /usr/share/armiga/splash.raw > /dev/fb0
+        fi
+        if [ -x /usr/bin/armiga-splash-text ]; then
+            /usr/bin/armiga-splash-text &
+            echo $! > /var/run/armiga-splash-text.pid
         fi
         ;;
     stop|restart)

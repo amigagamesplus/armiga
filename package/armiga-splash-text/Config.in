@@ -1,0 +1,5 @@
+config BR2_PACKAGE_ARMIGA_SPLASH_TEXT
+	bool "armiga-splash-text"
+	help
+	  Overlay de texto (version, build, fecha) sobre el splash
+	  del framebuffer durante el arranque de armiga.
