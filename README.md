@@ -1,4 +1,4 @@
-<img src="docs/assets/logo-armiga.png" alt="Armiga" width="550">
+<img src="docs/assets/logo-armiga.png" alt="armiga" width="550">
 
 Distribución Linux mínima basada en **Buildroot** para la consola **Anbernic RG40XX H** (Allwinner H700), enfocada en emulación de Commodore Amiga vía **RetroArch + núcleo PUAE**.
 
@@ -40,9 +40,9 @@ Distribución Linux mínima basada en **Buildroot** para la consola **Anbernic R
 
 | # | Etiqueta | FS | Tamaño | Contenido | Montaje |
 |---|---|---|---|---|---|
-| 1 | boot | FAT32 | 64 MB | Kernel, dtb.img, extlinux.conf (labels Armiga-A/B) | `/boot` (bajo demanda) |
-| 2 | system | squashfs | 300 MB | Rootfs — slot A | `/` (ro) si `DEFAULT=Armiga-A` |
-| 3 | system_b | squashfs | 300 MB | Rootfs — slot B (copia idéntica en cada build) | `/` (ro) si `DEFAULT=Armiga-B` |
+| 1 | boot | FAT32 | 64 MB | Kernel, dtb.img, extlinux.conf (labels armiga-A/B) | `/boot` (bajo demanda) |
+| 2 | system | squashfs | 300 MB | Rootfs — slot A | `/` (ro) si `DEFAULT=armiga-A` |
+| 3 | system_b | squashfs | 300 MB | Rootfs — slot B (copia idéntica en cada build) | `/` (ro) si `DEFAULT=armiga-B` |
 | 4 | amiga_data | exFAT | resto del disco | Kickstarts, ROMs, configs, saves | `/media/amiga_data` |
 
 `amiga_data` **siempre** debe ser la última partición física, para que la auto-expansión al 100% del disco funcione en SD de cualquier tamaño.
@@ -104,7 +104,7 @@ armiga/
 
 ### Build en GitHub Actions
 
-Trigger manual (`workflow_dispatch`) en Actions → Build Armiga → Run workflow. **Verificar que la rama seleccionada en "Use workflow from" sea la correcta** antes de lanzar.
+Trigger manual (`workflow_dispatch`) en Actions → Build armiga → Run workflow. **Verificar que la rama seleccionada en "Use workflow from" sea la correcta** antes de lanzar.
 Tiempo estimado: 30-40 min (~1h+ si se modifica `configs/armiga_defconfig`, invalida la cache de ccache/toolchain).
 
 ### Build local

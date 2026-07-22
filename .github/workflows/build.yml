@@ -1,8 +1,8 @@
 # =============================================================================
-# Armiga — GitHub Actions Build Workflow
+# armiga — GitHub Actions Build Workflow
 # =============================================================================
 
-name: Build Armiga
+name: Build armiga
 
 on:
   workflow_dispatch:
@@ -33,7 +33,7 @@ jobs:
     timeout-minutes: 180
 
     steps:
-      - name: Checkout Armiga
+      - name: Checkout armiga
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
@@ -191,9 +191,9 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || format('build-{0}', github.run_number) }}
-          name: "${{ startsWith(github.ref, 'refs/tags/') && format('Armiga {0}', github.ref_name) || format('Armiga Build #{0}', github.run_number) }}"
+          name: "${{ startsWith(github.ref, 'refs/tags/') && format('armiga {0}', github.ref_name) || format('armiga Build #{0}', github.run_number) }}"
           body: |
-            # Armiga ${{ env.ARMIGA_VER }}
+            # armiga ${{ env.ARMIGA_VER }}
 
             ## Componentes
 

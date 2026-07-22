@@ -136,8 +136,8 @@ static const char *MENU_ITEMS[][2] = {
 static const char *MENU_DESC[][2] = {
     {"Explora y lanza juegos\n" "Amiga desde tu biblioteca.",
      "Browse and launch Amiga\n" "games from your library."},
-    {"Descarga e instala la\n" "ultima version de Armiga.",
-     "Download and install the\n" "latest version of Armiga."},
+    {"Descarga e instala la\n" "ultima version de armiga.",
+     "Download and install the\n" "latest version of armiga."},
     {"Revisa el estado del\n" "hardware y el sistema.",
      "Check the status of the\n" "hardware and system."},
     {"Ajustes del sistema:\n" "red inalambrica y mas.",
@@ -1493,7 +1493,7 @@ int main(void)
 
     apply_timezone();
 
-    SDL_Window *win = SDL_CreateWindow("Armiga",
+    SDL_Window *win = SDL_CreateWindow("armiga",
         SCREEN_W, SCREEN_H, SDL_WINDOW_FULLSCREEN);
     if (!win) { TTF_Quit(); SDL_Quit(); return 1; }
 

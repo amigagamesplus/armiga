@@ -1,6 +1,6 @@
 #!/bin/bash
 # =============================================================================
-# Script para adaptar el .conf de Rocknix a las necesidades de Armiga
+# Script para adaptar el .conf de Rocknix a las necesidades de armiga
 # =============================================================================
 
 CONF="linux.aarch64.conf"
@@ -11,7 +11,7 @@ if [ ! -f "$CONF" ]; then
     exit 1
 fi
 
-echo "Adaptando $CONF para Armiga..."
+echo "Adaptando $CONF para armiga..."
 
 # 1. Cambiar el hostname por defecto
 sed -i 's/CONFIG_DEFAULT_HOSTNAME="@DEVICENAME@"/CONFIG_DEFAULT_HOSTNAME="armiga"/' "$CONF"

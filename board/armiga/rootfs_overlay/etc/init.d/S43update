@@ -3,8 +3,8 @@
 # Se ejecuta en arranque, antes del launcher. Preserva amiga_data.
 #
 # ESQUEMA A/B:
-#   - system  (p2) = Armiga-A
-#   - system_b(p3) = Armiga-B
+#   - system  (p2) = armiga-a
+#   - system_b(p3) = armiga-b
 #   - Se flashea SIEMPRE la particion INACTIVA (nunca la que esta
 #     montada como / en este arranque). Al terminar, se actualiza
 #     DEFAULT en extlinux.conf (p1) para apuntar al slot recien
@@ -44,14 +44,14 @@ fb ""
 CURRENT_ROOT=$(grep -o 'root=/dev/mmcblk0p[0-9]*' /proc/cmdline | cut -d= -f2)
 case "$CURRENT_ROOT" in
     /dev/mmcblk0p2)
-        ACTIVE_LABEL="Armiga-A"
+        ACTIVE_LABEL="armiga-a"
         TARGET_PART="${DEV}p3"
-        TARGET_LABEL="Armiga-B"
+        TARGET_LABEL="armiga-b"
         ;;
     /dev/mmcblk0p3)
-        ACTIVE_LABEL="Armiga-B"
+        ACTIVE_LABEL="armiga-b"
         TARGET_PART="${DEV}p2"
-        TARGET_LABEL="Armiga-A"
+        TARGET_LABEL="armiga-a"
         ;;
     *)
         cleanup_fail "ERROR: no se pudo determinar el slot activo ($CURRENT_ROOT)."
