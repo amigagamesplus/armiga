@@ -1284,15 +1284,16 @@ static void draw_statusbar(SDL_Renderer *ren, TTF_Font *f,
     right -= (float)w + gap;
 
     /* SSH */
+    SDL_Color c_dim = {38, 38, 38, 255};
     int ssh_on = read_ssh_enabled();
-    SDL_Color ssh_col = ssh_on ? c_green : c_gray;
+    SDL_Color ssh_col = ssh_on ? c_green : c_dim;
     TTF_GetStringSize(f, "SSH", 0, &w, &h);
     draw_text(ren, f, "SSH", ssh_col, right - (float)w, y);
     right -= (float)w + gap;
 
     /* SAMBA */
     int samba_on = read_samba_enabled();
-    SDL_Color samba_col = samba_on ? c_green : c_gray;
+    SDL_Color samba_col = samba_on ? c_green : c_dim;
     TTF_GetStringSize(f, "SAMBA", 0, &w, &h);
     draw_text(ren, f, "SAMBA", samba_col, right - (float)w, y);
 }
