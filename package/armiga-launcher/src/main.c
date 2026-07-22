@@ -1242,10 +1242,17 @@ static void draw_statusbar(SDL_Renderer *ren, TTF_Font *f,
 
     /* BATERIA */
     char batt_buf[8];
-    if (battery >= 0) snprintf(batt_buf, sizeof(batt_buf), "%d%%", battery);
-    else              strncpy(batt_buf, "--", sizeof(batt_buf));
+    SDL_Color batt_col = c_white;
+    if (battery >= 0) {
+        snprintf(batt_buf, sizeof(batt_buf), "%d%%", battery);
+        if (battery <= 20)      batt_col = c_red;
+        else if (battery <= 70) batt_col = (SDL_Color){255, 165, 0, 255}; /* naranja */
+        else                    batt_col = c_green;
+    } else {
+        strncpy(batt_buf, "--", sizeof(batt_buf));
+    }
     TTF_GetStringSize(f, batt_buf, 0, &w, &h);
-    draw_text(ren, f, batt_buf, c_white, right - (float)w, y);
+    draw_text(ren, f, batt_buf, batt_col, right - (float)w, y);
     right -= (float)w + gap;
 
     /* Separador */
@@ -1840,13 +1847,13 @@ int main(void)
             else if (state == STATE_BRIGHTNESS_CONFIG) {
                 int brightness_pct_prev = brightness_pct;
                 if (ev.type == SDL_EVENT_KEY_DOWN) {
-                    if (ev.key.key == SDLK_UP) {
-                        brightness_pct += 5;
-                        if (brightness_pct > 100) brightness_pct = 100;
-                    }
-                    if (ev.key.key == SDLK_DOWN) {
+                    if (ev.key.key == SDLK_LEFT) {
                         brightness_pct -= 5;
                         if (brightness_pct < 5) brightness_pct = 5;
+                    }
+                    if (ev.key.key == SDLK_RIGHT) {
+                        brightness_pct += 5;
+                        if (brightness_pct > 100) brightness_pct = 100;
                     }
                     if (ev.key.key == SDLK_RETURN) {
                         save_brightness_config(brightness_pct);
@@ -1859,12 +1866,12 @@ int main(void)
                     }
                 }
                 if (ev.type == SDL_EVENT_JOYSTICK_HAT_MOTION) {
-                    if (ev.jhat.value == SDL_HAT_UP) {
-                        brightness_pct += 5;
-                        if (brightness_pct > 100) brightness_pct = 100;
-                    } else if (ev.jhat.value == SDL_HAT_DOWN) {
+                    if (ev.jhat.value == SDL_HAT_LEFT) {
                         brightness_pct -= 5;
                         if (brightness_pct < 5) brightness_pct = 5;
+                    } else if (ev.jhat.value == SDL_HAT_RIGHT) {
+                        brightness_pct += 5;
+                        if (brightness_pct > 100) brightness_pct = 100;
                     }
                 }
                 if (ev.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN &&
@@ -2595,7 +2602,7 @@ int main(void)
 
             draw_line(ren, mx, 438.0f, SCREEN_W - 20.0f, 438.0f, c_green);
             draw_footer(ren, f_sm,
-                tr("[Arriba/Abajo] Ajustar  [B] Aplicar  [A] Volver", "[Up/Down] Adjust  [B] Apply  [A] Back"), s_version);
+                tr("[<>] Ajustar  [B] Aplicar  [A] Volver", "[<>] Adjust  [B] Apply  [A] Back"), s_version);
 
         } else if (state == STATE_TIMEZONE_CONFIG) {
             draw_text_truncated(ren, f_sm, tr("Menú > Configuración > Zona horaria", "Menu > Settings > Time Zone"), c_green, mx, 20.0f, SCREEN_W - 190.0f);

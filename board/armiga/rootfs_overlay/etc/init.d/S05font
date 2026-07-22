@@ -1,0 +1,5 @@
+#!/bin/sh
+#
+# Aplica fuente de consola Terminus (mas fina/legible que la 8x16 default)
+#
+setfont /usr/share/consolefonts/Lat2-Terminus16.psfu.gz >/dev/null 2>&1

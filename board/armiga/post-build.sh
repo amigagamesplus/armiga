@@ -72,6 +72,10 @@ chmod +x "$TARGET_DIR/etc/init.d/S52samba"
 cp "$(dirname "$0")/rootfs_overlay/etc/init.d/S53samba-toggle" "$TARGET_DIR/etc/init.d/S53samba-toggle"
 chmod +x "$TARGET_DIR/etc/init.d/S53samba-toggle"
 
+# --- S05font -----------------------------------------------------------
+cp "$(dirname "$0")/rootfs_overlay/etc/init.d/S05font" "$TARGET_DIR/etc/init.d/S05font"
+chmod +x "$TARGET_DIR/etc/init.d/S05font"
+
 echo ">>> Armiga post-build.sh: done"
 
 # --- OS name -----------------------------------------------------------------
