@@ -1,6 +1,6 @@
 #!/bin/bash
 # =============================================================================
-# Armiga — post-image.sh
+# armiga — post-image.sh
 # Se ejecuta DESPUÉS de crear las imágenes del filesystem
 # Argumento $1 = IMAGES_DIR (directorio con rootfs.ext4, etc.)
 # Argumento $2 = BR2_EXTERNAL path (pasado vía POST_SCRIPT_ARGS)
@@ -12,8 +12,8 @@ IMAGES_DIR="${BINARIES_DIR}"
 BR2_EXTERNAL="${BR2_EXTERNAL_armiga_PATH:-${GITHUB_WORKSPACE}}"
 BOARD_DIR="$BR2_EXTERNAL/board/armiga"
 
-echo ">>> Armiga post-image.sh: IMAGES_DIR=$IMAGES_DIR"
-echo ">>> Armiga post-image.sh: BOARD_DIR=$BOARD_DIR"
+echo ">>> armiga post-image.sh: IMAGES_DIR=$IMAGES_DIR"
+echo ">>> armiga post-image.sh: BOARD_DIR=$BOARD_DIR"
 
 # --- Copiar bootloader binarios a images/ ------------------------------------
 echo ">>> Copiando kernel KERNEL..."
@@ -25,14 +25,14 @@ cp "$BOARD_DIR/bootloader/dtb.img" "$IMAGES_DIR/dtb.img"
 # --- Crear extlinux.conf -----------------------------------------------------
 echo ">>> Generando extlinux.conf..."
 cat > "$IMAGES_DIR/extlinux.conf" << 'EOF'
-DEFAULT Armiga-A
+DEFAULT armiga-a
 
-LABEL Armiga-A
+LABEL armiga-a
   LINUX /KERNEL
   FDT /dtb.img
   APPEND root=/dev/mmcblk0p2 rootfstype=squashfs rootwait ro console=ttyS0,115200 net.ifnames=0 quiet loglevel=0 vt.global_cursor_default=0
 
-LABEL Armiga-B
+LABEL armiga-b
   LINUX /KERNEL
   FDT /dtb.img
   APPEND root=/dev/mmcblk0p3 rootfstype=squashfs rootwait ro console=ttyS0,115200 net.ifnames=0 quiet loglevel=0 vt.global_cursor_default=0
@@ -105,4 +105,4 @@ echo ""
 echo " Para flashear (preservando datos en amiga_data):"
 echo "   sudo bash flash.sh /dev/sdX"
 echo ""
-echo ">>> Armiga post-image.sh: done"
+echo ">>> armiga post-image.sh: done"

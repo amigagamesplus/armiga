@@ -2,7 +2,7 @@
 set -euo pipefail
 TARGET_DIR="$1"
 BR2_EXTERNAL="${2:-}"
-echo ">>> Armiga post-build.sh: TARGET_DIR=$TARGET_DIR"
+echo ">>> armiga post-build.sh: TARGET_DIR=$TARGET_DIR"
 echo "armiga" > "$TARGET_DIR/etc/hostname"
 if ! grep -q "^ttyS0::" "$TARGET_DIR/etc/inittab" 2>/dev/null; then
     echo "ttyS0::respawn:/sbin/getty -L ttyS0 115200 vt100" >> "$TARGET_DIR/etc/inittab"
@@ -76,7 +76,7 @@ chmod +x "$TARGET_DIR/etc/init.d/S53samba-toggle"
 cp "$(dirname "$0")/rootfs_overlay/etc/init.d/S05font" "$TARGET_DIR/etc/init.d/S05font"
 chmod +x "$TARGET_DIR/etc/init.d/S05font"
 
-echo ">>> Armiga post-build.sh: done"
+echo ">>> armiga post-build.sh: done"
 
 # --- OS name -----------------------------------------------------------------
 mkdir -p "$TARGET_DIR/usr/lib"

@@ -1,6 +1,6 @@
-# Armiga — Guía de usuario
+# armiga — Guía de usuario
 
-Bienvenido a Armiga, tu consola de emulación Commodore Amiga.
+Bienvenido a armiga, tu consola de emulación Commodore Amiga.
 
 ## Controles
 
@@ -16,7 +16,7 @@ Bienvenido a Armiga, tu consola de emulación Commodore Amiga.
 ## Menú principal
 
 - **Catálogo Amiga** — accede a tu colección de juegos
-- **Actualización de sistema** — comprueba e instala nuevas versiones de Armiga
+- **Actualización de sistema** — comprueba e instala nuevas versiones de armiga
 - **Diagnóstico del sistema** — información técnica del dispositivo (CPU, memoria, red, versiones)
 - **Configuración** — todos los ajustes del dispositivo
 - **Apagar dispositivo**
@@ -52,10 +52,10 @@ Borra toda tu configuración personalizada (WiFi, ajustes, backups) y reinicia e
 
 ## Actualizaciones de sistema
 
-Armiga comprueba si hay una versión más reciente disponible. Si la hay, puedes descargarla e instalarla directamente desde el menú — la descarga ocurre en segundo plano y el dispositivo se reiniciará automáticamente al terminar. No apagues el dispositivo durante una actualización.
+armiga comprueba si hay una versión más reciente disponible. Si la hay, puedes descargarla e instalarla directamente desde el menú — la descarga ocurre en segundo plano y el dispositivo se reiniciará automáticamente al terminar. No apagues el dispositivo durante una actualización.
 
 ## ¿Problemas?
 
-- **El dispositivo no arranca tras una actualización**: Armiga tiene un sistema de seguridad que revierte automáticamente a la versión anterior si detecta fallos repetidos de arranque, sin que tengas que hacer nada.
+- **El dispositivo no arranca tras una actualización**: armiga tiene un sistema de seguridad que revierte automáticamente a la versión anterior si detecta fallos repetidos de arranque, sin que tengas que hacer nada.
 - **Olvidaste la contraseña WiFi guardada**: puedes volver a introducirla en Configuración → Red inalámbrica en cualquier momento.
 - **Quieres empezar de cero**: usa Restablecer valores de fábrica desde Configuración.
