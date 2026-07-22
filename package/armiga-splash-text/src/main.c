@@ -22,7 +22,7 @@ static void on_sigterm(int sig) { (void)sig; g_stop = 1; }
 #define MARGIN_X     16
 #define MARGIN_Y     14
 #define LINE_GAP     3
-#define SCALE        1
+#define SCALE        2
 
 #define COL_R 170
 #define COL_G 170
