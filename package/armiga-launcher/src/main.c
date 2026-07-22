@@ -1235,6 +1235,7 @@ static void draw_statusbar(SDL_Renderer *ren, TTF_Font *f,
     SDL_Color c_green  = COL_GREEN;
     SDL_Color c_gray   = COL_GRAY;
     SDL_Color c_red    = COL_RED;
+    (void)c_red;
     float right = SCREEN_W - 20.0f;
     float y     = 18.0f;
     float gap   = 10.0f;
@@ -1275,6 +1276,25 @@ static void draw_statusbar(SDL_Renderer *ren, TTF_Font *f,
     /* HORA */
     TTF_GetStringSize(f, time_str, 0, &w, &h);
     draw_text(ren, f, time_str, c_white, right - (float)w, y);
+    right -= (float)w + gap;
+
+    /* Separador */
+    TTF_GetStringSize(f, "|", 0, &w, &h);
+    draw_text(ren, f, "|", c_gray, right - (float)w, y);
+    right -= (float)w + gap;
+
+    /* SSH */
+    int ssh_on = read_ssh_enabled();
+    SDL_Color ssh_col = ssh_on ? c_green : c_gray;
+    TTF_GetStringSize(f, "SSH", 0, &w, &h);
+    draw_text(ren, f, "SSH", ssh_col, right - (float)w, y);
+    right -= (float)w + gap;
+
+    /* SAMBA */
+    int samba_on = read_samba_enabled();
+    SDL_Color samba_col = samba_on ? c_green : c_gray;
+    TTF_GetStringSize(f, "SAMBA", 0, &w, &h);
+    draw_text(ren, f, "SAMBA", samba_col, right - (float)w, y);
 }
 
 /* Dibuja footer unificado: leyenda izquierda + version derecha */
