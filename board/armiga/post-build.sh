@@ -45,7 +45,7 @@ fi
 KVER="7.0.14-armiga"
 depmod -a -b "$TARGET_DIR" "$KVER" || true
 # --- armiga-release ----------------------------------------------------------
-BUILD_DATE=$(date -u +"%Y-%m-%d %H:%M")
+BUILD_DATE=$(TZ=Europe/Madrid date +"%d/%m/%Y %H:%M")
 ARMIGA_VERSION=$(git -C "${1:-$(pwd)}" describe --tags --abbrev=0 2>/dev/null || echo "1.0")
 BUILD_NUMBER="${GITHUB_RUN_NUMBER:-local}"
 cat > "$TARGET_DIR/etc/armiga-release" << RELEASE_EOF

@@ -4,4 +4,8 @@ export PS1='armiga# '
 export XDG_CACHE_HOME=/media/amiga_data/.cache
 export MESA_SHADER_CACHE_DIR=/media/amiga_data/.cache/mesa_shader_cache
 mkdir -p "$MESA_SHADER_CACHE_DIR"
+if [ -f /var/run/armiga-splash-text.pid ]; then
+    kill "$(cat /var/run/armiga-splash-text.pid)" 2>/dev/null
+    rm -f /var/run/armiga-splash-text.pid
+fi
 exec setsid -w /usr/bin/armiga-launcher

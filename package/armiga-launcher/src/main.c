@@ -271,6 +271,9 @@ static bool redirect_stdio_to_local_console(void)
     /* SDL/DRM deja la consola en KD_GRAPHICS; sin esto el shell corre
      * pero no se ve nada en pantalla (cursor parpadeando, sin texto). */
     ioctl(fd, KDSETMODE, KD_TEXT);
+    /* Limpiar residuos graficos previos (p.ej. armiga-splash-text) que
+     * pudieran seguir en el framebuffer bajo el modo texto. */
+    write(fd, "\033[2J\033[H", 7);
     /* El kernel arranca con vt.global_cursor_default=0 (cursor oculto
      * globalmente, para que el launcher grafico no muestre cursor de
      * texto de fondo). Lo reactivamos aqui solo para esta sesion de
@@ -1235,6 +1238,7 @@ static void draw_statusbar(SDL_Renderer *ren, TTF_Font *f,
     SDL_Color c_green  = COL_GREEN;
     SDL_Color c_gray   = COL_GRAY;
     SDL_Color c_red    = COL_RED;
+    (void)c_red;
     float right = SCREEN_W - 20.0f;
     float y     = 18.0f;
     float gap   = 10.0f;
@@ -1275,6 +1279,26 @@ static void draw_statusbar(SDL_Renderer *ren, TTF_Font *f,
     /* HORA */
     TTF_GetStringSize(f, time_str, 0, &w, &h);
     draw_text(ren, f, time_str, c_white, right - (float)w, y);
+    right -= (float)w + gap;
+
+    /* Separador */
+    TTF_GetStringSize(f, "|", 0, &w, &h);
+    draw_text(ren, f, "|", c_gray, right - (float)w, y);
+    right -= (float)w + gap;
+
+    /* SSH */
+    SDL_Color c_dim = {38, 38, 38, 255};
+    int ssh_on = read_ssh_enabled();
+    SDL_Color ssh_col = ssh_on ? c_green : c_dim;
+    TTF_GetStringSize(f, "SSH", 0, &w, &h);
+    draw_text(ren, f, "SSH", ssh_col, right - (float)w, y);
+    right -= (float)w + gap;
+
+    /* SAMBA */
+    int samba_on = read_samba_enabled();
+    SDL_Color samba_col = samba_on ? c_green : c_dim;
+    TTF_GetStringSize(f, "SAMBA", 0, &w, &h);
+    draw_text(ren, f, "SAMBA", samba_col, right - (float)w, y);
 }
 
 /* Dibuja footer unificado: leyenda izquierda + version derecha */
@@ -3113,7 +3137,7 @@ int main(void)
                 { int td = 0; if (read_sysfs_int("/sys/class/thermal/thermal_zone0/temp",&td)) temp_pct = td/1000; if(temp_pct>100)temp_pct=100; }
 
                 SI_ROW_BAR(SI_RX, y, SI_RX + SI_CW_R, tr("Carga CPU", "CPU Load"),  sysinfo_cpu_usage, sysinfo_cpu_pct); y += SI_ROW_H;
-                SI_ROW_BAR(SI_RX, y, SI_RX + SI_CW_R, tr("Ocupación RAM", "RAM Usage"),  dev_ram,           ram_pct);          y += SI_ROW_H;
+                SI_ROW_BAR(SI_RX, y, SI_RX + SI_CW_R, tr("Uso de RAM", "RAM Usage"),  dev_ram,           ram_pct);          y += SI_ROW_H;
                 SI_ROW_BAR(SI_RX, y, SI_RX + SI_CW_R, tr("Temp CPU", "CPU Temp"), sysinfo_temp,      temp_pct);         y += SI_ROW_H;
                 SI_ROW    (SI_RX, y, SI_RX + SI_CW_R, "Uptime",   dev_uptime);                          y += SI_ROW_H;
                 SI_ROW    (SI_RX, y, SI_RX + SI_CW_R, "Load Avg", sysinfo_loadavg);
