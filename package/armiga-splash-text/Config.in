@@ -1,5 +1,8 @@
 config BR2_PACKAGE_ARMIGA_SPLASH_TEXT
 	bool "armiga-splash-text"
+	depends on BR2_PACKAGE_SDL3
+	depends on BR2_PACKAGE_SDL3_TTF
+	depends on BR2_PACKAGE_SDL3_IMAGE
 	help
 	  Overlay de texto (version, build, fecha) sobre el splash
 	  del framebuffer durante el arranque de armiga.
