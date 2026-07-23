@@ -2,14 +2,11 @@
  * sobre el framebuffer YA PINTADO por S05splash (splash.raw), esquina
  * inferior izquierda. Solo escribe los pixeles de su propio texto —
  * nunca limpia ni toca el resto del framebuffer, para que la imagen
- * de fondo permanezca visible en todo momento (incluida la transicion
- * al launcher, que sobreescribe todo al arrancar).
+ * de fondo permanezca visible en todo momento.
  *
- * Usa freetype directamente para rasterizar la misma fuente TTF que
- * el launcher, sin pasar por SDL (que exige limpiar/controlar el
- * framebuffer completo).
- *
- * Formato framebuffer asumido: 32bpp, orden en memoria B,G,R,X (LE). */
+ * Usa la fuente VGA 8x16 del kernel Linux (misma que usa fbcon/agetty
+ * al mostrar /etc/issue en la consola de texto real), sin antialiasing,
+ * pixel a pixel puro. Formato framebuffer: 32bpp, B,G,R,X en memoria (LE). */
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -20,17 +17,14 @@
 #include <linux/fb.h>
 #include <signal.h>
 
-#include <ft2build.h>
-#include FT_FREETYPE_H
+#include "font_vga8x16.h"
 
 #define FB_DEV       "/dev/fb0"
 #define RELEASE_PATH "/etc/armiga-release"
-#define FONT_PATH    "/usr/share/armiga/fonts/JetBrainsMonoNL-ExtraBold.ttf"
-#define FONT_PX      12
 
 #define MARGIN_X     16
 #define MARGIN_Y     14
-#define LINE_GAP     4
+#define LINE_GAP     3
 
 #define COL_R 170
 #define COL_G 170
@@ -45,9 +39,6 @@ static void on_sigterm(int sig) { (void)sig; g_stop = 1; }
 static unsigned char *fbmem = NULL;
 static int fb_w = 0, fb_h = 0, fb_bpp = 0, fb_stride = 0;
 
-static FT_Library ft_lib;
-static FT_Face ft_face;
-
 static void put_pixel(int x, int y, unsigned char r, unsigned char g, unsigned char b)
 {
     if (x < 0 || y < 0 || x >= fb_w || y >= fb_h) return;
@@ -59,41 +50,25 @@ static void put_pixel(int x, int y, unsigned char r, unsigned char g, unsigned c
     p[3] = 0;
 }
 
-static void blend_pixel(int x, int y, unsigned char a)
+static void draw_char(int x, int y, char ch)
 {
-    if (x < 0 || y < 0 || x >= fb_w || y >= fb_h) return;
-    if (fb_bpp != 32) return;
-    unsigned char *p = fbmem + (size_t)y * fb_stride + (size_t)x * 4;
-    p[0] = (unsigned char)((COL_B * a + p[0] * (255 - a)) / 255);
-    p[1] = (unsigned char)((COL_G * a + p[1] * (255 - a)) / 255);
-    p[2] = (unsigned char)((COL_R * a + p[2] * (255 - a)) / 255);
-}
-
-static int text_width(const char *s)
-{
-    int w = 0;
-    for (const char *p = s; *p; p++) {
-        if (FT_Load_Char(ft_face, (FT_ULong)*p, FT_LOAD_DEFAULT) != 0) continue;
-        w += (int)(ft_face->glyph->advance.x >> 6);
+    if ((unsigned char)ch < FONT_FIRST_CHAR || (unsigned char)ch > FONT_LAST_CHAR) ch = ' ';
+    const unsigned char *rows = font_vga8x16[(unsigned char)ch - FONT_FIRST_CHAR];
+    for (int ry = 0; ry < FONT_CHAR_H; ry++) {
+        unsigned char bits = rows[ry];
+        for (int rx = 0; rx < FONT_CHAR_W; rx++) {
+            if (bits & (0x80 >> rx))
+                put_pixel(x + rx, y + ry, COL_R, COL_G, COL_B);
+        }
     }
-    return w;
 }
 
-static void draw_text(int x, int y_baseline, const char *s)
+static void draw_text(int x, int y, const char *s)
 {
     int cx = x;
     for (const char *p = s; *p; p++) {
-        if (FT_Load_Char(ft_face, (FT_ULong)*p, FT_LOAD_RENDER) != 0) continue;
-        FT_GlyphSlot g = ft_face->glyph;
-        int gx = cx + g->bitmap_left;
-        int gy = y_baseline - g->bitmap_top;
-        for (unsigned int ry = 0; ry < g->bitmap.rows; ry++) {
-            for (unsigned int rx = 0; rx < g->bitmap.width; rx++) {
-                unsigned char a = g->bitmap.buffer[ry * g->bitmap.pitch + rx];
-                if (a) blend_pixel(gx + (int)rx, gy + (int)ry, a);
-            }
-        }
-        cx += (int)(g->advance.x >> 6);
+        draw_char(cx, y, *p);
+        cx += FONT_CHAR_W + 1;
     }
 }
 
@@ -147,16 +122,6 @@ int main(void)
     fbmem = mmap(NULL, fbsize, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
     if (fbmem == MAP_FAILED) { perror("mmap fb0"); close(fd); return 1; }
 
-    if (FT_Init_FreeType(&ft_lib) != 0) {
-        fprintf(stderr, "FT_Init_FreeType failed\n");
-        return 1;
-    }
-    if (FT_New_Face(ft_lib, FONT_PATH, 0, &ft_face) != 0) {
-        fprintf(stderr, "FT_New_Face failed: %s\n", FONT_PATH);
-        return 1;
-    }
-    FT_Set_Pixel_Sizes(ft_face, 0, FONT_PX);
-
     char version[32], build[16], date[24];
     read_release(version, sizeof(version), build, sizeof(build), date, sizeof(date));
 
@@ -164,36 +129,30 @@ int main(void)
     snprintf(line1, sizeof(line1), "armiga v%s", version);
     snprintf(line2, sizeof(line2), "build %s  %s", build, date);
 
-    int ascender = (int)(ft_face->size->metrics.ascender >> 6);
-    int font_h   = (int)((ft_face->size->metrics.ascender -
-                          ft_face->size->metrics.descender) >> 6);
-    int line_h   = font_h + LINE_GAP;
+    int line_h = FONT_CHAR_H + LINE_GAP;
+    int y_base = fb_h - MARGIN_Y - line_h * 3 + LINE_GAP;
+    int y3 = y_base + line_h * 2;
 
-    int y_base_top = fb_h - MARGIN_Y - line_h * 3 + LINE_GAP;
-    int y1_base = y_base_top + ascender;
-    int y2_base = y_base_top + line_h + ascender;
-    int y3_top  = y_base_top + line_h * 2;
-    int y3_base = y3_top + ascender;
-
-    draw_text(MARGIN_X, y1_base, line1);
-    draw_text(MARGIN_X, y2_base, line2);
+    draw_text(MARGIN_X, y_base, line1);
+    draw_text(MARGIN_X, y_base + line_h, line2);
 
     signal(SIGTERM, on_sigterm);
     signal(SIGINT, on_sigterm);
 
     const char *base_txt = "loading, please wait";
     int max_dots = 3;
-    int line3_w = text_width("loading, please wait...") + 8;
+    int cell_w = FONT_CHAR_W + 1;
+    int line3_w = (int)(strlen(base_txt) + max_dots) * cell_w;
 
     int dots = 0;
     while (!g_stop) {
-        clear_rect(MARGIN_X, y3_top, line3_w, line_h);
+        clear_rect(MARGIN_X, y3, line3_w, line_h);
 
         char line3[40];
         char dotbuf[4] = {0};
         for (int i = 0; i < dots; i++) dotbuf[i] = '.';
         snprintf(line3, sizeof(line3), "%s%s", base_txt, dotbuf);
-        draw_text(MARGIN_X, y3_base, line3);
+        draw_text(MARGIN_X, y3, line3);
 
         dots = (dots + 1) % (max_dots + 1);
 
@@ -201,8 +160,6 @@ int main(void)
             usleep(100000);
     }
 
-    FT_Done_Face(ft_face);
-    FT_Done_FreeType(ft_lib);
     munmap(fbmem, fbsize);
     close(fd);
     return 0;

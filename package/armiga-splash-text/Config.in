@@ -1,7 +1,6 @@
 config BR2_PACKAGE_ARMIGA_SPLASH_TEXT
 	bool "armiga-splash-text"
-	depends on BR2_PACKAGE_FREETYPE
 	help
 	  Overlay de texto (version, build, fecha) sobre el splash
-	  del framebuffer durante el arranque de armiga, sin tocar
-	  el resto del framebuffer (splash.raw permanece visible).
+	  del framebuffer durante el arranque de armiga, usando la
+	  fuente VGA 8x16 del kernel (sin antialiasing).

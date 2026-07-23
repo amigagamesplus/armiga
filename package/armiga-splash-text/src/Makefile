@@ -4,8 +4,8 @@ TARGET   = armiga-splash-text
 
 all: $(TARGET)
 
-$(TARGET): main.c
-	$(CC) $(CFLAGS) $(FT_CFLAGS) main.c -o $(TARGET) $(FT_LIBS)
+$(TARGET): main.c font_vga8x16.h
+	$(CC) $(CFLAGS) main.c -o $(TARGET)
 
 clean:
 	rm -f $(TARGET)

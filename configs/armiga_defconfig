@@ -136,7 +136,6 @@ BR2_PACKAGE_BTOP=y
 BR2_TARGET_OPTIMIZATION="-O3 -march=armv8-a+crc+simd -fomit-frame-pointer"
 BR2_PACKAGE_SDL3_TTF=y
 BR2_PACKAGE_ARMIGA_LAUNCHER=y
-BR2_PACKAGE_FREETYPE=y
 BR2_PACKAGE_ARMIGA_SPLASH_TEXT=y
 BR2_TARGET_TZ_INFO=y
 BR2_TARGET_TZ_ZONELIST="africa antarctica asia australasia europe northamerica southamerica etcetera"
