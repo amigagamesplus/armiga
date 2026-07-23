@@ -126,7 +126,7 @@ int main(void)
     read_release(version, sizeof(version), build, sizeof(build), date, sizeof(date));
 
     char line1[64], line2[64];
-    snprintf(line1, sizeof(line1), "armiga v%s", version);
+    snprintf(line1, sizeof(line1), "armiga %s", version);
     snprintf(line2, sizeof(line2), "build %s  %s", build, date);
 
     int line_h = FONT_CHAR_H + LINE_GAP;
