@@ -198,7 +198,7 @@ int main(void)
 
     char line1[64], line2[64];
     snprintf(line1, sizeof(line1), "armiga %s", version);
-    snprintf(line2, sizeof(line2), "build %s  %s", build, date);
+    snprintf(line2, sizeof(line2), "build %s %s", build, date);
 
     int line_h = (int)g_font_h + LINE_GAP;
     int y_base = fb_h - MARGIN_Y - line_h * 3 + LINE_GAP;
