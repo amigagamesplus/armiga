@@ -21,7 +21,7 @@
 
 #define FB_DEV       "/dev/fb0"
 #define RELEASE_PATH "/etc/armiga-release"
-#define FONT_PATH    "/usr/share/consolefonts/Lat2-Terminus16.psfu.gz"
+#define FONT_PATH    "/usr/share/consolefonts/lat4-10.psfu.gz"
 
 #define MARGIN_X     16
 #define MARGIN_Y     14
