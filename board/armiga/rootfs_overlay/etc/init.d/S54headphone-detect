@@ -1,0 +1,50 @@
+#!/bin/sh
+#
+# Silencia el altavoz de la consola automaticamente cuando se detectan
+# auriculares en el jack (evita que suene por ambos sitios a la vez).
+# Polling simple sobre el control ALSA 'Headphone Jack' (solo lectura,
+# expuesto por el codec H616); coste insignificante en reposo.
+#
+PIDFILE="/var/run/armiga-headphone-detect.pid"
+
+poll_loop() {
+    jack_nid=$(amixer controls 2>/dev/null | grep "name='Headphone Jack'" | sed "s/.*numid=\([0-9]*\).*/\1/" | head -1)
+    if [ -z "$jack_nid" ]; then
+        echo "S54headphone-detect: control 'Headphone Jack' no encontrado, abortando" >&2
+        return 1
+    fi
+    last_state=""
+    while true; do
+        state=$(amixer cget numid="$jack_nid" 2>/dev/null | grep -o 'values=on\|values=off' | tail -1)
+        if [ "$state" != "$last_state" ] && [ -n "$state" ]; then
+            if [ "$state" = "values=on" ]; then
+                amixer set 'Speaker' off >/dev/null 2>&1
+            else
+                amixer set 'Speaker' on >/dev/null 2>&1
+            fi
+            last_state="$state"
+        fi
+        sleep 0.5
+    done
+}
+
+case "$1" in
+    start)
+        poll_loop &
+        echo $! > "$PIDFILE"
+        ;;
+    stop)
+        [ -f "$PIDFILE" ] && kill "$(cat "$PIDFILE")" 2>/dev/null
+        rm -f "$PIDFILE"
+        ;;
+    restart)
+        "$0" stop
+        sleep 1
+        "$0" start
+        ;;
+    *)
+        echo "Uso: $0 {start|stop|restart}"
+        exit 1
+        ;;
+esac
+exit 0
