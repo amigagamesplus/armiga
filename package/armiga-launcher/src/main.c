@@ -3325,11 +3325,13 @@ int main(void)
                     strerror(errno));
             return 1;
         case EXEC_REBOOT:
+            redirect_stdio_to_local_console();
             execl("/sbin/reboot", "reboot", (char *)NULL);
             fprintf(stderr, "armiga-launcher: no se pudo ejecutar reboot: %s\n",
                     strerror(errno));
             return 1;
         case EXEC_SHUTDOWN:
+            redirect_stdio_to_local_console();
             execl("/sbin/poweroff", "poweroff", (char *)NULL);
             fprintf(stderr, "armiga-launcher: no se pudo ejecutar poweroff: %s\n",
                     strerror(errno));
