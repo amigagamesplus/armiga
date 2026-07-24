@@ -421,6 +421,7 @@ static pid_t s_checkjson_pid = -1;
 /* PID del hijo curl para la descarga del .sha256 (async, fase VERIFYING). */
 static pid_t s_sha_pid = -1;
 #define CHECK_JSON_TMP "/tmp/armiga_release.json"
+#define BG_CHECK_JSON_TMP "/tmp/armiga_bgcheck.json"
 /* Lanza curl en background hacia out_path, sin pasar por shell (B01). */
 static pid_t spawn_curl_to_file(const char *url, const char *out_path, const char *max_time_secs)
 {
@@ -1648,6 +1649,17 @@ int main(void)
     char  upd_sha_url[512]     = "";
     char  upd_msg[128]         = "";
     float upd_progress         = 0.0f;
+    /* Check de actualizacion en background (independiente de STATE_UPDATE),
+     * para mostrar un indicador visual en el menu principal si hay
+     * una version nueva disponible, sin que el usuario tenga que entrar
+     * al submenu de Actualizacion de sistema. */
+    bool   bg_update_checked    = false;
+    bool   bg_update_available  = false;
+    pid_t  s_bgcheck_pid        = -1;
+    Uint64 bg_check_start_delay = 0; /* se fija al primer frame */
+    char   bg_new_ver[32]       = "";
+    char   bg_dl_url[512]       = "";
+    char   bg_sha_url[512]      = "";
     Uint64 upd_check_start     = 0;
 
 
@@ -2356,6 +2368,28 @@ int main(void)
                          &status_wifi_up, &status_battery);
             last_status_update = now_ticks;
         }
+        /* Check de actualizacion en background: se lanza una sola vez,
+         * 2s despues de arrancar (da tiempo a que el WiFi conecte),
+         * sin bloquear la UI ni interferir con STATE_UPDATE. */
+        if (!bg_update_checked) {
+            if (bg_check_start_delay == 0) bg_check_start_delay = now_ticks;
+            if (s_bgcheck_pid == -1 && now_ticks - bg_check_start_delay >= 2000) {
+                unlink(BG_CHECK_JSON_TMP);
+                s_bgcheck_pid = spawn_curl_to_file(GITHUB_API_URL, BG_CHECK_JSON_TMP, "10");
+            } else if (s_bgcheck_pid != -1) {
+                int r = poll_curl_pid(&s_bgcheck_pid, BG_CHECK_JSON_TMP, 1);
+                if (r != 0) {
+                    bg_update_checked = true;
+                    if (r > 0) {
+                        int res = finish_check_update(s_version,
+                                               bg_new_ver, sizeof(bg_new_ver),
+                                               bg_dl_url,  sizeof(bg_dl_url),
+                                               bg_sha_url, sizeof(bg_sha_url));
+                        bg_update_available = (res == 1);
+                    }
+                }
+            }
+        }
         if (dim_timeout_sec > 0 && !dim_active &&
             (now_ticks - last_input_ticks) >= (Uint64)(dim_timeout_sec * 1000)) {
             dim_saved_brightness = read_current_brightness();
@@ -2526,10 +2560,35 @@ int main(void)
                 draw_text(ren, f_med, MENU_ICONS[i], c_green, mx + 8.0f, iy);
                 draw_text(ren, f_med, MENU_ITEMS[i][current_lang], c_green, mx + 46.0f, iy);
                 draw_text(ren, f_med, ">", c_green, mx + mw - 20.0f, iy);
+                if (i == 1 && bg_update_available) {
+                    int tw2 = 0, th2 = 0;
+                    TTF_GetStringSize(f_med, MENU_ITEMS[i][current_lang], 0, &tw2, &th2);
+                    float bx = mx + 46.0f + (float)tw2 + 12.0f;
+                    float by = iy + 2.0f;
+                    SDL_Color c_red_badge = {220, 40, 40, 255};
+                    draw_rect_filled(ren, bx, by, 16.0f, 16.0f, c_red_badge);
+                    /* Flecha hacia arriba: triangulo + tallo, en blanco sobre el badge rojo */
+                    SDL_Color c_white_arrow = {255, 255, 255, 255};
+                    draw_line(ren, bx + 8.0f, by + 3.0f, bx + 4.0f, by + 9.0f, c_white_arrow);
+                    draw_line(ren, bx + 8.0f, by + 3.0f, bx + 12.0f, by + 9.0f, c_white_arrow);
+                    draw_line(ren, bx + 8.0f, by + 3.0f, bx + 8.0f, by + 13.0f, c_white_arrow);
+                }
             } else {
                 draw_text(ren, f_med, MENU_ICONS[i], c_gray, mx + 8.0f, iy);
                 draw_text(ren, f_med, MENU_ITEMS[i][current_lang], c_gray, mx + 46.0f, iy);
                 draw_text(ren, f_med, ">", c_gray, mx + mw - 20.0f, iy);
+                if (i == 1 && bg_update_available) {
+                    int tw2 = 0, th2 = 0;
+                    TTF_GetStringSize(f_med, MENU_ITEMS[i][current_lang], 0, &tw2, &th2);
+                    float bx = mx + 46.0f + (float)tw2 + 12.0f;
+                    float by = iy + 2.0f;
+                    SDL_Color c_red_badge = {220, 40, 40, 255};
+                    draw_rect_filled(ren, bx, by, 16.0f, 16.0f, c_red_badge);
+                    SDL_Color c_white_arrow = {255, 255, 255, 255};
+                    draw_line(ren, bx + 8.0f, by + 3.0f, bx + 4.0f, by + 9.0f, c_white_arrow);
+                    draw_line(ren, bx + 8.0f, by + 3.0f, bx + 12.0f, by + 9.0f, c_white_arrow);
+                    draw_line(ren, bx + 8.0f, by + 3.0f, bx + 8.0f, by + 13.0f, c_white_arrow);
+                }
             }
         }
 
