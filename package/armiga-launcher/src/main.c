@@ -2451,10 +2451,10 @@ int main(void)
                         if (res == 1)       update_phase = UPD_CONFIRM;
                         else if (res == 0)  update_phase = UPD_NO_UPDATE;
                         else { update_phase = UPD_ERROR;
-                               strncpy(upd_msg, "Error al conectar con el servidor.", sizeof(upd_msg)); }
+                               safe_copy(upd_msg, tr("Error al conectar con el servidor.", "Error connecting to server."), sizeof(upd_msg)); }
                     } else {
                         update_phase = UPD_ERROR;
-                        strncpy(upd_msg, "Error al conectar con el servidor.", sizeof(upd_msg));
+                        safe_copy(upd_msg, tr("Error al conectar con el servidor.", "Error connecting to server."), sizeof(upd_msg));
                     }
                 }
             }
@@ -2470,7 +2470,7 @@ int main(void)
                     if (p == 1.0f) update_phase = UPD_VERIFYING;
                     if (p < 0.0f && upd_progress > 0.0f) {
                         update_phase = UPD_ERROR;
-                        strncpy(upd_msg, "Error en la descarga.", sizeof(upd_msg));
+                        safe_copy(upd_msg, tr("Error en la descarga.", "Download error."), sizeof(upd_msg));
                     }
                 }
             }
@@ -2487,7 +2487,7 @@ int main(void)
                                 update_phase = UPD_READY;
                             } else {
                                 update_phase = UPD_ERROR;
-                                strncpy(upd_msg, "Error de verificacion SHA256.", sizeof(upd_msg));
+                                safe_copy(upd_msg, tr("Error de verificación SHA256.", "SHA256 verification error."), sizeof(upd_msg));
                                 unlink(UPDATE_IMG);
                                 unlink(UPDATE_SHA256);
                             }
@@ -2500,7 +2500,7 @@ int main(void)
                         update_phase = UPD_READY;
                     } else {
                         update_phase = UPD_ERROR;
-                        strncpy(upd_msg, "Error de verificacion SHA256.", sizeof(upd_msg));
+                        safe_copy(upd_msg, tr("Error de verificación SHA256.", "SHA256 verification error."), sizeof(upd_msg));
                         unlink(UPDATE_IMG);
                         unlink(UPDATE_SHA256);
                     }
