@@ -29,6 +29,7 @@ fb() { echo "$1" > /dev/tty0; echo "$(date): $1" >> "$LOG"; }
 cleanup_fail() {
     fb "  $1"
     umount "$BOOT_MNT" 2>/dev/null
+    [ -n "$LOOP_DEV" ] && losetup -d "$LOOP_DEV" 2>/dev/null
     rm -f "$UPDATE_FLAG" "$UPDATE_IMG"
     exit 1
 }
@@ -74,29 +75,39 @@ fi
 # La imagen .img siempre trae system en p2 (build normal). Esa es la
 # porcion de bytes que copiamos hacia el slot inactivo, sea cual sea
 # su numero de particion real en el dispositivo (p2 o p3).
-SFDISK_IMG=$(sfdisk -d "$UPDATE_IMG" 2>/dev/null)
-# La linea de la particion 2 es siempre la 2a linea "start=..." tras
-# el encabezado (boot=p1, system=p2, system_b=p3, amiga_data=p4).
-# Usamos el orden posicional en vez de grep por nombre de fichero,
-# para no depender de que el path contenga literalmente "img2".
-IMG_P2_LINE=$(echo "$SFDISK_IMG" | grep "start=" | sed -n '2p')
-IMG_P2_START=$(echo "$IMG_P2_LINE" | grep -o "start=[0-9 ]*" | tr -d " " | cut -d= -f2)
-IMG_P2_SIZE=$( echo "$IMG_P2_LINE" | grep -o "size=[0-9 ]*"  | tr -d " " | cut -d= -f2)
+# ROBUSTEZ: en vez de parsear el texto de "sfdisk -d" (fragil ante
+# cambios de formato entre versiones), se monta la imagen como loop
+# device con -P (particiones expuestas) y se leen los offsets/tamanos
+# directamente de sysfs, que son valores numericos puros sin parsing.
+LOOP_DEV=$(losetup -f)
+if [ -z "$LOOP_DEV" ]; then
+    cleanup_fail "ERROR: no se pudo obtener un loop device libre."
+fi
+losetup -P "$LOOP_DEV" "$UPDATE_IMG" 2>> "$LOG"
+if [ $? -ne 0 ]; then
+    cleanup_fail "ERROR: no se pudo asociar la imagen a $LOOP_DEV."
+fi
+LOOP_NAME=$(basename "$LOOP_DEV")
+
+IMG_P2_START=$(cat "/sys/class/block/${LOOP_NAME}p2/start" 2>/dev/null)
+IMG_P2_SIZE=$(cat "/sys/class/block/${LOOP_NAME}p2/size" 2>/dev/null)
 
 if [ -z "$IMG_P2_START" ] || [ -z "$IMG_P2_SIZE" ]; then
-    cleanup_fail "ERROR: no se pudieron leer offsets de la imagen origen."
+    losetup -d "$LOOP_DEV" 2>/dev/null
+    cleanup_fail "ERROR: no se pudieron leer offsets de la imagen origen (sysfs)."
 fi
 
 IMG_P2_SKIP_BYTES=$(( IMG_P2_START * 512 ))
 IMG_P2_COUNT_BYTES=$(( IMG_P2_SIZE  * 512 ))
 
 # --- Leer offset del slot INACTIVO en el dispositivo real -------------------
-SFDISK_DEV=$(sfdisk -d "$DEV" 2>/dev/null)
+# Mismo mecanismo: sysfs en vez de parsear "sfdisk -d" del dispositivo.
 TARGET_PNAME=$(basename "$TARGET_PART")
-DEV_START=$(echo "$SFDISK_DEV" | grep "$TARGET_PNAME" | grep -o "start=[0-9 ]*" | tr -d " " | cut -d= -f2)
+DEV_START=$(cat "/sys/class/block/${TARGET_PNAME}/start" 2>/dev/null)
 
 if [ -z "$DEV_START" ]; then
-    cleanup_fail "ERROR: no se pudo leer el offset del slot inactivo ($TARGET_PART)."
+    losetup -d "$LOOP_DEV" 2>/dev/null
+    cleanup_fail "ERROR: no se pudo leer el offset del slot inactivo ($TARGET_PART, sysfs)."
 fi
 
 DEV_SEEK_BYTES=$(( DEV_START * 512 ))
@@ -110,7 +121,9 @@ dd if="$UPDATE_IMG" of="$DEV" bs=4M \
    iflag=skip_bytes,count_bytes oflag=seek_bytes \
    skip=$IMG_P2_SKIP_BYTES count=$IMG_P2_COUNT_BYTES seek=$DEV_SEEK_BYTES \
    conv=fsync 2>> "$LOG"
-if [ $? -ne 0 ]; then
+DD_RESULT=$?
+losetup -d "$LOOP_DEV" 2>/dev/null
+if [ "$DD_RESULT" -ne 0 ]; then
     cleanup_fail "ERROR al flashear el slot inactivo."
 fi
 
