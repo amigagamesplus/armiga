@@ -1693,7 +1693,7 @@ int main(void)
                 if (dim_active) {
                     write_brightness(dim_saved_brightness);
                     dim_active = false;
-                    set_cpu_governor("performance");
+                    set_cpu_governor("schedutil");
                 }
             }
             if (ev.type == SDL_EVENT_KEY_DOWN && ev.key.key == SDLK_ESCAPE) {
@@ -2003,7 +2003,7 @@ int main(void)
                     if (dim_active) {
                         write_brightness(dim_saved_brightness);
                         dim_active = false;
-                        set_cpu_governor("performance");
+                        set_cpu_governor("schedutil");
                     }
                     last_input_ticks = SDL_GetTicks();
                     state = STATE_SETTINGS;
