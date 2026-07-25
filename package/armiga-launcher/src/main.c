@@ -1524,6 +1524,7 @@ int main(void)
 
     SDL_Renderer *ren = SDL_CreateRenderer(win, NULL);
     if (!ren) { SDL_DestroyWindow(win); TTF_Quit(); SDL_Quit(); return 1; }
+    SDL_SetRenderVSync(ren, 1);
 
     TTF_Font *f_med   = TTF_OpenFont(FONT_PATH, FONT_MED);
     TTF_Font *f_sm    = TTF_OpenFont(FONT_PATH, FONT_SM);
@@ -1692,7 +1693,7 @@ int main(void)
                 if (dim_active) {
                     write_brightness(dim_saved_brightness);
                     dim_active = false;
-                    set_cpu_governor("performance");
+                    set_cpu_governor("schedutil");
                 }
             }
             if (ev.type == SDL_EVENT_KEY_DOWN && ev.key.key == SDLK_ESCAPE) {
@@ -2002,7 +2003,7 @@ int main(void)
                     if (dim_active) {
                         write_brightness(dim_saved_brightness);
                         dim_active = false;
-                        set_cpu_governor("performance");
+                        set_cpu_governor("schedutil");
                     }
                     last_input_ticks = SDL_GetTicks();
                     state = STATE_SETTINGS;
@@ -3337,7 +3338,8 @@ int main(void)
             screenshot_flash_until = 0;
         }
         SDL_RenderPresent(ren);
-        SDL_Delay(16); /* ~60fps cap, evita CPU al 100% */
+        /* VSync activo (SDL_SetRenderVSync) sustituye al SDL_Delay(16):
+         * RenderPresent bloquea hasta el siguiente VBlank, 0% CPU en espera. */
         /* Confirmar arranque exitoso ante el mecanismo de rollback A/B,
          * una sola vez, tras el primer frame realmente dibujado en
          * pantalla (prueba de que SDL/DRM y el launcher arrancaron bien,
