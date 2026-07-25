@@ -29,40 +29,69 @@ EXPAND_FLAG="/media/amiga_data/.armiga_expanded"
 
 do_expand_if_needed() {
     # SEGURIDAD: nunca confiar solo en EXPAND_FLAG para decidir si formatear.
-    # Comprobar primero si la particion YA tiene un filesystem exfat valido
-    # via blkid — si lo tiene, jamas se ejecuta mkfs.exfat en esta funcion,
-    # pase lo que pase con el flag (que puede desaparecer si el usuario
-    # monta la SD en un PC y limpia archivos ocultos).
+    # Comprobar si la particion YA tiene un filesystem exfat REAL Y EXPANDIDO
+    # via blkid + comparacion de tamanos. No basta con TYPE=exfat: el
+    # placeholder que deja genimage en una SD recien flasheada TAMBIEN es
+    # exfat valido (256M sin expandir), asi que hay que distinguir por
+    # tamano: si el filesystem ocupa una fraccion pequena de la particion,
+    # es el placeholder de fabrica (necesita expand+format). Si ocupa casi
+    # todo el disco, es una particion de usuario real ya inicializada
+    # (jamas volver a formatear, pase lo que pase con el flag).
     if [ -b "$AMIGA_DATA_DEV" ]; then
         FSTYPE=$(blkid -o value -s TYPE "$AMIGA_DATA_DEV" 2>/dev/null)
         if [ "$FSTYPE" = "exfat" ]; then
-            # Ya tiene filesystem valido. Comprobar si falta expandir
-            # comparando tamano de particion vs disco total.
             PART_SIZE=$(blockdev --getsize64 "$AMIGA_DATA_DEV" 2>/dev/null || echo 0)
             DISK_SIZE=$(blockdev --getsize64 /dev/mmcblk0 2>/dev/null || echo 0)
-            # Umbral 95%: si la particion ya ocupa >=95% del disco, se
-            # considera expandida (evita repetir resize por redondeos).
-            NEEDS_EXPAND=0
-            if [ "$DISK_SIZE" -gt 0 ] 2>/dev/null; then
-                THRESHOLD=$(( DISK_SIZE * 95 / 100 ))
-                if [ "$PART_SIZE" -lt "$THRESHOLD" ] 2>/dev/null; then
-                    NEEDS_EXPAND=1
-                fi
-            fi
-            if [ "$NEEDS_EXPAND" = "1" ]; then
-                echo -n "Expanding amiga_data partition (no reformat, data preserved)... "
-                parted -s /dev/mmcblk0 resizepart 4 100% >/dev/null 2>&1
-                partprobe /dev/mmcblk0 2>/dev/null || partx -u /dev/mmcblk0 >/dev/null 2>&1
-                sleep 1
-                echo "OK"
-            fi
-            # Reponer el flag si faltara (p.ej. borrado accidentalmente).
+
+            # Tamano real del filesystem interior (no de la particion) vía df,
+            # montando en modo lectura para no arriesgar nada.
             mkdir -p "$AMIGA_DATA_MNT"
-            if mount -t exfat -o rw "$AMIGA_DATA_DEV" "$AMIGA_DATA_MNT" 2>/dev/null; then
-                [ -f "$EXPAND_FLAG" ] || touch "$EXPAND_FLAG"
+            FS_SIZE_BYTES=0
+            if mount -t exfat -o ro "$AMIGA_DATA_DEV" "$AMIGA_DATA_MNT" 2>/dev/null; then
+                FS_SIZE_KB=$(df -k "$AMIGA_DATA_MNT" 2>/dev/null | awk 'NR==2{print $2}')
+                FS_SIZE_KB=${FS_SIZE_KB:-0}
+                FS_SIZE_BYTES=$(( FS_SIZE_KB * 1024 ))
                 umount "$AMIGA_DATA_MNT" 2>/dev/null
             fi
-            return 0
+
+            # Umbral 50%: si el filesystem ocupa menos de la mitad de la
+            # particion fisica, se considera placeholder de fabrica sin
+            # expandir todavia (caso SD recien flasheada por genimage).
+            IS_REAL_USER_DATA=0
+            if [ "$PART_SIZE" -gt 0 ] 2>/dev/null; then
+                HALF_PART=$(( PART_SIZE / 2 ))
+                if [ "$FS_SIZE_BYTES" -ge "$HALF_PART" ] 2>/dev/null; then
+                    IS_REAL_USER_DATA=1
+                fi
+            fi
+
+            if [ "$IS_REAL_USER_DATA" = "1" ]; then
+                # Particion de usuario real y ya expandida. Solo comprobar
+                # si falta ajuste fino de particion vs disco (no reformatear
+                # nunca en esta rama).
+                NEEDS_EXPAND=0
+                if [ "$DISK_SIZE" -gt 0 ] 2>/dev/null; then
+                    THRESHOLD=$(( DISK_SIZE * 95 / 100 ))
+                    if [ "$PART_SIZE" -lt "$THRESHOLD" ] 2>/dev/null; then
+                        NEEDS_EXPAND=1
+                    fi
+                fi
+                if [ "$NEEDS_EXPAND" = "1" ]; then
+                    echo -n "Expanding amiga_data partition (no reformat, data preserved)... "
+                    parted -s /dev/mmcblk0 resizepart 4 100% >/dev/null 2>&1
+                    partprobe /dev/mmcblk0 2>/dev/null || partx -u /dev/mmcblk0 >/dev/null 2>&1
+                    sleep 1
+                    echo "OK"
+                fi
+                # Reponer el flag si faltara (p.ej. borrado accidentalmente).
+                if mount -t exfat -o rw "$AMIGA_DATA_DEV" "$AMIGA_DATA_MNT" 2>/dev/null; then
+                    [ -f "$EXPAND_FLAG" ] || touch "$EXPAND_FLAG"
+                    umount "$AMIGA_DATA_MNT" 2>/dev/null
+                fi
+                return 0
+            fi
+            # Si no es IS_REAL_USER_DATA, cae al bloque de abajo:
+            # placeholder de fabrica, expand+format legitimo.
         fi
     fi
 
