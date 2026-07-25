@@ -482,16 +482,19 @@ static int finish_check_update(const char *current_ver,
         if ((p = strstr(line, "\"tag_name\""))) {
             sscanf(p, "\"tag_name\" : \"%31[^\"]\"", tag);
             if (!tag[0]) sscanf(p, "\"tag_name\":\"%31[^\"]\"", tag);
+            if (!tag[0]) sscanf(p, "\"tag_name\": \"%31[^\"]\"", tag);
         }
         if (strstr(line, "\"assets\"")) in_assets = true;
         if (in_assets) {
             if ((p = strstr(line, "\"name\"")))
                 sscanf(p, "\"name\" : \"%127[^\"]\"", last_name),
-                sscanf(p, "\"name\":\"%127[^\"]\"", last_name);
+                sscanf(p, "\"name\":\"%127[^\"]\"", last_name),
+                sscanf(p, "\"name\": \"%127[^\"]\"", last_name);
             if ((p = strstr(line, "\"browser_download_url\""))) {
                 char url[512] = "";
                 sscanf(p, "\"browser_download_url\" : \"%511[^\"]\"", url);
                 if (!url[0]) sscanf(p, "\"browser_download_url\":\"%511[^\"]\"", url);
+                if (!url[0]) sscanf(p, "\"browser_download_url\": \"%511[^\"]\"", url);
                 if (strstr(last_name, ".img.gz") && !strstr(last_name, ".sha256"))
                     safe_copy(asset_url, url, sizeof(asset_url));
                 if (strstr(last_name, ".sha256"))
