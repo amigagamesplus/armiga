@@ -1,10 +1,10 @@
 #!/bin/sh
-# S06cpufreq — Establecer CPU governor en performance
+# S06cpufreq — Establecer CPU governor en schedutil
 case "$1" in
     start)
-        printf "Setting CPU governor to performance: "
+        printf "Setting CPU governor to schedutil: "
         for cpu in /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor; do
-            echo performance > "$cpu" 2>/dev/null
+            echo schedutil > "$cpu" 2>/dev/null
         done
         echo "OK"
         ;;
