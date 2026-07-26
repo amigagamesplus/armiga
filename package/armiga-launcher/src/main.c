@@ -1718,7 +1718,7 @@ int main(void)
     float rx      = 458.0f;
     float sep_y  = 118.0f;
     float menu_y0 = 134.0f;
-    float item_h  = 30.0f;
+    float item_h  = 26.0f;
 
     while (running) {
         while (SDL_PollEvent(&ev)) {
@@ -2583,23 +2583,24 @@ int main(void)
         draw_line(ren, sep_x, sep_y, sep_x, 438.0f, c_green);
 
         /* Menú */
+        SDL_Color c_menu_gold  = {224, 176, 96, 255};
+        SDL_Color c_menu_beige = {168, 157, 124, 255};
+        SDL_Color c_menu_selbg = {58, 51, 36, 255};
         for (int i = 0; i < MENU_COUNT; i++) {
             float iy = menu_y0 + i * item_h;
             if (i == selected) {
                 int text_w = 0, text_h = 0;
                 TTF_GetStringSize(f_med, MENU_ITEMS[i][current_lang], 0, &text_w, &text_h);
-                float sel_w = 46.0f + (float)text_w + 40.0f; /* icono+texto + espacio para "> " */
+                float sel_w = 46.0f + (float)text_w + 24.0f; /* icono+texto, ajustada al contenido */
+                float pill_radius = (item_h - 2.0f) / 2.0f;
                 draw_rounded_rect_filled(ren, mx - 4.0f, iy - 4.0f,
-                                 sel_w, item_h - 2.0f, 8.0f, c_selbg);
-                draw_rect_filled(ren, mx - 4.0f, iy - 4.0f,
-                                 4.0f, item_h - 2.0f, c_green);
+                                 sel_w, item_h - 2.0f, pill_radius, c_menu_selbg);
                 if (menu_icon_tex[i]) {
-                    SDL_SetTextureColorMod(menu_icon_tex[i], c_green.r, c_green.g, c_green.b);
+                    SDL_SetTextureColorMod(menu_icon_tex[i], c_menu_gold.r, c_menu_gold.g, c_menu_gold.b);
                     SDL_FRect icon_dst = {mx + 8.0f, iy, 20.0f, 20.0f};
                     SDL_RenderTexture(ren, menu_icon_tex[i], NULL, &icon_dst);
                 }
-                draw_text(ren, f_med, MENU_ITEMS[i][current_lang], c_green, mx + 46.0f, iy);
-                draw_text(ren, f_med, ">", c_green, mx + mw - 20.0f, iy);
+                draw_text(ren, f_med, MENU_ITEMS[i][current_lang], c_menu_gold, mx + 46.0f, iy);
                 if (i == 1 && bg_update_available) {
                     int tw2 = 0, th2 = 0;
                     TTF_GetStringSize(f_med, MENU_ITEMS[i][current_lang], 0, &tw2, &th2);
@@ -2616,12 +2617,11 @@ int main(void)
                 }
             } else {
                 if (menu_icon_tex[i]) {
-                    SDL_SetTextureColorMod(menu_icon_tex[i], c_gray.r, c_gray.g, c_gray.b);
+                    SDL_SetTextureColorMod(menu_icon_tex[i], c_menu_beige.r, c_menu_beige.g, c_menu_beige.b);
                     SDL_FRect icon_dst = {mx + 8.0f, iy, 20.0f, 20.0f};
                     SDL_RenderTexture(ren, menu_icon_tex[i], NULL, &icon_dst);
                 }
-                draw_text(ren, f_med, MENU_ITEMS[i][current_lang], c_gray, mx + 46.0f, iy);
-                draw_text(ren, f_med, ">", c_gray, mx + mw - 20.0f, iy);
+                draw_text(ren, f_med, MENU_ITEMS[i][current_lang], c_menu_beige, mx + 46.0f, iy);
                 if (i == 1 && bg_update_available) {
                     int tw2 = 0, th2 = 0;
                     TTF_GetStringSize(f_med, MENU_ITEMS[i][current_lang], 0, &tw2, &th2);
