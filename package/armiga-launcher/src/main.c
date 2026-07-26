@@ -1,5 +1,6 @@
 #include <SDL3/SDL.h>
 #include <SDL3_ttf/SDL_ttf.h>
+#include <SDL3_image/SDL_image.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdbool.h>
@@ -1561,6 +1562,21 @@ int main(void)
         logo_tex = SDL_CreateTextureFromSurface(ren, logo_surf);
         SDL_DestroySurface(logo_surf);
     }
+    /* Iconos monocromos del menu principal (PNG blanco+alfa, recoloreados
+     * en tiempo real via SDL_SetTextureColorMod segun seleccion). */
+    #define MENU_ICON_COUNT 5
+    static const char *MENU_ICON_PATHS[MENU_ICON_COUNT] = {
+        "/usr/share/armiga/icons/device-gamepad-2.png",
+        "/usr/share/armiga/icons/cloud-download.png",
+        "/usr/share/armiga/icons/activity.png",
+        "/usr/share/armiga/icons/settings.png",
+        "/usr/share/armiga/icons/power.png",
+    };
+    SDL_Texture *menu_icon_tex[MENU_ICON_COUNT] = {0};
+    for (int mi = 0; mi < MENU_ICON_COUNT; mi++) {
+        menu_icon_tex[mi] = IMG_LoadTexture(ren, MENU_ICON_PATHS[mi]);
+        if (menu_icon_tex[mi]) SDL_SetTextureScaleMode(menu_icon_tex[mi], SDL_SCALEMODE_LINEAR);
+    }
 
     /* Leer versiones */
     char s_kernel[32], s_mesa[32], s_retroarch[32], s_sdl3[32], s_build_date[24], s_version[32], s_build_number[16];
@@ -2577,7 +2593,11 @@ int main(void)
                                  sel_w, item_h - 2.0f, 8.0f, c_selbg);
                 draw_rect_filled(ren, mx - 4.0f, iy - 4.0f,
                                  4.0f, item_h - 2.0f, c_green);
-                draw_text(ren, f_med, MENU_ICONS[i], c_green, mx + 8.0f, iy);
+                if (menu_icon_tex[i]) {
+                    SDL_SetTextureColorMod(menu_icon_tex[i], c_green.r, c_green.g, c_green.b);
+                    SDL_FRect icon_dst = {mx + 8.0f, iy, 20.0f, 20.0f};
+                    SDL_RenderTexture(ren, menu_icon_tex[i], NULL, &icon_dst);
+                }
                 draw_text(ren, f_med, MENU_ITEMS[i][current_lang], c_green, mx + 46.0f, iy);
                 draw_text(ren, f_med, ">", c_green, mx + mw - 20.0f, iy);
                 if (i == 1 && bg_update_available) {
@@ -2595,7 +2615,11 @@ int main(void)
                               bx + 8.0f - (float)ew / 2.0f, by + 8.0f - (float)eh / 2.0f);
                 }
             } else {
-                draw_text(ren, f_med, MENU_ICONS[i], c_gray, mx + 8.0f, iy);
+                if (menu_icon_tex[i]) {
+                    SDL_SetTextureColorMod(menu_icon_tex[i], c_gray.r, c_gray.g, c_gray.b);
+                    SDL_FRect icon_dst = {mx + 8.0f, iy, 20.0f, 20.0f};
+                    SDL_RenderTexture(ren, menu_icon_tex[i], NULL, &icon_dst);
+                }
                 draw_text(ren, f_med, MENU_ITEMS[i][current_lang], c_gray, mx + 46.0f, iy);
                 draw_text(ren, f_med, ">", c_gray, mx + mw - 20.0f, iy);
                 if (i == 1 && bg_update_available) {
@@ -3373,6 +3397,8 @@ int main(void)
     }
 
     if (logo_tex) SDL_DestroyTexture(logo_tex);
+    for (int mi = 0; mi < MENU_ICON_COUNT; mi++)
+        if (menu_icon_tex[mi]) SDL_DestroyTexture(menu_icon_tex[mi]);
     if (joy) SDL_CloseJoystick(joy);
     TTF_CloseFont(f_sm);
     TTF_CloseFont(f_med);
