@@ -2387,6 +2387,14 @@ int main(void)
                                                bg_dl_url,  sizeof(bg_dl_url),
                                                bg_sha_url, sizeof(bg_sha_url));
                         bg_update_available = (res == 1);
+                        {
+                            FILE *dbg = fopen("/tmp/armiga_badge_debug.log", "w");
+                            if (dbg) {
+                                fprintf(dbg, "s_version=[%s] res=%d bg_update_available=%d bg_new_ver=[%s]\n",
+                                        s_version, res, bg_update_available, bg_new_ver);
+                                fclose(dbg);
+                            }
+                        }
                     }
                 }
             }
