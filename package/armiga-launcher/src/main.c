@@ -461,7 +461,7 @@ static void start_check_update_async(void)
 }
 /* Parsea el JSON ya descargado por start_check_update_async(). Llamar solo
  * cuando poll_curl_pid() haya devuelto != 0 para el fetch. */
-static int finish_check_update(const char *current_ver,
+static int finish_check_update(const char *json_path, const char *current_ver,
                         char *new_ver, size_t new_ver_sz,
                         char *dl_url, size_t dl_url_sz,
                         char *sha_url, size_t sha_url_sz)
@@ -469,7 +469,7 @@ static int finish_check_update(const char *current_ver,
     safe_copy(new_ver, "", new_ver_sz);
     safe_copy(dl_url,  "", dl_url_sz);
     safe_copy(sha_url, "", sha_url_sz);
-    FILE *f = fopen(CHECK_JSON_TMP, "r");
+    FILE *f = fopen(json_path, "r");
     if (!f) return -1;
     char line[512];
     char tag[32] = "";
@@ -505,7 +505,7 @@ static int finish_check_update(const char *current_ver,
     }
     parse_done:
     fclose(f);
-    unlink(CHECK_JSON_TMP);
+    unlink(json_path);
     if (!tag[0] || !asset_url[0]) return 0;
     const char *ver = tag;
     if (ver[0] == 'v') ver++;
@@ -1497,6 +1497,22 @@ static void draw_rounded_rect_filled(SDL_Renderer *r, float x, float y,
         if (line_rect.w > 0.0f) SDL_RenderFillRect(r, &line_rect);
     }
 }
+/* Circulo relleno via barrido por filas (mismo principio que
+ * draw_rounded_rect_filled, con radius aplicado a las 4 "esquinas"). */
+static void draw_circle_filled(SDL_Renderer *r, float cx, float cy,
+                                float radius, SDL_Color c)
+{
+    SDL_SetRenderDrawColor(r, c.r, c.g, c.b, c.a);
+    int rows = (int)(radius * 2.0f);
+    for (int row = 0; row < rows; row++) {
+        float dy = (float)row - radius + 0.5f;
+        float dx2 = radius * radius - dy * dy;
+        if (dx2 <= 0.0f) continue;
+        float half_w = SDL_sqrtf(dx2);
+        SDL_FRect line_rect = {cx - half_w, cy - radius + (float)row, half_w * 2.0f, 1.0f};
+        SDL_RenderFillRect(r, &line_rect);
+    }
+}
 
 static void draw_line(SDL_Renderer *r, float x1, float y1,
                       float x2, float y2, SDL_Color c)
@@ -2385,7 +2401,7 @@ int main(void)
                 if (r != 0) {
                     bg_update_checked = true;
                     if (r > 0) {
-                        int res = finish_check_update(s_version,
+                        int res = finish_check_update(BG_CHECK_JSON_TMP, s_version,
                                                bg_new_ver, sizeof(bg_new_ver),
                                                bg_dl_url,  sizeof(bg_dl_url),
                                                bg_sha_url, sizeof(bg_sha_url));
@@ -2448,7 +2464,7 @@ int main(void)
                 if (r != 0) {
                     update_checked = true;
                     if (r > 0) {
-                        int res = finish_check_update(s_version,
+                        int res = finish_check_update(CHECK_JSON_TMP, s_version,
                                                upd_new_ver, sizeof(upd_new_ver),
                                                upd_dl_url,  sizeof(upd_dl_url),
                                                upd_sha_url, sizeof(upd_sha_url));
@@ -2570,12 +2586,13 @@ int main(void)
                     float bx = mx + 46.0f + (float)tw2 + 12.0f;
                     float by = iy + 2.0f;
                     SDL_Color c_red_badge = {220, 40, 40, 255};
-                    draw_rect_filled(ren, bx, by, 16.0f, 16.0f, c_red_badge);
-                    /* Flecha hacia arriba: triangulo + tallo, en blanco sobre el badge rojo */
-                    SDL_Color c_white_arrow = {255, 255, 255, 255};
-                    draw_line(ren, bx + 8.0f, by + 3.0f, bx + 4.0f, by + 9.0f, c_white_arrow);
-                    draw_line(ren, bx + 8.0f, by + 3.0f, bx + 12.0f, by + 9.0f, c_white_arrow);
-                    draw_line(ren, bx + 8.0f, by + 3.0f, bx + 8.0f, by + 13.0f, c_white_arrow);
+                    draw_circle_filled(ren, bx + 8.0f, by + 8.0f, 8.0f, c_red_badge);
+                    /* Signo de exclamacion blanco centrado sobre el circulo */
+                    SDL_Color c_white_excl = {255, 255, 255, 255};
+                    int ew = 0, eh = 0;
+                    TTF_GetStringSize(f_sm, "!", 0, &ew, &eh);
+                    draw_text(ren, f_sm, "!", c_white_excl,
+                              bx + 8.0f - (float)ew / 2.0f, by + 8.0f - (float)eh / 2.0f);
                 }
             } else {
                 draw_text(ren, f_med, MENU_ICONS[i], c_gray, mx + 8.0f, iy);
@@ -2587,11 +2604,12 @@ int main(void)
                     float bx = mx + 46.0f + (float)tw2 + 12.0f;
                     float by = iy + 2.0f;
                     SDL_Color c_red_badge = {220, 40, 40, 255};
-                    draw_rect_filled(ren, bx, by, 16.0f, 16.0f, c_red_badge);
-                    SDL_Color c_white_arrow = {255, 255, 255, 255};
-                    draw_line(ren, bx + 8.0f, by + 3.0f, bx + 4.0f, by + 9.0f, c_white_arrow);
-                    draw_line(ren, bx + 8.0f, by + 3.0f, bx + 12.0f, by + 9.0f, c_white_arrow);
-                    draw_line(ren, bx + 8.0f, by + 3.0f, bx + 8.0f, by + 13.0f, c_white_arrow);
+                    draw_circle_filled(ren, bx + 8.0f, by + 8.0f, 8.0f, c_red_badge);
+                    SDL_Color c_white_excl = {255, 255, 255, 255};
+                    int ew = 0, eh = 0;
+                    TTF_GetStringSize(f_sm, "!", 0, &ew, &eh);
+                    draw_text(ren, f_sm, "!", c_white_excl,
+                              bx + 8.0f - (float)ew / 2.0f, by + 8.0f - (float)eh / 2.0f);
                 }
             }
         }
