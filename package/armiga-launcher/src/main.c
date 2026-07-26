@@ -461,7 +461,7 @@ static void start_check_update_async(void)
 }
 /* Parsea el JSON ya descargado por start_check_update_async(). Llamar solo
  * cuando poll_curl_pid() haya devuelto != 0 para el fetch. */
-static int finish_check_update(const char *current_ver,
+static int finish_check_update(const char *json_path, const char *current_ver,
                         char *new_ver, size_t new_ver_sz,
                         char *dl_url, size_t dl_url_sz,
                         char *sha_url, size_t sha_url_sz)
@@ -469,7 +469,7 @@ static int finish_check_update(const char *current_ver,
     safe_copy(new_ver, "", new_ver_sz);
     safe_copy(dl_url,  "", dl_url_sz);
     safe_copy(sha_url, "", sha_url_sz);
-    FILE *f = fopen(CHECK_JSON_TMP, "r");
+    FILE *f = fopen(json_path, "r");
     if (!f) return -1;
     char line[512];
     char tag[32] = "";
@@ -502,7 +502,7 @@ static int finish_check_update(const char *current_ver,
     }
     parse_done:
     fclose(f);
-    unlink(CHECK_JSON_TMP);
+    unlink(json_path);
     if (!tag[0] || !asset_url[0]) return 0;
     const char *ver = tag;
     if (ver[0] == 'v') ver++;
@@ -2382,19 +2382,11 @@ int main(void)
                 if (r != 0) {
                     bg_update_checked = true;
                     if (r > 0) {
-                        int res = finish_check_update(s_version,
+                        int res = finish_check_update(BG_CHECK_JSON_TMP, s_version,
                                                bg_new_ver, sizeof(bg_new_ver),
                                                bg_dl_url,  sizeof(bg_dl_url),
                                                bg_sha_url, sizeof(bg_sha_url));
                         bg_update_available = (res == 1);
-                        {
-                            FILE *dbg = fopen("/tmp/armiga_badge_debug.log", "w");
-                            if (dbg) {
-                                fprintf(dbg, "s_version=[%s] res=%d bg_update_available=%d bg_new_ver=[%s]\n",
-                                        s_version, res, bg_update_available, bg_new_ver);
-                                fclose(dbg);
-                            }
-                        }
                     }
                 }
             }
@@ -2453,7 +2445,7 @@ int main(void)
                 if (r != 0) {
                     update_checked = true;
                     if (r > 0) {
-                        int res = finish_check_update(s_version,
+                        int res = finish_check_update(CHECK_JSON_TMP, s_version,
                                                upd_new_ver, sizeof(upd_new_ver),
                                                upd_dl_url,  sizeof(upd_dl_url),
                                                upd_sha_url, sizeof(upd_sha_url));
