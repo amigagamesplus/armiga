@@ -36,10 +36,10 @@ static void safe_copy(char *dst, const char *src, size_t sz) {
 #define FONT_SM      12
 
 #define COL_BG       { 16,  16,  16, 255}
-#define COL_GREEN    {  0, 255, 136, 255}
-#define COL_DKGREEN  {  0, 119,  68, 255}
+#define COL_GREEN    {224, 176,  96, 255}
+#define COL_DKGREEN  {168, 157, 124, 255}
 #define COL_WHITE    {220, 220, 220, 255}
-#define COL_GRAY     {136, 136, 136, 255}
+#define COL_GRAY     {168, 157, 124, 255}
 #define COL_SEL_BG   { 42,  42,  42, 255}
 #define COL_RED      {200,  40,  40, 255}
 #define COL_KEY_BG   { 22,  22,  22, 255}
@@ -1236,75 +1236,6 @@ static void draw_text_centered(SDL_Renderer *r, TTF_Font *f, const char *t,
 
 /* Dibuja la barra de estado superior derecha: HORA | WIFI | BATERIA
  * Posicion fija: esquina superior derecha, y=18 */
-static void draw_statusbar(SDL_Renderer *ren, TTF_Font *f,
-                            const char *time_str, bool wifi_up, int battery)
-{
-    SDL_Color c_white  = COL_WHITE;
-    SDL_Color c_green  = COL_GREEN;
-    SDL_Color c_gray   = COL_GRAY;
-    SDL_Color c_red    = COL_RED;
-    (void)c_red;
-    float right = SCREEN_W - 20.0f;
-    float y     = 18.0f;
-    float gap   = 10.0f;
-    int w, h;
-
-    /* BATERIA */
-    char batt_buf[8];
-    SDL_Color batt_col = c_white;
-    if (battery >= 0) {
-        snprintf(batt_buf, sizeof(batt_buf), "%d%%", battery);
-        if (battery <= 20)      batt_col = c_red;
-        else if (battery <= 70) batt_col = (SDL_Color){255, 165, 0, 255}; /* naranja */
-        else                    batt_col = c_green;
-    } else {
-        strncpy(batt_buf, "--", sizeof(batt_buf));
-    }
-    TTF_GetStringSize(f, batt_buf, 0, &w, &h);
-    draw_text(ren, f, batt_buf, batt_col, right - (float)w, y);
-    right -= (float)w + gap;
-
-    /* Separador */
-    TTF_GetStringSize(f, "|", 0, &w, &h);
-    draw_text(ren, f, "|", c_gray, right - (float)w, y);
-    right -= (float)w + gap;
-
-    /* WIFI */
-    const char *wifi_lbl = "WIFI";
-    SDL_Color wifi_col   = wifi_up ? c_green : c_red;
-    TTF_GetStringSize(f, wifi_lbl, 0, &w, &h);
-    draw_text(ren, f, wifi_lbl, wifi_col, right - (float)w, y);
-    right -= (float)w + gap;
-
-    /* Separador */
-    TTF_GetStringSize(f, "|", 0, &w, &h);
-    draw_text(ren, f, "|", c_gray, right - (float)w, y);
-    right -= (float)w + gap;
-
-    /* HORA */
-    TTF_GetStringSize(f, time_str, 0, &w, &h);
-    draw_text(ren, f, time_str, c_white, right - (float)w, y);
-    right -= (float)w + gap;
-
-    /* Separador */
-    TTF_GetStringSize(f, "|", 0, &w, &h);
-    draw_text(ren, f, "|", c_gray, right - (float)w, y);
-    right -= (float)w + gap;
-
-    /* SSH */
-    SDL_Color c_dim = {38, 38, 38, 255};
-    int ssh_on = read_ssh_enabled();
-    SDL_Color ssh_col = ssh_on ? c_green : c_dim;
-    TTF_GetStringSize(f, "SSH", 0, &w, &h);
-    draw_text(ren, f, "SSH", ssh_col, right - (float)w, y);
-    right -= (float)w + gap;
-
-    /* SAMBA */
-    int samba_on = read_samba_enabled();
-    SDL_Color samba_col = samba_on ? c_green : c_dim;
-    TTF_GetStringSize(f, "SAMBA", 0, &w, &h);
-    draw_text(ren, f, "SAMBA", samba_col, right - (float)w, y);
-}
 
 /* Dibuja footer unificado: leyenda izquierda + version derecha */
 static void draw_footer(SDL_Renderer *ren, TTF_Font *f,
@@ -1498,6 +1429,70 @@ static void draw_rounded_rect_filled(SDL_Renderer *r, float x, float y,
         if (line_rect.w > 0.0f) SDL_RenderFillRect(r, &line_rect);
     }
 }
+static float draw_status_pill(SDL_Renderer *ren, TTF_Font *f, float right_edge, float y_center,
+                               SDL_Texture *icon, const char *label, SDL_Color fg, SDL_Color bg)
+{
+    int w = 0, h = 0;
+    TTF_GetStringSize(f, label, 0, &w, &h);
+    float icon_w = icon ? 14.0f : 0.0f;
+    float icon_gap = icon ? 6.0f : 0.0f;
+    float pad_x = 14.0f;
+    float pill_h = (float)h + 14.0f;
+    float pill_w = pad_x * 2.0f + icon_w + icon_gap + (float)w;
+    float pill_x = right_edge - pill_w;
+    float pill_y = y_center - pill_h / 2.0f;
+    draw_rounded_rect_filled(ren, pill_x, pill_y, pill_w, pill_h, pill_h / 2.0f, bg);
+    float cursor_x = pill_x + pad_x;
+    if (icon) {
+        SDL_SetTextureColorMod(icon, fg.r, fg.g, fg.b);
+        SDL_FRect icon_dst = {cursor_x, y_center - icon_w / 2.0f, icon_w, icon_w};
+        SDL_RenderTexture(ren, icon, NULL, &icon_dst);
+        cursor_x += icon_w + icon_gap;
+    }
+    draw_text(ren, f, label, fg, cursor_x, y_center - (float)h / 2.0f);
+    return pill_w;
+}
+static void draw_statusbar(SDL_Renderer *ren, TTF_Font *f,
+                            const char *time_str, bool wifi_up, int battery,
+                            SDL_Texture *wifi_icon_tex, SDL_Texture *battery_icon_tex)
+{
+    SDL_Color c_cream    = {240, 230, 200, 255};
+    SDL_Color c_gold     = {224, 176, 96, 255};
+    SDL_Color c_red      = COL_RED;
+    SDL_Color c_pill_on  = {58, 51, 36, 255};
+    SDL_Color c_pill_off = {33, 31, 22, 255};
+    SDL_Color c_dim_fg   = {90, 84, 66, 255};
+    float right = SCREEN_W - 20.0f;
+    float y     = 25.0f;
+    float gap   = 9.0f;
+
+    char batt_buf[8];
+    SDL_Color batt_fg = c_gold;
+    if (battery >= 0) {
+        snprintf(batt_buf, sizeof(batt_buf), "%d%%", battery);
+        if (battery <= 20)      batt_fg = c_red;
+        else if (battery <= 70) batt_fg = (SDL_Color){230, 150, 60, 255};
+        else                    batt_fg = c_gold;
+    } else {
+        strncpy(batt_buf, "--", sizeof(batt_buf));
+    }
+    right -= draw_status_pill(ren, f, right, y, battery_icon_tex, batt_buf, batt_fg, c_pill_on);
+    right -= gap;
+
+    SDL_Color wifi_fg = wifi_up ? c_gold : c_red;
+    right -= draw_status_pill(ren, f, right, y, wifi_icon_tex, "WIFI", wifi_fg, wifi_up ? c_pill_on : c_pill_off);
+    right -= gap;
+
+    right -= draw_status_pill(ren, f, right, y, NULL, time_str, c_cream, c_pill_off);
+    right -= gap;
+
+    int ssh_on = read_ssh_enabled();
+    right -= draw_status_pill(ren, f, right, y, NULL, "SSH", ssh_on ? c_gold : c_dim_fg, ssh_on ? c_pill_on : c_pill_off);
+    right -= gap;
+
+    int samba_on = read_samba_enabled();
+    right -= draw_status_pill(ren, f, right, y, NULL, "SAMBA", samba_on ? c_gold : c_dim_fg, samba_on ? c_pill_on : c_pill_off);
+}
 /* Circulo relleno via barrido por filas (mismo principio que
  * draw_rounded_rect_filled, con radius aplicado a las 4 "esquinas"). */
 static void draw_circle_filled(SDL_Renderer *r, float cx, float cy,
@@ -1577,6 +1572,11 @@ int main(void)
         menu_icon_tex[mi] = IMG_LoadTexture(ren, MENU_ICON_PATHS[mi]);
         if (menu_icon_tex[mi]) SDL_SetTextureScaleMode(menu_icon_tex[mi], SDL_SCALEMODE_LINEAR);
     }
+    /* Iconos de la barra de estado (wifi, bateria) */
+    SDL_Texture *wifi_icon_tex = IMG_LoadTexture(ren, "/usr/share/armiga/icons/wifi.png");
+    if (wifi_icon_tex) SDL_SetTextureScaleMode(wifi_icon_tex, SDL_SCALEMODE_LINEAR);
+    SDL_Texture *battery_icon_tex = IMG_LoadTexture(ren, "/usr/share/armiga/icons/battery-3.png");
+    if (battery_icon_tex) SDL_SetTextureScaleMode(battery_icon_tex, SDL_SCALEMODE_LINEAR);
 
     /* Leer versiones */
     char s_kernel[32], s_mesa[32], s_retroarch[32], s_sdl3[32], s_build_date[24], s_version[32], s_build_number[16];
@@ -2574,13 +2574,8 @@ int main(void)
         /* Slogan */
         draw_text(ren, f_sm, "68K SOUL, ARM64 HEART.", c_dkgreen, mx + 2.0f, 94.0f);
 
-        draw_statusbar(ren, f_sm, status_time, status_wifi_up, status_battery);
+        draw_statusbar(ren, f_sm, status_time, status_wifi_up, status_battery, wifi_icon_tex, battery_icon_tex);
 
-        /* Separador horizontal */
-        draw_line(ren, mx, sep_y, SCREEN_W - 20.0f, sep_y, c_green);
-
-        /* Separador vertical */
-        draw_line(ren, sep_x, sep_y, sep_x, 438.0f, c_green);
 
         /* Menú */
         SDL_Color c_menu_gold  = {224, 176, 96, 255};
@@ -2677,7 +2672,7 @@ int main(void)
 
         } else if (state == STATE_SETTINGS) {
             draw_text_truncated(ren, f_sm, tr("Menú > Configuración", "Menu > Settings"), c_green, mx, 20.0f, SCREEN_W - 190.0f);
-            draw_statusbar(ren, f_sm, status_time, status_wifi_up, status_battery);
+            draw_statusbar(ren, f_sm, status_time, status_wifi_up, status_battery, wifi_icon_tex, battery_icon_tex);
             draw_line(ren, mx, 44.0f, SCREEN_W - 20.0f, 44.0f, c_green);
 
             float settings_y0 = 64.0f;
@@ -2715,7 +2710,7 @@ int main(void)
 
         } else if (state == STATE_BRIGHTNESS_CONFIG) {
             draw_text_truncated(ren, f_sm, tr("Menú > Configuración > Brillo de pantalla", "Menu > Settings > Screen Brightness"), c_green, mx, 20.0f, SCREEN_W - 190.0f);
-            draw_statusbar(ren, f_sm, status_time, status_wifi_up, status_battery);
+            draw_statusbar(ren, f_sm, status_time, status_wifi_up, status_battery, wifi_icon_tex, battery_icon_tex);
             draw_line(ren, mx, 44.0f, SCREEN_W - 20.0f, 44.0f, c_green);
 
             {
@@ -2736,7 +2731,7 @@ int main(void)
 
         } else if (state == STATE_TIMEZONE_CONFIG) {
             draw_text_truncated(ren, f_sm, tr("Menú > Configuración > Zona horaria", "Menu > Settings > Time Zone"), c_green, mx, 20.0f, SCREEN_W - 190.0f);
-            draw_statusbar(ren, f_sm, status_time, status_wifi_up, status_battery);
+            draw_statusbar(ren, f_sm, status_time, status_wifi_up, status_battery, wifi_icon_tex, battery_icon_tex);
             draw_line(ren, mx, 44.0f, SCREEN_W - 20.0f, 44.0f, c_green);
 
             float tz_y0 = 60.0f;
@@ -2775,7 +2770,7 @@ int main(void)
 
         } else if (state == STATE_SCREENDIM_CONFIG) {
             draw_text_truncated(ren, f_sm, tr("Menú > Configuración > Ahorro de pantalla", "Menu > Settings > Screen Dimming"), c_green, mx, 20.0f, SCREEN_W - 190.0f);
-            draw_statusbar(ren, f_sm, status_time, status_wifi_up, status_battery);
+            draw_statusbar(ren, f_sm, status_time, status_wifi_up, status_battery, wifi_icon_tex, battery_icon_tex);
             draw_line(ren, mx, 44.0f, SCREEN_W - 20.0f, 44.0f, c_green);
 
             float dim_y0 = 70.0f;
@@ -2834,7 +2829,7 @@ int main(void)
 
         } else if (state == STATE_BACKUP_MENU) {
             draw_text_truncated(ren, f_sm, tr("Menú > Configuración > Copia de seguridad", "Menu > Settings > Backup"), c_green, mx, 20.0f, SCREEN_W - 190.0f);
-            draw_statusbar(ren, f_sm, status_time, status_wifi_up, status_battery);
+            draw_statusbar(ren, f_sm, status_time, status_wifi_up, status_battery, wifi_icon_tex, battery_icon_tex);
             draw_line(ren, mx, 44.0f, SCREEN_W - 20.0f, 44.0f, c_green);
             float bkm_y0 = 64.0f;
             float bkm_item_h = 30.0f;
@@ -2877,7 +2872,7 @@ int main(void)
 
         } else if (state == STATE_BACKUP_LIST) {
             draw_text_truncated(ren, f_sm, tr("Menú > Configuración > Copia de seguridad > Restaurar copia", "Menu > Settings > Backup > Restore Backup"), c_green, mx, 20.0f, SCREEN_W - 190.0f);
-            draw_statusbar(ren, f_sm, status_time, status_wifi_up, status_battery);
+            draw_statusbar(ren, f_sm, status_time, status_wifi_up, status_battery, wifi_icon_tex, battery_icon_tex);
             draw_line(ren, mx, 44.0f, SCREEN_W - 20.0f, 44.0f, c_green);
             float bkl_y0 = 64.0f;
             float bkl_item_h = 26.0f;
@@ -2905,7 +2900,7 @@ int main(void)
 
         } else if (state == STATE_WIFI_CONFIG) {
             draw_text_truncated(ren, f_sm, tr("Menú > Configuración > Red inalámbrica", "Menu > Settings > Wireless Network"), c_green, mx, 20.0f, SCREEN_W - 190.0f);
-            draw_statusbar(ren, f_sm, status_time, status_wifi_up, status_battery);
+            draw_statusbar(ren, f_sm, status_time, status_wifi_up, status_battery, wifi_icon_tex, battery_icon_tex);
             draw_line(ren, mx, 44.0f, SCREEN_W - 20.0f, 44.0f, c_green);
 
             float wifi_y0 = 64.0f;
@@ -2965,7 +2960,7 @@ int main(void)
 
         } else if (state == STATE_LED_CONFIG) {
             draw_text_truncated(ren, f_sm, tr("Menú > Configuración > LED RGB analógicos", "Menu > Settings > Analog Stick LEDs"), c_green, mx, 20.0f, SCREEN_W - 190.0f);
-            draw_statusbar(ren, f_sm, status_time, status_wifi_up, status_battery);
+            draw_statusbar(ren, f_sm, status_time, status_wifi_up, status_battery, wifi_icon_tex, battery_icon_tex);
             draw_line(ren, mx, 44.0f, SCREEN_W - 20.0f, 44.0f, c_green);
 
             static const char *LED_SLIDER_LABELS[][2] = {
@@ -3032,7 +3027,7 @@ int main(void)
             draw_text(ren, f_sm,
                 wifi_field_selected == 0 ? "SSID" : tr("CONTRASEÑA", "PASSWORD"),
                 c_green, mx, 20.0f);
-            draw_statusbar(ren, f_sm, status_time, status_wifi_up, status_battery);
+            draw_statusbar(ren, f_sm, status_time, status_wifi_up, status_battery, wifi_icon_tex, battery_icon_tex);
             draw_line(ren, mx, 44.0f, SCREEN_W - 20.0f, 44.0f, c_green);
 
             draw_rect_filled(ren, mx, 56.0f, SCREEN_W - 40.0f, 30.0f, c_selbg);
@@ -3077,7 +3072,7 @@ int main(void)
         } else if (state == STATE_DEVMODE) {
             /* Titulo pequeño arriba a la izquierda */
             draw_text_truncated(ren, f_sm, tr("Menú > Modo desarrollador", "Menu > Developer Mode"), c_green, mx, 20.0f, SCREEN_W - 190.0f);
-            draw_statusbar(ren, f_sm, status_time, status_wifi_up, status_battery);
+            draw_statusbar(ren, f_sm, status_time, status_wifi_up, status_battery, wifi_icon_tex, battery_icon_tex);
             draw_line(ren, mx, 44.0f, SCREEN_W - 20.0f, 44.0f, c_green);
             draw_line(ren, sep_x, 44.0f, sep_x, 438.0f, c_green);
 
@@ -3173,7 +3168,7 @@ int main(void)
 
             /* Título y separador superior */
             draw_text_truncated(ren, f_sm, tr("Menú > Diagnóstico del sistema", "Menu > System Diagnostics"), c_green, SI_MX, 20.0f, SCREEN_W - 190.0f);
-            draw_statusbar(ren, f_sm, status_time, status_wifi_up, status_battery);
+            draw_statusbar(ren, f_sm, status_time, status_wifi_up, status_battery, wifi_icon_tex, battery_icon_tex);
             draw_line(ren, SI_MX, 44.0f, SCREEN_W - 20.0f, 44.0f, c_green);
 
             /* Separador vertical */
@@ -3315,7 +3310,7 @@ int main(void)
         } else if (state == STATE_UPDATE) {
             const float UX = 20.0f;
             draw_text_truncated(ren, f_sm, tr("Menú > Actualización de sistema", "Menu > System Update"), c_green, UX, 20.0f, SCREEN_W - 190.0f);
-            draw_statusbar(ren, f_sm, status_time, status_wifi_up, status_battery);
+            draw_statusbar(ren, f_sm, status_time, status_wifi_up, status_battery, wifi_icon_tex, battery_icon_tex);
             draw_line(ren, UX, 44.0f, SCREEN_W - 20.0f, 44.0f, c_green);
 
             /* Versión actual */
