@@ -1718,7 +1718,7 @@ int main(void)
     float rx      = 458.0f;
     float sep_y  = 118.0f;
     float menu_y0 = 134.0f;
-    float item_h  = 26.0f;
+    float item_h  = 34.0f;
 
     while (running) {
         while (SDL_PollEvent(&ev)) {
@@ -2591,10 +2591,11 @@ int main(void)
             if (i == selected) {
                 int text_w = 0, text_h = 0;
                 TTF_GetStringSize(f_med, MENU_ITEMS[i][current_lang], 0, &text_w, &text_h);
-                float sel_w = 46.0f + (float)text_w + 24.0f; /* icono+texto, ajustada al contenido */
-                float pill_radius = (item_h - 2.0f) / 2.0f;
-                draw_rounded_rect_filled(ren, mx - 4.0f, iy - 4.0f,
-                                 sel_w, item_h - 2.0f, pill_radius, c_menu_selbg);
+                float sel_w = 46.0f + (float)text_w + 32.0f; /* icono+texto, aire lateral moderado */
+                float pill_h = item_h - 4.0f;
+                float pill_radius = pill_h / 2.0f;
+                draw_rounded_rect_filled(ren, mx - 10.0f, iy - 5.0f,
+                                 sel_w, pill_h, pill_radius, c_menu_selbg);
                 if (menu_icon_tex[i]) {
                     SDL_SetTextureColorMod(menu_icon_tex[i], c_menu_gold.r, c_menu_gold.g, c_menu_gold.b);
                     SDL_FRect icon_dst = {mx + 8.0f, iy, 20.0f, 20.0f};
