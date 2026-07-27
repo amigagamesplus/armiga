@@ -345,6 +345,18 @@ static void read_disk_usage(const char *path, char *buf, size_t bufsize)
     snprintf(buf, bufsize, "%llu/%llu MB", used_mb, total_mb);
 }
 
+static void read_disk_free_short(const char *path, char *buf, size_t bufsize)
+{
+    safe_copy(buf, "--", bufsize);
+    struct statvfs st;
+    if (statvfs(path, &st) != 0) return;
+    unsigned long long free_mb = (unsigned long long)st.f_bfree * st.f_frsize / (1024 * 1024);
+    if (free_mb >= 1024) {
+        snprintf(buf, bufsize, "%.1f GB", free_mb / 1024.0);
+    } else {
+        snprintf(buf, bufsize, "%llu MB", free_mb);
+    }
+}
 static void read_cpu_temp(char *buf, size_t bufsize)
 {
     safe_copy(buf, "--", bufsize);
@@ -1516,6 +1528,15 @@ static void draw_line(SDL_Renderer *r, float x1, float y1,
     SDL_SetRenderDrawColor(r, c.r, c.g, c.b, c.a);
     SDL_RenderLine(r, x1, y1, x2, y2);
 }
+/* Panel de contexto derecho: lineas "label: valor" extensibles.
+ * Anadir mas entradas simplemente incrementando n_lines en la llamada. */
+static void draw_context_panel(SDL_Renderer *ren, TTF_Font *f, float x, float y,
+                                const char lines[][64], int n_lines, SDL_Color c)
+{
+    for (int i = 0; i < n_lines; i++) {
+        draw_text(ren, f, lines[i], c, x, y + (float)i * 16.0f);
+    }
+}
 
 int main(void)
 {
@@ -1666,6 +1687,8 @@ int main(void)
 
     char sysinfo_disk_data[32] = "--";
     char sysinfo_disk_root[32] = "--";
+    char menu_disk_free[32]    = "--";
+    Uint64 last_menu_refresh   = 0;
     char sysinfo_temp[16]      = "--";
     char sysinfo_cpu_usage[8]  = "--";
     int  sysinfo_cpu_pct       = 0;
@@ -1715,9 +1738,9 @@ int main(void)
     float mx     = 20.0f;
     float mw     = 390.0f;
     float sep_x  = 440.0f;
-    float rx      = 458.0f;
-    float sep_y  = 118.0f;
-    float menu_y0 = 134.0f;
+    float rx      = 445.0f;
+    float rx_max_w = SCREEN_W - rx - 15.0f;
+    float menu_y0 = 120.0f;
     float item_h  = 34.0f;
 
     while (running) {
@@ -2544,6 +2567,11 @@ int main(void)
             }
         }
 
+        if (state == STATE_MENU &&
+            (last_menu_refresh == 0 || now_ticks - last_menu_refresh > 5000)) {
+            read_disk_free_short("/media/amiga_data", menu_disk_free, sizeof(menu_disk_free));
+            last_menu_refresh = now_ticks;
+        }
         if (state == STATE_SYSINFO &&
             (last_sysinfo_update == 0 || now_ticks - last_sysinfo_update > 5000)) {
             read_ip_address(dev_ip, sizeof(dev_ip));
@@ -2636,7 +2664,7 @@ int main(void)
 
         /* Panel derecho: contexto de la opcion seleccionada */
         {
-            draw_text(ren, f_sm, MENU_ITEMS[selected][current_lang], c_green, rx, menu_y0);
+            draw_text_truncated(ren, f_sm, MENU_ITEMS[selected][current_lang], c_green, rx, menu_y0, rx_max_w);
             /* Descripcion en dos lineas */
             const char *desc = MENU_DESC[selected][current_lang];
             char line1[64] = {0}, line2[64] = {0};
@@ -2649,9 +2677,16 @@ int main(void)
             } else {
                 strncpy(line1, desc, sizeof(line1) - 1);
             }
-            draw_text(ren, f_sm, line1, c_gray, rx, menu_y0 + 18.0f);
+            draw_text_truncated(ren, f_sm, line1, c_gray, rx, menu_y0 + 18.0f, rx_max_w);
             if (line2[0])
-                draw_text(ren, f_sm, line2, c_gray, rx, menu_y0 + 34.0f);
+                draw_text_truncated(ren, f_sm, line2, c_gray, rx, menu_y0 + 34.0f, rx_max_w);
+            /* Info adicional del sistema, extensible: anadir mas lineas aqui */
+            char ctx_lines[4][64];
+            int ctx_n = 0;
+            snprintf(ctx_lines[ctx_n], sizeof(ctx_lines[ctx_n]), "%s: %s",
+                     tr("Espacio libre", "Free space"), menu_disk_free);
+            ctx_n++;
+            draw_context_panel(ren, f_sm, rx, menu_y0 + 70.0f, ctx_lines, ctx_n, c_dkgreen);
         }
 
         /* Barra inferior */
