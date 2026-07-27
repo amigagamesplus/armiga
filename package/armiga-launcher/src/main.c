@@ -1190,6 +1190,41 @@ static void draw_text(SDL_Renderer *r, TTF_Font *f, const char *t,
     SDL_DestroySurface(s);
 }
 
+/* Envuelve texto en varias lineas segun max_w, sin truncar nunca.
+ * Devuelve el numero de lineas dibujadas (para calcular el Y siguiente). */
+static int draw_text_wrapped(SDL_Renderer *r, TTF_Font *f, const char *text,
+                              SDL_Color c, float x, float y, float max_w, float line_h)
+{
+    char buf[256];
+    strncpy(buf, text, sizeof(buf) - 1);
+    buf[sizeof(buf) - 1] = 0;
+    int line_count = 0;
+    char *saveptr = NULL;
+    char *word = strtok_r(buf, " ", &saveptr);
+    char line[256] = {0};
+    while (word) {
+        char candidate[256];
+        if (line[0])
+            snprintf(candidate, sizeof(candidate), "%s %s", line, word);
+        else
+            snprintf(candidate, sizeof(candidate), "%s", word);
+        int w = 0, h = 0;
+        TTF_GetStringSize(f, candidate, 0, &w, &h);
+        if ((float)w > max_w && line[0]) {
+            draw_text(r, f, line, c, x, y + (float)line_count * line_h);
+            line_count++;
+            snprintf(line, sizeof(line), "%s", word);
+        } else {
+            snprintf(line, sizeof(line), "%s", candidate);
+        }
+        word = strtok_r(NULL, " ", &saveptr);
+    }
+    if (line[0]) {
+        draw_text(r, f, line, c, x, y + (float)line_count * line_h);
+        line_count++;
+    }
+    return line_count;
+}
 /* Dibuja label + puntos animados ciclicos (.  ..  ...) segun ticks. */
 static void draw_text_animdots(SDL_Renderer *r, TTF_Font *f, const char *label,
                                 SDL_Color c, float x, float y, Uint64 ticks)
@@ -1738,7 +1773,7 @@ int main(void)
     float mx     = 20.0f;
     float mw     = 390.0f;
     float sep_x  = 440.0f;
-    float rx      = 445.0f;
+    float rx      = 400.0f;
     float rx_max_w = SCREEN_W - rx - 15.0f;
     float menu_y0 = 120.0f;
     float item_h  = 34.0f;
@@ -2665,28 +2700,21 @@ int main(void)
         /* Panel derecho: contexto de la opcion seleccionada */
         {
             draw_text_truncated(ren, f_sm, MENU_ITEMS[selected][current_lang], c_green, rx, menu_y0, rx_max_w);
-            /* Descripcion en dos lineas */
-            const char *desc = MENU_DESC[selected][current_lang];
-            char line1[64] = {0}, line2[64] = {0};
-            const char *nl = strchr(desc, '\n');
-            if (nl) {
-                size_t l1 = (size_t)(nl - desc);
-                if (l1 >= sizeof(line1)) l1 = sizeof(line1) - 1;
-                strncpy(line1, desc, l1);
-                strncpy(line2, nl + 1, sizeof(line2) - 1);
-            } else {
-                strncpy(line1, desc, sizeof(line1) - 1);
-            }
-            draw_text_truncated(ren, f_sm, line1, c_gray, rx, menu_y0 + 18.0f, rx_max_w);
-            if (line2[0])
-                draw_text_truncated(ren, f_sm, line2, c_gray, rx, menu_y0 + 34.0f, rx_max_w);
+            /* Descripcion: reemplaza el separador de linea original por espacio,
+             * y envuelve el texto completo sin truncar nunca. */
+            char desc_flat[128];
+            snprintf(desc_flat, sizeof(desc_flat), "%s", MENU_DESC[selected][current_lang]);
+            for (char *p = desc_flat; *p; p++) if (*p == '\n') *p = ' ';
+            int n_lines = draw_text_wrapped(ren, f_sm, desc_flat, c_gray,
+                                             rx, menu_y0 + 18.0f, rx_max_w, 16.0f);
             /* Info adicional del sistema, extensible: anadir mas lineas aqui */
             char ctx_lines[4][64];
             int ctx_n = 0;
             snprintf(ctx_lines[ctx_n], sizeof(ctx_lines[ctx_n]), "%s: %s",
                      tr("Espacio libre", "Free space"), menu_disk_free);
             ctx_n++;
-            draw_context_panel(ren, f_sm, rx, menu_y0 + 70.0f, ctx_lines, ctx_n, c_dkgreen);
+            float ctx_y = menu_y0 + 18.0f + (float)n_lines * 16.0f + 20.0f;
+            draw_context_panel(ren, f_sm, rx, ctx_y, ctx_lines, ctx_n, c_dkgreen);
         }
 
         /* Barra inferior */
