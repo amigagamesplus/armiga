@@ -1482,11 +1482,12 @@ static float draw_status_pill(SDL_Renderer *ren, TTF_Font *f, float right_edge, 
 {
     int w = 0, h = 0;
     TTF_GetStringSize(f, label, 0, &w, &h);
-    float icon_w = icon ? 14.0f : 0.0f;
-    float icon_gap = icon ? 6.0f : 0.0f;
-    float pad_x = 14.0f;
+    bool icon_only = (icon && w <= 10);
+    float icon_w = icon ? 20.0f : 0.0f;
+    float icon_gap = (icon && !icon_only) ? 6.0f : 0.0f;
+    float pad_x = icon_only ? 10.0f : 14.0f;
     float pill_h = (float)h + 14.0f;
-    float pill_w = pad_x * 2.0f + icon_w + icon_gap + (float)w;
+    float pill_w = icon_only ? (pad_x * 2.0f + icon_w) : (pad_x * 2.0f + icon_w + icon_gap + (float)w);
     float pill_x = right_edge - pill_w;
     float pill_y = y_center - pill_h / 2.0f;
     draw_rounded_rect_filled(ren, pill_x, pill_y, pill_w, pill_h, pill_h / 2.0f, bg);
@@ -1497,7 +1498,8 @@ static float draw_status_pill(SDL_Renderer *ren, TTF_Font *f, float right_edge, 
         SDL_RenderTexture(ren, icon, NULL, &icon_dst);
         cursor_x += icon_w + icon_gap;
     }
-    draw_text(ren, f, label, fg, cursor_x, y_center - (float)h / 2.0f);
+    if (!icon_only)
+        draw_text(ren, f, label, fg, cursor_x, y_center - (float)h / 2.0f);
     return pill_w;
 }
 static void draw_statusbar(SDL_Renderer *ren, TTF_Font *f,
@@ -1528,7 +1530,7 @@ static void draw_statusbar(SDL_Renderer *ren, TTF_Font *f,
     right -= gap;
 
     SDL_Color wifi_fg = wifi_up ? c_gold : c_red;
-    right -= draw_status_pill(ren, f, right, y, wifi_icon_tex, "WIFI", wifi_fg, wifi_up ? c_pill_on : c_pill_off);
+    right -= draw_status_pill(ren, f, right, y, wifi_icon_tex, " ", wifi_fg, wifi_up ? c_pill_on : c_pill_off);
     right -= gap;
 
     right -= draw_status_pill(ren, f, right, y, NULL, time_str, c_cream, c_pill_off);
