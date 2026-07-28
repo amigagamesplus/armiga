@@ -36,6 +36,8 @@ jobs:
                 libdrm-dev \
                 libegl1-mesa-dev \
                 libgles2-mesa-dev \
+                libdbus-1-dev \
+                glslang-tools \
                 git
 
               python3 -m pip install --upgrade meson
