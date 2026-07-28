@@ -3061,31 +3061,47 @@ int main(void)
                 float iy = led_y0 + i * led_item_h;
                 bool sel = (led_selected == i);
                 SDL_Color labelc = sel ? c_menu_gold : c_menu_beige;
+                char valbuf[8];
+                snprintf(valbuf, sizeof(valbuf), "%d", led_vals_r[i]);
+                int valw = 0, valh = 0;
+                TTF_GetStringSize(f_sm, valbuf, 0, &valw, &valh);
+                float bar_x = mx + 180.0f;
                 if (sel) {
                     float pill_h = led_item_h - 6.0f;
+                    float pill_w = (bar_x - (mx - 10.0f)) + led_bar_w + 10.0f + (float)valw + 20.0f;
                     draw_rounded_rect_filled(ren, mx - 10.0f, iy - 5.0f,
-                                     mw + 20.0f, pill_h, pill_h / 2.0f, c_menu_selbg);
+                                     pill_w, pill_h, pill_h / 2.0f, c_menu_selbg);
                 }
                 draw_text(ren, f_sm, LED_SLIDER_LABELS[i][current_lang], labelc, mx + 8.0f, iy);
 
-                float bar_x = mx + 180.0f;
                 float bar_y = iy + 3.0f;
                 SDL_Color c_bar_empty = {20, 18, 14, 255};
                 draw_rect_filled(ren, bar_x, bar_y, led_bar_w, led_bar_h, c_bar_empty);
                 float frac = led_vals_r[i] / 255.0f;
                 draw_rect_filled(ren, bar_x, bar_y, led_bar_w * frac, led_bar_h, led_bar_colors[i]);
 
-                char valbuf[8];
-                snprintf(valbuf, sizeof(valbuf), "%d", led_vals_r[i]);
                 draw_text(ren, f_sm, valbuf, c_white, bar_x + led_bar_w + 10.0f, iy);
             }
 
             SDL_Color preview_right = {(Uint8)led_r_right, (Uint8)led_g_right, (Uint8)led_b_right, 255};
             SDL_Color preview_left  = {(Uint8)led_r_left,  (Uint8)led_g_left,  (Uint8)led_b_left,  255};
-            float preview_y = led_y0 + LED_SLIDER_COUNT * led_item_h + 10.0f;
-            draw_text(ren, f_sm, tr("Vista previa:", "Preview:"), c_gray, mx, preview_y);
-            draw_rect_filled(ren, mx + 100.0f, preview_y - 2.0f, 30.0f, 16.0f, preview_left);
-            draw_rect_filled(ren, mx + 140.0f, preview_y - 2.0f, 30.0f, 16.0f, preview_right);
+            float preview_y = led_y0 + LED_SLIDER_COUNT * led_item_h + 16.0f;
+            draw_text(ren, f_sm, tr("Vista previa", "Preview"), c_menu_gold, mx, preview_y);
+            float sw_size = 60.0f;
+            float sw_gap = 24.0f;
+            float sw_y = preview_y + 22.0f;
+            float sw_total_w = sw_size * 2.0f + sw_gap;
+            float sw_left_x = (SCREEN_W - sw_total_w) / 2.0f;
+            float sw_right_x = sw_left_x + sw_size + sw_gap;
+            draw_rounded_rect_filled(ren, sw_left_x, sw_y, sw_size, 40.0f, 6.0f, preview_left);
+            draw_rounded_rect_filled(ren, sw_right_x, sw_y, sw_size, 40.0f, 6.0f, preview_right);
+            {
+                int lw = 0, lh = 0;
+                TTF_GetStringSize(f_sm, tr("Izquierdo", "Left"), 0, &lw, &lh);
+                draw_text(ren, f_sm, tr("Izquierdo", "Left"), c_menu_beige, sw_left_x + (sw_size - (float)lw) / 2.0f, sw_y + 46.0f);
+                TTF_GetStringSize(f_sm, tr("Derecho", "Right"), 0, &lw, &lh);
+                draw_text(ren, f_sm, tr("Derecho", "Right"), c_menu_beige, sw_right_x + (sw_size - (float)lw) / 2.0f, sw_y + 46.0f);
+            }
 
             draw_line(ren, mx, 438.0f, SCREEN_W - 20.0f, 438.0f, c_green);
             draw_footer(ren, f_sm,
