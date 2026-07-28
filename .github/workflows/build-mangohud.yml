@@ -29,7 +29,7 @@ jobs:
               export DEBIAN_FRONTEND=noninteractive
               apt-get update && apt-get install -y \
                 build-essential \
-                meson \
+                python3-pip \
                 ninja-build \
                 python3-mako \
                 pkg-config \
@@ -37,6 +37,8 @@ jobs:
                 libegl1-mesa-dev \
                 libgles2-mesa-dev \
                 git
+
+              python3 -m pip install --upgrade meson
 
               meson setup build \
                 -Dwith_x11=disabled \
