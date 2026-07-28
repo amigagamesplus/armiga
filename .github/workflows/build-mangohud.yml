@@ -50,8 +50,8 @@ jobs:
               # Instala la última versión de Meson (> 1.7.0) mediante pip
               pip3 install meson
 
-              # Si por alguna razón pip no lo añade al PATH de inmediato, usamos python3 -m meson
-              python3 -m meson setup build \
+              # Llamamos al ejecutable directamente desde donde pip lo instaló
+              /usr/local/bin/meson setup build \
                 -Dwith_x11=disabled \
                 -Dwith_wayland=enabled \
                 -Dwith_nvml=disabled \
