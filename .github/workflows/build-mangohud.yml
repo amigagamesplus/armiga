@@ -38,13 +38,16 @@ jobs:
                 libgles2-mesa-dev \
                 libdbus-1-dev \
                 glslang-tools \
+                libwayland-dev \
+                wayland-protocols \
+                libxkbcommon-dev \
                 git
 
               python3 -m pip install --upgrade meson
 
               meson setup build \
                 -Dwith_x11=disabled \
-                -Dwith_wayland=disabled \
+                -Dwith_wayland=enabled \
                 -Dwith_nvml=disabled \
                 -Dwith_xnvctrl=disabled \
                 --buildtype release
