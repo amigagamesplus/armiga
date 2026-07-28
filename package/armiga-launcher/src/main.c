@@ -3270,18 +3270,18 @@ int main(void)
             int si_row_idx = 0;
 
             /* Constantes de layout sysinfo: 1 columna ancha, 3 bloques por pagina */
-            const float SI_MX    = 20.0f;   /* margen izquierdo */
-            const float SI_RX    = 20.0f;   /* misma columna, ya no hay 2ª col */
-            const float SI_CW_L  = 600.0f;  /* ancho de fila (label...valor) */
-            const float SI_CW_R  = 600.0f;
+            const float SI_CW_L  = 420.0f;  /* ancho de fila (label...valor) */
+            const float SI_CW_R  = 420.0f;
+            const float SI_MX    = (SCREEN_W - SI_CW_L) / 2.0f;   /* centrado horizontal */
+            const float SI_RX    = SI_MX;
             const float SI_ROW_H = 17.0f;   /* altura de fila label+valor */
             const float SI_BLK_H = 120.0f;  /* altura de cada bloque, 3 bloques por pagina */
             const float SI_Y0    = 54.0f;   /* Y inicio primer bloque */
             const float SI_SEP_H1 = SI_Y0 + SI_BLK_H;
             const float SI_SEP_H2 = SI_Y0 + SI_BLK_H * 2;
 
-            /* Título y separador superior */
-            draw_text_truncated(ren, f_sm, tr("Menú > Diagnóstico del sistema", "Menu > System Diagnostics"), c_green, SI_MX, 20.0f, SCREEN_W - 190.0f);
+            /* Título y separador superior: siempre en el margen fijo, no en SI_MX centrado */
+            draw_text_truncated(ren, f_sm, tr("Menú > Diagnóstico del sistema", "Menu > System Diagnostics"), c_green, 20.0f, 20.0f, SCREEN_W - 190.0f);
             draw_statusbar(ren, f_sm, status_time, status_wifi_up, status_battery, wifi_icon_tex, battery_icon_tex);
 
             /* Indicador de pagina: encima del footer, alineado a la derecha */
