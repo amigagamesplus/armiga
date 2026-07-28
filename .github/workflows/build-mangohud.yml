@@ -3,7 +3,7 @@ name: Build MangoHud ARM64 (KMS/DRM + GLES)
 on:
   push:
     branches: [ main ]
-  workflow_dispatch: # Permite lanzarlo manualmente desde la pestaña Actions
+  workflow_dispatch:
 
 jobs:
   build-arm64:
@@ -29,7 +29,7 @@ jobs:
               export DEBIAN_FRONTEND=noninteractive
               apt-get update && apt-get install -y \
                 build-essential \
-                meson \
+                python3-pip \
                 ninja-build \
                 python3-mako \
                 pkg-config \
@@ -44,10 +44,14 @@ jobs:
                 libxkbcommon-dev \
                 git
 
-              # Soluciona el error de propiedad insegura de Git dentro de Docker
+              # Soluciona el error de permisos de Git
               git config --global --add safe.directory /workspace
 
-              meson setup build \
+              # Instala la última versión de Meson (> 1.7.0) mediante pip
+              pip3 install meson
+
+              # Si por alguna razón pip no lo añade al PATH de inmediato, usamos python3 -m meson
+              python3 -m meson setup build \
                 -Dwith_x11=disabled \
                 -Dwith_wayland=enabled \
                 -Dwith_nvml=disabled \
