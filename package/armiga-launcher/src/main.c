@@ -1535,10 +1535,6 @@ static void draw_statusbar(SDL_Renderer *ren, TTF_Font *f,
 
     int ssh_on = read_ssh_enabled();
     right -= draw_status_pill(ren, f, right, y, NULL, "SSH", ssh_on ? c_gold : c_dim_fg, ssh_on ? c_pill_on : c_pill_off);
-    right -= gap;
-
-    int samba_on = read_samba_enabled();
-    right -= draw_status_pill(ren, f, right, y, NULL, "SAMBA", samba_on ? c_gold : c_dim_fg, samba_on ? c_pill_on : c_pill_off);
 }
 /* Circulo relleno via barrido por filas (mismo principio que
  * draw_rounded_rect_filled, con radius aplicado a las 4 "esquinas"). */
@@ -1724,6 +1720,7 @@ int main(void)
     char sysinfo_disk_root[32] = "--";
     char menu_disk_free[32]    = "--";
     Uint64 last_menu_refresh   = 0;
+    int sysinfo_page = 0; /* 0 = Sistema/Metricas/Volumenes, 1 = Specs/Software/Red */
     char sysinfo_temp[16]      = "--";
     char sysinfo_cpu_usage[8]  = "--";
     int  sysinfo_cpu_pct       = 0;
@@ -1775,7 +1772,7 @@ int main(void)
     float sep_x  = 440.0f;
     float rx      = 400.0f;
     float rx_max_w = SCREEN_W - rx - 15.0f;
-    float menu_y0 = 120.0f;
+    float menu_y0 = 130.0f;
     float item_h  = 34.0f;
 
     while (running) {
@@ -2357,6 +2354,12 @@ int main(void)
                 if (ev.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN &&
                     ev.jbutton.button == BTN_SDL_B)
                     state = STATE_MENU;
+                if (ev.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN &&
+                    ev.jbutton.button == BTN_SDL_L1)
+                    sysinfo_page = (sysinfo_page + 1) % 2;
+                if (ev.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN &&
+                    ev.jbutton.button == BTN_SDL_R1)
+                    sysinfo_page = (sysinfo_page + 1) % 2;
             }
             else if (state == STATE_UPDATE) {
                 if (ev.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN &&
@@ -2736,7 +2739,6 @@ int main(void)
         } else if (state == STATE_SETTINGS) {
             draw_text_truncated(ren, f_sm, tr("Menú > Configuración", "Menu > Settings"), c_green, mx, 20.0f, SCREEN_W - 190.0f);
             draw_statusbar(ren, f_sm, status_time, status_wifi_up, status_battery, wifi_icon_tex, battery_icon_tex);
-            draw_line(ren, mx, 44.0f, SCREEN_W - 20.0f, 44.0f, c_green);
 
             float settings_y0 = 64.0f;
             float settings_item_h = 30.0f;
@@ -2774,7 +2776,6 @@ int main(void)
         } else if (state == STATE_BRIGHTNESS_CONFIG) {
             draw_text_truncated(ren, f_sm, tr("Menú > Configuración > Brillo de pantalla", "Menu > Settings > Screen Brightness"), c_green, mx, 20.0f, SCREEN_W - 190.0f);
             draw_statusbar(ren, f_sm, status_time, status_wifi_up, status_battery, wifi_icon_tex, battery_icon_tex);
-            draw_line(ren, mx, 44.0f, SCREEN_W - 20.0f, 44.0f, c_green);
 
             {
                 float iy = 90.0f;
@@ -2795,7 +2796,6 @@ int main(void)
         } else if (state == STATE_TIMEZONE_CONFIG) {
             draw_text_truncated(ren, f_sm, tr("Menú > Configuración > Zona horaria", "Menu > Settings > Time Zone"), c_green, mx, 20.0f, SCREEN_W - 190.0f);
             draw_statusbar(ren, f_sm, status_time, status_wifi_up, status_battery, wifi_icon_tex, battery_icon_tex);
-            draw_line(ren, mx, 44.0f, SCREEN_W - 20.0f, 44.0f, c_green);
 
             float tz_y0 = 60.0f;
             float tz_item_h = 20.0f;
@@ -2834,7 +2834,6 @@ int main(void)
         } else if (state == STATE_SCREENDIM_CONFIG) {
             draw_text_truncated(ren, f_sm, tr("Menú > Configuración > Ahorro de pantalla", "Menu > Settings > Screen Dimming"), c_green, mx, 20.0f, SCREEN_W - 190.0f);
             draw_statusbar(ren, f_sm, status_time, status_wifi_up, status_battery, wifi_icon_tex, battery_icon_tex);
-            draw_line(ren, mx, 44.0f, SCREEN_W - 20.0f, 44.0f, c_green);
 
             float dim_y0 = 70.0f;
             float dim_item_h = 46.0f;
@@ -2893,7 +2892,6 @@ int main(void)
         } else if (state == STATE_BACKUP_MENU) {
             draw_text_truncated(ren, f_sm, tr("Menú > Configuración > Copia de seguridad", "Menu > Settings > Backup"), c_green, mx, 20.0f, SCREEN_W - 190.0f);
             draw_statusbar(ren, f_sm, status_time, status_wifi_up, status_battery, wifi_icon_tex, battery_icon_tex);
-            draw_line(ren, mx, 44.0f, SCREEN_W - 20.0f, 44.0f, c_green);
             float bkm_y0 = 64.0f;
             float bkm_item_h = 30.0f;
             for (int i = 0; i < BACKUP_MENU_COUNT; i++) {
@@ -2936,7 +2934,6 @@ int main(void)
         } else if (state == STATE_BACKUP_LIST) {
             draw_text_truncated(ren, f_sm, tr("Menú > Configuración > Copia de seguridad > Restaurar copia", "Menu > Settings > Backup > Restore Backup"), c_green, mx, 20.0f, SCREEN_W - 190.0f);
             draw_statusbar(ren, f_sm, status_time, status_wifi_up, status_battery, wifi_icon_tex, battery_icon_tex);
-            draw_line(ren, mx, 44.0f, SCREEN_W - 20.0f, 44.0f, c_green);
             float bkl_y0 = 64.0f;
             float bkl_item_h = 26.0f;
             if (backup_count == 0) {
@@ -2964,7 +2961,6 @@ int main(void)
         } else if (state == STATE_WIFI_CONFIG) {
             draw_text_truncated(ren, f_sm, tr("Menú > Configuración > Red inalámbrica", "Menu > Settings > Wireless Network"), c_green, mx, 20.0f, SCREEN_W - 190.0f);
             draw_statusbar(ren, f_sm, status_time, status_wifi_up, status_battery, wifi_icon_tex, battery_icon_tex);
-            draw_line(ren, mx, 44.0f, SCREEN_W - 20.0f, 44.0f, c_green);
 
             float wifi_y0 = 64.0f;
             float wifi_item_h = 44.0f;
@@ -3024,7 +3020,6 @@ int main(void)
         } else if (state == STATE_LED_CONFIG) {
             draw_text_truncated(ren, f_sm, tr("Menú > Configuración > LED RGB analógicos", "Menu > Settings > Analog Stick LEDs"), c_green, mx, 20.0f, SCREEN_W - 190.0f);
             draw_statusbar(ren, f_sm, status_time, status_wifi_up, status_battery, wifi_icon_tex, battery_icon_tex);
-            draw_line(ren, mx, 44.0f, SCREEN_W - 20.0f, 44.0f, c_green);
 
             static const char *LED_SLIDER_LABELS[][2] = {
                 {"R (derecho)", "R (right)"},
@@ -3091,7 +3086,6 @@ int main(void)
                 wifi_field_selected == 0 ? "SSID" : tr("CONTRASEÑA", "PASSWORD"),
                 c_green, mx, 20.0f);
             draw_statusbar(ren, f_sm, status_time, status_wifi_up, status_battery, wifi_icon_tex, battery_icon_tex);
-            draw_line(ren, mx, 44.0f, SCREEN_W - 20.0f, 44.0f, c_green);
 
             draw_rect_filled(ren, mx, 56.0f, SCREEN_W - 40.0f, 30.0f, c_selbg);
             draw_text(ren, f_med, kb_buffer[0] ? kb_buffer : "", c_white, mx + 8.0f, 62.0f);
@@ -3136,7 +3130,6 @@ int main(void)
             /* Titulo pequeño arriba a la izquierda */
             draw_text_truncated(ren, f_sm, tr("Menú > Modo desarrollador", "Menu > Developer Mode"), c_green, mx, 20.0f, SCREEN_W - 190.0f);
             draw_statusbar(ren, f_sm, status_time, status_wifi_up, status_battery, wifi_icon_tex, battery_icon_tex);
-            draw_line(ren, mx, 44.0f, SCREEN_W - 20.0f, 44.0f, c_green);
             draw_line(ren, sep_x, 44.0f, sep_x, 438.0f, c_green);
 
             /* Menú (columna izquierda), mismo estilo compacto que el menu principal */
@@ -3215,45 +3208,50 @@ int main(void)
              *  Cada bloque: título(14) + guiones(10) + N filas×(label+valor, 18px)
              */
             SDL_Color c_red = COL_RED;
+            SDL_Color c_row_bg = {26, 24, 18, 255};
+            int si_row_idx = 0;
 
-            /* Constantes de layout sysinfo (distintas del menú principal) */
+            /* Constantes de layout sysinfo: 1 columna ancha, 3 bloques por pagina */
             const float SI_MX    = 20.0f;   /* margen izquierdo */
-            const float SI_SEP   = 330.0f;  /* separador vertical */
-            const float SI_RX    = 348.0f;  /* columna derecha X */
-            const float SI_CW_L  = 300.0f;  /* ancho columna izquierda */
-            const float SI_CW_R  = 272.0f;  /* ancho columna derecha */
+            const float SI_RX    = 20.0f;   /* misma columna, ya no hay 2ª col */
+            const float SI_CW_L  = 600.0f;  /* ancho de fila (label...valor) */
+            const float SI_CW_R  = 600.0f;
             const float SI_ROW_H = 17.0f;   /* altura de fila label+valor */
-            const float SI_BLK_H = 128.0f;  /* altura de cada bloque (3 bloques × 128 = 384) */
-            const float SI_Y0    = 50.0f;   /* Y inicio primer bloque */
-            /* Separador horizontal en y=44 */
-            const float SI_SEP_H1 = SI_Y0 + SI_BLK_H;      /* ~178 */
-            const float SI_SEP_H2 = SI_Y0 + SI_BLK_H * 2;  /* ~306 */
+            const float SI_BLK_H = 120.0f;  /* altura de cada bloque, 3 bloques por pagina */
+            const float SI_Y0    = 54.0f;   /* Y inicio primer bloque */
+            const float SI_SEP_H1 = SI_Y0 + SI_BLK_H;
+            const float SI_SEP_H2 = SI_Y0 + SI_BLK_H * 2;
 
             /* Título y separador superior */
             draw_text_truncated(ren, f_sm, tr("Menú > Diagnóstico del sistema", "Menu > System Diagnostics"), c_green, SI_MX, 20.0f, SCREEN_W - 190.0f);
             draw_statusbar(ren, f_sm, status_time, status_wifi_up, status_battery, wifi_icon_tex, battery_icon_tex);
-            draw_line(ren, SI_MX, 44.0f, SCREEN_W - 20.0f, 44.0f, c_green);
 
-            /* Separador vertical */
-            draw_line(ren, SI_SEP, 44.0f, SI_SEP, 438.0f, c_green);
-
-            /* Separadores horizontales entre bloques */
-            draw_line(ren, SI_MX, SI_SEP_H1, SCREEN_W - 20.0f, SI_SEP_H1, c_dkgreen);
-            draw_line(ren, SI_MX, SI_SEP_H2, SCREEN_W - 20.0f, SI_SEP_H2, c_dkgreen);
+            /* Indicador de pagina: encima del footer, alineado a la derecha */
+            {
+                char page_ind[16];
+                snprintf(page_ind, sizeof(page_ind), "%d/2", sysinfo_page + 1);
+                draw_text_right(ren, f_sm, page_ind, c_dkgreen, SCREEN_W - 20.0f, 418.0f);
+            }
 
 /* Macro auxiliar: título de bloque */
 #define SI_BLOCK_TITLE(xpos, ypos, title) do { \
     draw_text(ren, f_sm, title, c_green, (xpos), (ypos)); \
 } while(0)
 
-/* Macro fila: etiqueta fija + valor alineado a col_right */
+/* Macro fila: fondo alterno (zebra) + etiqueta + valor alineado a col_right */
 #define SI_ROW(xpos, ypos, col_right, lbl, val) do { \
+    if (si_row_idx % 2 == 0) \
+        draw_rect_filled(ren, (xpos) - 4.0f, (ypos) - 2.0f, (col_right) - (xpos) + 8.0f, SI_ROW_H, c_row_bg); \
+    si_row_idx++; \
     draw_text(ren, f_sm,  (lbl), c_gray,  (xpos),       (ypos)); \
     draw_text_right(ren, f_sm, (val), c_white, (col_right), (ypos)); \
 } while(0)
 
 /* Macro fila con barra: etiqueta, barra, valor */
 #define SI_ROW_BAR(xpos, ypos, col_right, lbl, val, pct) do { \
+    if (si_row_idx % 2 == 0) \
+        draw_rect_filled(ren, (xpos) - 4.0f, (ypos) - 2.0f, (col_right) - (xpos) + 8.0f, SI_ROW_H, c_row_bg); \
+    si_row_idx++; \
     draw_text(ren, f_sm, (lbl), c_gray, (xpos), (ypos)); \
     { int _ncols = 10; \
       int _fw = 0, _fh = 0; \
@@ -3268,8 +3266,10 @@ int main(void)
     } \
 } while(0)
 
-            /* ── BLOQUE 1 IZQ: SISTEMA ───────────────────────────────────── */
             float y = SI_Y0 + 2.0f;
+            si_row_idx = 0;
+            if (sysinfo_page == 0) {
+            /* ── BLOQUE 1: SISTEMA ───────────────────────────────────── */
             SI_BLOCK_TITLE(SI_MX, y, tr("SISTEMA", "SYSTEM"));
             y += 28.0f;
             SI_ROW(SI_MX, y, SI_MX + SI_CW_L, tr("Version OS", "OS Version"),       s_version);       y += SI_ROW_H;
@@ -3277,9 +3277,12 @@ int main(void)
             SI_ROW(SI_MX, y, SI_MX + SI_CW_L, tr("Arquitectura", "Architecture"), "aarch64");       y += SI_ROW_H;
             SI_ROW(SI_MX, y, SI_MX + SI_CW_L, tr("Compilación", "Build"),        sysinfo_build);   y += SI_ROW_H;
             SI_ROW(SI_MX, y, SI_MX + SI_CW_L, "Hostname",     "armiga");
+            }
 
-            /* ── BLOQUE 1 DER: ESTADO ────────────────────────────────────── */
-            y = SI_Y0 + 2.0f;
+            /* ── BLOQUE 2: METRICAS ────────────────────────────────────── */
+            if (sysinfo_page == 0) {
+            y = SI_SEP_H1 + 4.0f;
+            si_row_idx = 0;
             SI_BLOCK_TITLE(SI_RX, y, tr("MÉTRICAS", "METRICS"));
             y += 28.0f;
             {
@@ -3306,9 +3309,12 @@ int main(void)
                 SI_ROW    (SI_RX, y, SI_RX + SI_CW_R, "Uptime",   dev_uptime);                          y += SI_ROW_H;
                 SI_ROW    (SI_RX, y, SI_RX + SI_CW_R, "Load Avg", sysinfo_loadavg);
             }
+            }
 
-            /* ── BLOQUE 2 IZQ: ALMACENAMIENTO ───────────────────────────── */
-            y = SI_SEP_H1 + 4.0f;
+            /* ── BLOQUE 3: VOLUMENES ───────────────────────────── */
+            if (sysinfo_page == 0) {
+            y = SI_SEP_H2 + 4.0f;
+            si_row_idx = 0;
             SI_BLOCK_TITLE(SI_MX, y, tr("VOLÚMENES", "VOLUMES"));
             y += 28.0f;
             {
@@ -3335,9 +3341,12 @@ int main(void)
                     SI_ROW(SI_MX, y, SI_MX + SI_CW_L, tr("Espacio disponible", "Free space"), free_buf);
                 }
             }
+            }
 
-            /* ── BLOQUE 2 DER: HARDWARE ──────────────────────────────────── */
-            y = SI_SEP_H1 + 4.0f;
+            /* ── BLOQUE 1: ESPECIFICACIONES ──────────────────────────────── */
+            if (sysinfo_page == 1) {
+            y = SI_Y0 + 2.0f;
+            si_row_idx = 0;
             SI_BLOCK_TITLE(SI_RX, y, tr("ESPECIFICACIONES", "SPECIFICATIONS"));
             y += 28.0f;
             SI_ROW(SI_RX, y, SI_RX + SI_CW_R, "CPU",           "Cortex-A53 @1.51GHz"); y += SI_ROW_H;
@@ -3345,23 +3354,30 @@ int main(void)
             SI_ROW(SI_RX, y, SI_RX + SI_CW_R, "RAM",           "1 GB LPDDR4");         y += SI_ROW_H;
             SI_ROW(SI_RX, y, SI_RX + SI_CW_R, tr("Almacenamiento", "Storage"),"microSD");              y += SI_ROW_H;
             SI_ROW(SI_RX, y, SI_RX + SI_CW_R, tr("Resolución", "Resolution"),    "640x480 @ 60Hz");
+            }
 
             /* ── BLOQUE 3 IZQ: SOFTWARE ──────────────────────────────────── */
-            y = SI_SEP_H2 + 4.0f;
+            if (sysinfo_page == 1) {
+            y = SI_SEP_H1 + 4.0f;
+            si_row_idx = 0;
             SI_BLOCK_TITLE(SI_MX, y, tr("MOTOR DE EMULACIÓN", "EMULATION ENGINE"));
             y += 28.0f;
             SI_ROW(SI_MX, y, SI_MX + SI_CW_L, "RetroArch", s_retroarch); y += SI_ROW_H;
             SI_ROW(SI_MX, y, SI_MX + SI_CW_L, "Mesa",      s_mesa);      y += SI_ROW_H;
             SI_ROW(SI_MX, y, SI_MX + SI_CW_L, "SDL3",      s_sdl3);      y += SI_ROW_H;
+            }
 
             /* ── BLOQUE 3 DER: RED ───────────────────────────────────────── */
+            if (sysinfo_page == 1) {
             y = SI_SEP_H2 + 4.0f;
+            si_row_idx = 0;
             SI_BLOCK_TITLE(SI_RX, y, tr("CONECTIVIDAD", "CONNECTIVITY"));
             y += 28.0f;
             SI_ROW    (SI_RX, y, SI_RX + SI_CW_R, "IP",          dev_ip);          y += SI_ROW_H;
             SI_ROW    (SI_RX, y, SI_RX + SI_CW_R, "WiFi",        status_wifi_up ? tr("Conectado", "Connected") : tr("Desconectado", "Disconnected")); y += SI_ROW_H;
             SI_ROW_BAR(SI_RX, y, SI_RX + SI_CW_R, tr("Intensidad", "Signal"),  sysinfo_wifi_sig, sysinfo_wifi_pct >= 0 ? sysinfo_wifi_pct : 0); y += SI_ROW_H;
             SI_ROW    (SI_RX, y, SI_RX + SI_CW_R, "MAC",         sysinfo_mac);
+            }
 
 #undef SI_BLOCK_TITLE
 #undef SI_ROW
@@ -3369,12 +3385,11 @@ int main(void)
 
             /* Barra inferior */
             draw_line(ren, SI_MX, 438.0f, SCREEN_W - 20.0f, 438.0f, c_green);
-            draw_footer(ren, f_sm, tr("[A] Volver", "[A] Back"), s_version);
+            draw_footer(ren, f_sm, tr("[A] Volver  [L1/R1] Pagina", "[A] Back  [L1/R1] Page"), s_version);
         } else if (state == STATE_UPDATE) {
             const float UX = 20.0f;
             draw_text_truncated(ren, f_sm, tr("Menú > Actualización de sistema", "Menu > System Update"), c_green, UX, 20.0f, SCREEN_W - 190.0f);
             draw_statusbar(ren, f_sm, status_time, status_wifi_up, status_battery, wifi_icon_tex, battery_icon_tex);
-            draw_line(ren, UX, 44.0f, SCREEN_W - 20.0f, 44.0f, c_green);
 
             /* Versión actual */
             {
@@ -3395,7 +3410,6 @@ int main(void)
                 draw_text(ren, f_sm, buf, c_green, UX, 100.0f);
                 draw_text(ren, f_sm, tr("La descarga se realizará en segundo plano.", "The download will run in the background."), c_gray, UX, 122.0f);
                 draw_text(ren, f_sm, tr("El dispositivo se reiniciará al completar.", "The device will restart when finished."), c_gray, UX, 140.0f);
-                draw_line(ren, UX, 170.0f, SCREEN_W - 20.0f, 170.0f, c_dkgreen);
                 draw_text(ren, f_med, tr("[B] Descargar e instalar", "[B] Download and install"), c_green,  UX,          188.0f);
                 draw_text(ren, f_med, tr("[A] Cancelar", "[A] Cancel"),             c_gray,   UX + 260.0f, 188.0f);
 
