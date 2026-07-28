@@ -2796,6 +2796,9 @@ int main(void)
                 tr("[<>] Ajustar  [B] Aplicar  [A] Volver", "[<>] Adjust  [B] Apply  [A] Back"), s_version);
 
         } else if (state == STATE_TIMEZONE_CONFIG) {
+            SDL_Color c_menu_gold  = {224, 176, 96, 255};
+            SDL_Color c_menu_beige = {168, 157, 124, 255};
+            SDL_Color c_menu_selbg = {58, 51, 36, 255};
             draw_text_truncated(ren, f_sm, tr("Menú > Configuración > Zona horaria", "Menu > Settings > Time Zone"), c_green, mx, 20.0f, SCREEN_W - 190.0f);
             draw_statusbar(ren, f_sm, status_time, status_wifi_up, status_battery, wifi_icon_tex, battery_icon_tex);
 
@@ -2817,16 +2820,15 @@ int main(void)
                 if (sel) {
                     int text_w = 0, text_h = 0;
                     TTF_GetStringSize(f_sm, TIMEZONE_LIST[i].label[current_lang], 0, &text_w, &text_h);
-                    float sel_w = (float)text_w + 24.0f;
-                    draw_rounded_rect_filled(ren, mx - 4.0f, iy - 3.0f,
-                                     sel_w, tz_item_h - 2.0f, 6.0f, c_selbg);
-                    draw_rect_filled(ren, mx - 4.0f, iy - 3.0f,
-                                     4.0f, tz_item_h - 2.0f, c_green);
+                    float sel_w = (float)text_w + 32.0f;
+                    float pill_h = tz_item_h - 4.0f;
+                    draw_rounded_rect_filled(ren, mx - 10.0f, iy - (pill_h - tz_item_h + 4.0f)/2.0f - 2.0f,
+                                     sel_w, pill_h, pill_h / 2.0f, c_menu_selbg);
                 }
-                SDL_Color labelc = sel ? c_green : c_gray;
+                SDL_Color labelc = sel ? c_menu_gold : c_menu_beige;
                 draw_text(ren, f_sm, TIMEZONE_LIST[i].label[current_lang], labelc, mx + 8.0f, iy);
                 if (active)
-                    draw_text(ren, f_sm, "*", c_green, mx + mw - 16.0f, iy);
+                    draw_text(ren, f_sm, "*", c_menu_gold, mx + mw - 16.0f, iy);
             }
 
             draw_line(ren, mx, 438.0f, SCREEN_W - 20.0f, 438.0f, c_green);
@@ -2834,6 +2836,9 @@ int main(void)
                 tr("[B] Aplicar  [A] Volver", "[B] Apply  [A] Back"), s_version);
 
         } else if (state == STATE_SCREENDIM_CONFIG) {
+            SDL_Color c_menu_gold  = {224, 176, 96, 255};
+            SDL_Color c_menu_beige = {168, 157, 124, 255};
+            SDL_Color c_menu_selbg = {58, 51, 36, 255};
             draw_text_truncated(ren, f_sm, tr("Menú > Configuración > Ahorro de pantalla", "Menu > Settings > Screen Dimming"), c_green, mx, 20.0f, SCREEN_W - 190.0f);
             draw_statusbar(ren, f_sm, status_time, status_wifi_up, status_battery, wifi_icon_tex, battery_icon_tex);
 
@@ -2845,17 +2850,16 @@ int main(void)
             {
                 float iy = dim_y0;
                 bool sel = (dim_field_selected == 0);
-                SDL_Color labelc = sel ? c_green : c_gray;
+                SDL_Color labelc = sel ? c_menu_gold : c_menu_beige;
                 const char *dim_val_disp = DIM_TIMEOUT_LABELS[dim_timeout_selected][current_lang];
                 if (sel) {
                     int lw = 0, lh = 0, vw = 0, vh = 0;
                     TTF_GetStringSize(f_sm, tr("Atenuar tras", "Dim after"), 0, &lw, &lh);
                     TTF_GetStringSize(f_med, dim_val_disp, 0, &vw, &vh);
-                    float sel_w = (float)(lw > vw ? lw : vw) + 24.0f;
-                    draw_rounded_rect_filled(ren, mx - 4.0f, iy - 4.0f,
-                                     sel_w, dim_item_h - 8.0f, 8.0f, c_selbg);
-                    draw_rect_filled(ren, mx - 4.0f, iy - 4.0f,
-                                     4.0f, dim_item_h - 8.0f, c_green);
+                    float sel_w = (float)(lw > vw ? lw : vw) + 32.0f;
+                    float pill_h = dim_item_h - 6.0f;
+                    draw_rounded_rect_filled(ren, mx - 10.0f, iy - 6.0f,
+                                     sel_w, pill_h, 10.0f, c_menu_selbg);
                 }
                 draw_text(ren, f_sm, tr("Atenuar tras", "Dim after"), labelc, mx + 8.0f, iy);
                 draw_text(ren, f_med, dim_val_disp, c_white, mx + 8.0f, iy + 16.0f);
@@ -2864,16 +2868,15 @@ int main(void)
             {
                 float iy = dim_y0 + dim_item_h;
                 bool sel = (dim_field_selected == 1);
-                SDL_Color labelc = sel ? c_green : c_gray;
+                SDL_Color labelc = sel ? c_menu_gold : c_menu_beige;
                 if (sel) {
                     int lw = 0, lh = 0;
                     TTF_GetStringSize(f_sm, tr("Brillo al atenuar", "Brightness when dimmed"), 0, &lw, &lh);
                     float bar_total_w = dim_bar_w + 10.0f + 40.0f; /* barra + gap + "100%" aprox */
-                    float sel_w = ((float)lw > bar_total_w ? (float)lw : bar_total_w) + 24.0f;
-                    draw_rounded_rect_filled(ren, mx - 4.0f, iy - 4.0f,
-                                     sel_w, dim_item_h - 8.0f, 8.0f, c_selbg);
-                    draw_rect_filled(ren, mx - 4.0f, iy - 4.0f,
-                                     4.0f, dim_item_h - 8.0f, c_green);
+                    float sel_w = ((float)lw > bar_total_w ? (float)lw : bar_total_w) + 32.0f;
+                    float pill_h = dim_item_h - 2.0f;
+                    draw_rounded_rect_filled(ren, mx - 10.0f, iy - 6.0f,
+                                     sel_w, pill_h, 10.0f, c_menu_selbg);
                 }
                 draw_text(ren, f_sm, tr("Brillo al atenuar", "Brightness when dimmed"),
                           labelc, mx + 8.0f, iy);
@@ -2892,23 +2895,25 @@ int main(void)
                 tr("[B] Guardar  [A] Volver", "[B] Save  [A] Back"), s_version);
 
         } else if (state == STATE_BACKUP_MENU) {
+            SDL_Color c_menu_gold  = {224, 176, 96, 255};
+            SDL_Color c_menu_beige = {168, 157, 124, 255};
+            SDL_Color c_menu_selbg = {58, 51, 36, 255};
             draw_text_truncated(ren, f_sm, tr("Menú > Configuración > Copia de seguridad", "Menu > Settings > Backup"), c_green, mx, 20.0f, SCREEN_W - 190.0f);
             draw_statusbar(ren, f_sm, status_time, status_wifi_up, status_battery, wifi_icon_tex, battery_icon_tex);
             float bkm_y0 = 64.0f;
-            float bkm_item_h = 30.0f;
+            float bkm_item_h = 34.0f;
             for (int i = 0; i < BACKUP_MENU_COUNT; i++) {
                 float iy = bkm_y0 + i * bkm_item_h;
                 if (i == backup_selected) {
                     int text_w = 0, text_h = 0;
                     TTF_GetStringSize(f_med, BACKUP_MENU_ITEMS[i][current_lang], 0, &text_w, &text_h);
-                    float sel_w = (float)text_w + 24.0f;
-                    draw_rounded_rect_filled(ren, mx - 4.0f, iy - 4.0f,
-                                     sel_w, bkm_item_h - 2.0f, 8.0f, c_selbg);
-                    draw_rect_filled(ren, mx - 4.0f, iy - 4.0f,
-                                     4.0f, bkm_item_h - 2.0f, c_green);
-                    draw_text(ren, f_med, BACKUP_MENU_ITEMS[i][current_lang], c_green, mx + 8.0f, iy);
+                    float sel_w = (float)text_w + 32.0f;
+                    float pill_h = bkm_item_h - 4.0f;
+                    draw_rounded_rect_filled(ren, mx - 10.0f, iy - 5.0f,
+                                     sel_w, pill_h, pill_h / 2.0f, c_menu_selbg);
+                    draw_text(ren, f_med, BACKUP_MENU_ITEMS[i][current_lang], c_menu_gold, mx + 8.0f, iy);
                 } else {
-                    draw_text(ren, f_med, BACKUP_MENU_ITEMS[i][current_lang], c_gray, mx + 8.0f, iy);
+                    draw_text(ren, f_med, BACKUP_MENU_ITEMS[i][current_lang], c_menu_beige, mx + 8.0f, iy);
                 }
             }
             if (backup_creating) {
@@ -2961,6 +2966,9 @@ int main(void)
             draw_footer(ren, f_sm, tr("[B] Restaurar  [X] Eliminar  [A] Volver", "[B] Restore  [X] Delete  [A] Back"), s_version);
 
         } else if (state == STATE_WIFI_CONFIG) {
+            SDL_Color c_menu_gold  = {224, 176, 96, 255};
+            SDL_Color c_menu_beige = {168, 157, 124, 255};
+            SDL_Color c_menu_selbg = {58, 51, 36, 255};
             draw_text_truncated(ren, f_sm, tr("Menú > Configuración > Red inalámbrica", "Menu > Settings > Wireless Network"), c_green, mx, 20.0f, SCREEN_W - 190.0f);
             draw_statusbar(ren, f_sm, status_time, status_wifi_up, status_battery, wifi_icon_tex, battery_icon_tex);
 
@@ -2970,17 +2978,16 @@ int main(void)
             {
                 float iy = wifi_y0;
                 bool sel = (wifi_field_selected == 0);
-                SDL_Color labelc = sel ? c_green : c_gray;
+                SDL_Color labelc = sel ? c_menu_gold : c_menu_beige;
                 const char *ssid_disp = wifi_ssid[0] ? wifi_ssid : "--";
                 if (sel) {
                     int lw = 0, lh = 0, vw = 0, vh = 0;
                     TTF_GetStringSize(f_sm, "SSID", 0, &lw, &lh);
                     TTF_GetStringSize(f_med, ssid_disp, 0, &vw, &vh);
-                    float sel_w = (float)(lw > vw ? lw : vw) + 24.0f;
-                    draw_rounded_rect_filled(ren, mx - 4.0f, iy - 4.0f,
-                                     sel_w, wifi_item_h - 6.0f, 8.0f, c_selbg);
-                    draw_rect_filled(ren, mx - 4.0f, iy - 4.0f,
-                                     4.0f, wifi_item_h - 6.0f, c_green);
+                    float sel_w = (float)(lw > vw ? lw : vw) + 32.0f;
+                    float pill_h = wifi_item_h - 4.0f;
+                    draw_rounded_rect_filled(ren, mx - 10.0f, iy - 6.0f,
+                                     sel_w, pill_h, 10.0f, c_menu_selbg);
                 }
                 draw_text(ren, f_sm, "SSID", labelc, mx + 8.0f, iy);
                 draw_text(ren, f_med, ssid_disp, c_white, mx + 8.0f, iy + 16.0f);
@@ -2989,7 +2996,7 @@ int main(void)
             {
                 float iy = wifi_y0 + wifi_item_h;
                 bool sel = (wifi_field_selected == 1);
-                SDL_Color labelc = sel ? c_green : c_gray;
+                SDL_Color labelc = sel ? c_menu_gold : c_menu_beige;
                 char masked[64];
                 if (wifi_show_password || !wifi_password[0]) {
                     strncpy(masked, wifi_password[0] ? wifi_password : "--", sizeof(masked) - 1);
@@ -3004,11 +3011,10 @@ int main(void)
                     int lw = 0, lh = 0, vw = 0, vh = 0;
                     TTF_GetStringSize(f_sm, tr("CONTRASEÑA", "PASSWORD"), 0, &lw, &lh);
                     TTF_GetStringSize(f_med, masked, 0, &vw, &vh);
-                    float sel_w = (float)(lw > vw ? lw : vw) + 24.0f;
-                    draw_rounded_rect_filled(ren, mx - 4.0f, iy - 4.0f,
-                                     sel_w, wifi_item_h - 6.0f, 8.0f, c_selbg);
-                    draw_rect_filled(ren, mx - 4.0f, iy - 4.0f,
-                                     4.0f, wifi_item_h - 6.0f, c_green);
+                    float sel_w = (float)(lw > vw ? lw : vw) + 32.0f;
+                    float pill_h = wifi_item_h - 4.0f;
+                    draw_rounded_rect_filled(ren, mx - 10.0f, iy - 6.0f,
+                                     sel_w, pill_h, 10.0f, c_menu_selbg);
                 }
                 draw_text(ren, f_sm, tr("CONTRASEÑA", "PASSWORD"), labelc, mx + 8.0f, iy);
                 draw_text(ren, f_med, masked, c_white, mx + 8.0f, iy + 16.0f);
@@ -3020,6 +3026,9 @@ int main(void)
                 s_version);
 
         } else if (state == STATE_LED_CONFIG) {
+            SDL_Color c_menu_gold  = {224, 176, 96, 255};
+            SDL_Color c_menu_beige = {168, 157, 124, 255};
+            SDL_Color c_menu_selbg = {58, 51, 36, 255};
             draw_text_truncated(ren, f_sm, tr("Menú > Configuración > LED RGB analógicos", "Menu > Settings > Analog Stick LEDs"), c_green, mx, 20.0f, SCREEN_W - 190.0f);
             draw_statusbar(ren, f_sm, status_time, status_wifi_up, status_battery, wifi_icon_tex, battery_icon_tex);
 
@@ -3051,18 +3060,18 @@ int main(void)
             for (int i = 0; i < LED_SLIDER_COUNT; i++) {
                 float iy = led_y0 + i * led_item_h;
                 bool sel = (led_selected == i);
-                SDL_Color labelc = sel ? c_green : c_gray;
+                SDL_Color labelc = sel ? c_menu_gold : c_menu_beige;
                 if (sel) {
-                    draw_rounded_rect_filled(ren, mx - 4.0f, iy - 4.0f,
-                                     mw, led_item_h - 8.0f, 8.0f, c_selbg);
-                    draw_rect_filled(ren, mx - 4.0f, iy - 4.0f,
-                                     4.0f, led_item_h - 8.0f, c_green);
+                    float pill_h = led_item_h - 6.0f;
+                    draw_rounded_rect_filled(ren, mx - 10.0f, iy - 5.0f,
+                                     mw + 20.0f, pill_h, pill_h / 2.0f, c_menu_selbg);
                 }
                 draw_text(ren, f_sm, LED_SLIDER_LABELS[i][current_lang], labelc, mx + 8.0f, iy);
 
                 float bar_x = mx + 180.0f;
                 float bar_y = iy + 3.0f;
-                draw_rect_filled(ren, bar_x, bar_y, led_bar_w, led_bar_h, c_selbg);
+                SDL_Color c_bar_empty = {20, 18, 14, 255};
+                draw_rect_filled(ren, bar_x, bar_y, led_bar_w, led_bar_h, c_bar_empty);
                 float frac = led_vals_r[i] / 255.0f;
                 draw_rect_filled(ren, bar_x, bar_y, led_bar_w * frac, led_bar_h, led_bar_colors[i]);
 
