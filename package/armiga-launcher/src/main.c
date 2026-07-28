@@ -2885,10 +2885,10 @@ int main(void)
                     int lw = 0, lh = 0, vw = 0, vh = 0;
                     TTF_GetStringSize(f_sm, tr("Atenuar tras", "Dim after"), 0, &lw, &lh);
                     TTF_GetStringSize(f_med, dim_val_disp, 0, &vw, &vh);
-                    float sel_w = (float)(lw > vw ? lw : vw) + 32.0f;
-                    float pill_h = dim_item_h - 6.0f;
-                    draw_rounded_rect_filled(ren, mx - 10.0f, iy - 6.0f,
-                                     sel_w, pill_h, 10.0f, c_menu_selbg);
+                    float sel_w = (float)(lw > vw ? lw : vw) + 40.0f;
+                    float pill_h = dim_item_h - 2.0f;
+                    draw_rounded_rect_filled(ren, mx - 14.0f, iy - 4.0f,
+                                     sel_w, pill_h, pill_h / 2.0f, c_menu_selbg);
                 }
                 draw_text(ren, f_sm, tr("Atenuar tras", "Dim after"), labelc, mx + 8.0f, iy);
                 draw_text(ren, f_med, dim_val_disp, c_white, mx + 8.0f, iy + 16.0f);
@@ -2902,10 +2902,10 @@ int main(void)
                     int lw = 0, lh = 0;
                     TTF_GetStringSize(f_sm, tr("Brillo al atenuar", "Brightness when dimmed"), 0, &lw, &lh);
                     float bar_total_w = dim_bar_w + 10.0f + 40.0f; /* barra + gap + "100%" aprox */
-                    float sel_w = ((float)lw > bar_total_w ? (float)lw : bar_total_w) + 32.0f;
-                    float pill_h = dim_item_h - 2.0f;
-                    draw_rounded_rect_filled(ren, mx - 10.0f, iy - 6.0f,
-                                     sel_w, pill_h, 10.0f, c_menu_selbg);
+                    float sel_w = ((float)lw > bar_total_w ? (float)lw : bar_total_w) + 40.0f;
+                    float pill_h = dim_item_h + 2.0f;
+                    draw_rounded_rect_filled(ren, mx - 14.0f, iy - 8.0f,
+                                     sel_w, pill_h, pill_h / 2.0f, c_menu_selbg);
                 }
                 draw_text(ren, f_sm, tr("Brillo al atenuar", "Brightness when dimmed"),
                           labelc, mx + 8.0f, iy);
@@ -3013,10 +3013,10 @@ int main(void)
                     int lw = 0, lh = 0, vw = 0, vh = 0;
                     TTF_GetStringSize(f_sm, "SSID", 0, &lw, &lh);
                     TTF_GetStringSize(f_med, ssid_disp, 0, &vw, &vh);
-                    float sel_w = (float)(lw > vw ? lw : vw) + 32.0f;
-                    float pill_h = wifi_item_h - 4.0f;
-                    draw_rounded_rect_filled(ren, mx - 10.0f, iy - 6.0f,
-                                     sel_w, pill_h, 10.0f, c_menu_selbg);
+                    float sel_w = (float)(lw > vw ? lw : vw) + 40.0f;
+                    float pill_h = wifi_item_h + 4.0f;
+                    draw_rounded_rect_filled(ren, mx - 14.0f, iy - 8.0f,
+                                     sel_w, pill_h, pill_h / 2.0f, c_menu_selbg);
                 }
                 draw_text(ren, f_sm, "SSID", labelc, mx + 8.0f, iy);
                 draw_text(ren, f_med, ssid_disp, c_white, mx + 8.0f, iy + 16.0f);
@@ -3040,10 +3040,10 @@ int main(void)
                     int lw = 0, lh = 0, vw = 0, vh = 0;
                     TTF_GetStringSize(f_sm, tr("CONTRASEÑA", "PASSWORD"), 0, &lw, &lh);
                     TTF_GetStringSize(f_med, masked, 0, &vw, &vh);
-                    float sel_w = (float)(lw > vw ? lw : vw) + 32.0f;
-                    float pill_h = wifi_item_h - 4.0f;
-                    draw_rounded_rect_filled(ren, mx - 10.0f, iy - 6.0f,
-                                     sel_w, pill_h, 10.0f, c_menu_selbg);
+                    float sel_w = (float)(lw > vw ? lw : vw) + 40.0f;
+                    float pill_h = wifi_item_h + 4.0f;
+                    draw_rounded_rect_filled(ren, mx - 14.0f, iy - 8.0f,
+                                     sel_w, pill_h, pill_h / 2.0f, c_menu_selbg);
                 }
                 draw_text(ren, f_sm, tr("CONTRASEÑA", "PASSWORD"), labelc, mx + 8.0f, iy);
                 draw_text(ren, f_med, masked, c_white, mx + 8.0f, iy + 16.0f);
