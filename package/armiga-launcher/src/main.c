@@ -2737,11 +2737,14 @@ int main(void)
         }
 
         } else if (state == STATE_SETTINGS) {
+            SDL_Color c_menu_gold  = {224, 176, 96, 255};
+            SDL_Color c_menu_beige = {168, 157, 124, 255};
+            SDL_Color c_menu_selbg = {58, 51, 36, 255};
             draw_text_truncated(ren, f_sm, tr("Menú > Configuración", "Menu > Settings"), c_green, mx, 20.0f, SCREEN_W - 190.0f);
             draw_statusbar(ren, f_sm, status_time, status_wifi_up, status_battery, wifi_icon_tex, battery_icon_tex);
 
             float settings_y0 = 64.0f;
-            float settings_item_h = 30.0f;
+            float settings_item_h = 34.0f;
             for (int i = 0; i < SETTINGS_MENU_COUNT; i++) {
                 float iy = settings_y0 + i * settings_item_h;
                 char item_label[64];
@@ -2759,14 +2762,13 @@ int main(void)
                 if (i == settings_selected) {
                     int text_w = 0, text_h = 0;
                     TTF_GetStringSize(f_med, item_label, 0, &text_w, &text_h);
-                    float sel_w = (float)text_w + 24.0f; /* padding izquierdo (8) + derecho (16) */
-                    draw_rounded_rect_filled(ren, mx - 4.0f, iy - 4.0f,
-                                     sel_w, settings_item_h - 2.0f, 8.0f, c_selbg);
-                    draw_rect_filled(ren, mx - 4.0f, iy - 4.0f,
-                                     4.0f, settings_item_h - 2.0f, c_green);
-                    draw_text(ren, f_med, item_label, c_green, mx + 8.0f, iy);
+                    float sel_w = (float)text_w + 32.0f;
+                    float pill_h = settings_item_h - 4.0f;
+                    draw_rounded_rect_filled(ren, mx - 10.0f, iy - 5.0f,
+                                     sel_w, pill_h, pill_h / 2.0f, c_menu_selbg);
+                    draw_text(ren, f_med, item_label, c_menu_gold, mx + 8.0f, iy);
                 } else {
-                    draw_text(ren, f_med, item_label, c_gray, mx + 8.0f, iy);
+                    draw_text(ren, f_med, item_label, c_menu_beige, mx + 8.0f, iy);
                 }
             }
 
