@@ -34,6 +34,7 @@ static void safe_copy(char *dst, const char *src, size_t sz) {
 #define FONT_PATH    "/usr/share/armiga/fonts/JetBrainsMonoNL-ExtraBold.ttf"
 #define FONT_MED     13
 #define FONT_SM      12
+#define FONT_LG      28
 
 #define COL_BG       { 16,  16,  16, 255}
 #define COL_GREEN    {224, 176,  96, 255}
@@ -1568,6 +1569,23 @@ static void draw_context_panel(SDL_Renderer *ren, TTF_Font *f, float x, float y,
         draw_text(ren, f, lines[i], c, x, y + (float)i * 16.0f);
     }
 }
+/* Calcula HH:MM actual en la zona horaria IANA indicada, sin tocar el TZ
+ * persistente del sistema (solo afecta a este proceso, restaurado despues). */
+static void get_time_in_tz(const char *tz_name, char *buf, size_t bufsize)
+{
+    char *old_tz = getenv("TZ");
+    char old_tz_copy[128] = {0};
+    if (old_tz) safe_copy(old_tz_copy, old_tz, sizeof(old_tz_copy));
+    setenv("TZ", tz_name, 1);
+    tzset();
+    time_t now = time(NULL);
+    struct tm *lt = localtime(&now);
+    if (lt) strftime(buf, bufsize, "%H:%M", lt);
+    else    safe_copy(buf, "--:--", bufsize);
+    if (old_tz_copy[0]) setenv("TZ", old_tz_copy, 1);
+    else                unsetenv("TZ");
+    tzset();
+}
 
 int main(void)
 {
@@ -1595,7 +1613,8 @@ int main(void)
 
     TTF_Font *f_med   = TTF_OpenFont(FONT_PATH, FONT_MED);
     TTF_Font *f_sm    = TTF_OpenFont(FONT_PATH, FONT_SM);
-    if (!f_med || !f_sm) {
+    TTF_Font *f_lg    = TTF_OpenFont(FONT_PATH, FONT_LG);
+    if (!f_med || !f_sm || !f_lg) {
         fprintf(stderr, "TTF_OpenFont: %s\n", SDL_GetError());
         SDL_DestroyRenderer(ren); SDL_DestroyWindow(win);
         TTF_Quit(); SDL_Quit(); return 1;
@@ -2817,18 +2836,28 @@ int main(void)
                 float iy = tz_y0 + row * tz_item_h;
                 bool sel = (i == timezone_selected);
                 bool active = !strcmp(TIMEZONE_LIST[i].tz_name, timezone_current);
+                int text_w = 0, text_h = 0;
+                TTF_GetStringSize(f_sm, TIMEZONE_LIST[i].label[current_lang], 0, &text_w, &text_h);
                 if (sel) {
-                    int text_w = 0, text_h = 0;
-                    TTF_GetStringSize(f_sm, TIMEZONE_LIST[i].label[current_lang], 0, &text_w, &text_h);
-                    float sel_w = (float)text_w + 32.0f;
-                    float pill_h = tz_item_h - 4.0f;
-                    draw_rounded_rect_filled(ren, mx - 10.0f, iy - (pill_h - tz_item_h + 4.0f)/2.0f - 2.0f,
+                    float sel_w = (float)text_w + 42.0f;
+                    float pill_h = tz_item_h + 2.0f;
+                    draw_rounded_rect_filled(ren, mx - 10.0f, iy - 3.0f,
                                      sel_w, pill_h, pill_h / 2.0f, c_menu_selbg);
                 }
                 SDL_Color labelc = sel ? c_menu_gold : c_menu_beige;
                 draw_text(ren, f_sm, TIMEZONE_LIST[i].label[current_lang], labelc, mx + 8.0f, iy);
                 if (active)
-                    draw_text(ren, f_sm, "*", c_menu_gold, mx + mw - 16.0f, iy);
+                    draw_text(ren, f_sm, "✓", c_menu_gold, mx + 8.0f + (float)text_w + 8.0f, iy);
+            }
+
+            /* Panel derecho: hora en vivo de la zona resaltada por el cursor */
+            {
+                float tzp_x = mx + mw + 30.0f;
+                char tz_time_buf[8];
+                get_time_in_tz(TIMEZONE_LIST[timezone_selected].tz_name, tz_time_buf, sizeof(tz_time_buf));
+                draw_text(ren, f_sm, tr("Hora actual", "Current time"), c_menu_beige, tzp_x, tz_y0);
+                draw_text(ren, f_lg, tz_time_buf, c_menu_gold, tzp_x, tz_y0 + 22.0f);
+                draw_text(ren, f_sm, TIMEZONE_LIST[timezone_selected].label[current_lang], c_menu_beige, tzp_x, tz_y0 + 66.0f);
             }
 
             draw_line(ren, mx, 438.0f, SCREEN_W - 20.0f, 438.0f, c_green);
@@ -3502,6 +3531,7 @@ int main(void)
     if (joy) SDL_CloseJoystick(joy);
     TTF_CloseFont(f_sm);
     TTF_CloseFont(f_med);
+    TTF_CloseFont(f_lg);
     SDL_DestroyRenderer(ren);
     SDL_DestroyWindow(win);
     TTF_Quit();
