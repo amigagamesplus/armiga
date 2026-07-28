@@ -1529,7 +1529,7 @@ static void draw_statusbar(SDL_Renderer *ren, TTF_Font *f,
     right -= draw_status_pill(ren, f, right, y, battery_icon_tex, batt_buf, batt_fg, c_pill_on);
     right -= gap;
 
-    SDL_Color wifi_fg = wifi_up ? c_gold : c_red;
+    SDL_Color wifi_fg = wifi_up ? c_gold : c_dim_fg;
     right -= draw_status_pill(ren, f, right, y, wifi_icon_tex, " ", wifi_fg, wifi_up ? c_pill_on : c_pill_off);
     right -= gap;
 
