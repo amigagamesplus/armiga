@@ -61,7 +61,8 @@ typedef enum {
     STATE_LED_CONFIG,
     STATE_TIMEZONE_CONFIG,
     STATE_SCREENDIM_CONFIG,
-    STATE_BRIGHTNESS_CONFIG
+    STATE_BRIGHTNESS_CONFIG,
+    STATE_PERF_CONFIG
 } AppState;
 
 typedef enum {
@@ -163,9 +164,10 @@ static const char *SETTINGS_MENU_ITEMS[][2] = {
     {"Brillo de pantalla",          "Screen Brightness"},
     {"SSH",                         "SSH"},
     {"Samba (\\\\armiga)",           "Samba (\\\\armiga)"},
+    {"Rendimiento",                 "Performance"},
     {"Restablecer valores de fábrica", "Factory reset"},
 };
-#define SETTINGS_MENU_COUNT 9
+#define SETTINGS_MENU_COUNT 10
 #define SETTINGS_ACTION_FACTORY_RESET 10
 
 /* Tiempos de inactividad seleccionables, en segundos. 0 = Nunca. */
@@ -925,6 +927,59 @@ static void apply_ssh_enabled(int enabled)
     else
         system("/etc/init.d/S50dropbear stop >/dev/null 2>&1");
 }
+/* Perfil de rendimiento: 0=Maximo, 1=Equilibrado (default), 2=Ahorro. */
+static int read_perf_profile(void)
+{
+    int profile = 1;
+    FILE *f = fopen(ARMIGA_CONFIG_PATH, "r");
+    if (!f) return profile;
+    char line[128];
+    while (fgets(line, sizeof(line), f)) {
+        char key[32], val[96];
+        if (sscanf(line, "%31[^=]=%95s", key, val) == 2) {
+            if (!strcmp(key, "PERF_PROFILE")) profile = atoi(val);
+        }
+    }
+    fclose(f);
+    if (profile < 0 || profile > 2) profile = 1;
+    return profile;
+}
+static void save_perf_profile(int profile)
+{
+    char lines[32][128];
+    int n = 0;
+    FILE *f = fopen(ARMIGA_CONFIG_PATH, "r");
+    if (f) {
+        while (n < 32 && fgets(lines[n], sizeof(lines[n]), f)) {
+            char key[32], val[96];
+            if (sscanf(lines[n], "%31[^=]=%95s", key, val) == 2 &&
+                !strcmp(key, "PERF_PROFILE")) {
+                continue;
+            }
+            n++;
+        }
+        fclose(f);
+    }
+    f = fopen(ARMIGA_CONFIG_PATH, "w");
+    if (!f) return;
+    for (int i = 0; i < n; i++) fputs(lines[i], f);
+    fprintf(f, "PERF_PROFILE=%d\n", profile);
+    fclose(f);
+}
+/* Aplica el perfil en caliente: CPU governor + GPU devfreq governor. */
+static void apply_perf_profile(int profile)
+{
+    if (profile == 0) {
+        set_cpu_governor("performance");
+        system("echo performance > /sys/class/devfreq/1800000.gpu/governor 2>/dev/null");
+    } else if (profile == 2) {
+        set_cpu_governor("powersave");
+        system("echo powersave > /sys/class/devfreq/1800000.gpu/governor 2>/dev/null");
+    } else {
+        set_cpu_governor("schedutil");
+        system("echo performance > /sys/class/devfreq/1800000.gpu/governor 2>/dev/null");
+    }
+}
 
 /* Lee SAMBA_ENABLED de armiga.cfg. Default: activado (1). */
 static int read_samba_enabled(void)
@@ -1674,6 +1729,12 @@ int main(void)
     if (wifi_icon_tex) SDL_SetTextureScaleMode(wifi_icon_tex, SDL_SCALEMODE_LINEAR);
     SDL_Texture *battery_icon_tex = IMG_LoadTexture(ren, "/usr/share/armiga/icons/battery-3.png");
     if (battery_icon_tex) SDL_SetTextureScaleMode(battery_icon_tex, SDL_SCALEMODE_LINEAR);
+    SDL_Texture *perf_bolt_tex = IMG_LoadTexture(ren, "/usr/share/armiga/icons/perf-bolt.png");
+    if (perf_bolt_tex) SDL_SetTextureScaleMode(perf_bolt_tex, SDL_SCALEMODE_LINEAR);
+    SDL_Texture *perf_scale_tex = IMG_LoadTexture(ren, "/usr/share/armiga/icons/perf-scale.png");
+    if (perf_scale_tex) SDL_SetTextureScaleMode(perf_scale_tex, SDL_SCALEMODE_LINEAR);
+    SDL_Texture *perf_battery_tex = IMG_LoadTexture(ren, "/usr/share/armiga/icons/perf-battery.png");
+    if (perf_battery_tex) SDL_SetTextureScaleMode(perf_battery_tex, SDL_SCALEMODE_LINEAR);
 
     /* Leer versiones */
     char s_kernel[32], s_mesa[32], s_retroarch[32], s_sdl3[32], s_build_date[24], s_version[32], s_build_number[16];
@@ -1717,6 +1778,7 @@ int main(void)
     int led_repeat_dir = 0; /* -1 izq, +1 der, 0 ninguno */
     char timezone_current[64] = "UTC";
     int timezone_selected = 0;
+    int perf_selected = read_perf_profile();
     read_current_tz(timezone_current, sizeof(timezone_current));
     for (int i = 0; i < TIMEZONE_LIST_COUNT; i++) {
         if (!strcmp(TIMEZONE_LIST[i].tz_name, timezone_current)) {
@@ -1734,6 +1796,7 @@ int main(void)
     int dim_field_selected = 0; /* 0 = tiempo, 1 = porcentaje */
     int brightness_pct = read_brightness_config();
     write_brightness((int)((int64_t)2499 * brightness_pct / 100));
+    apply_perf_profile(perf_selected);
     int dim_max_brightness = read_max_brightness();
     int ssh_enabled = read_ssh_enabled(); /* aplicado ya por S51ssh-toggle en boot, solo reflejar estado en UI */
     int samba_enabled = read_samba_enabled(); /* aplicado ya por S53samba-toggle en boot, solo reflejar estado en UI */
@@ -1953,6 +2016,9 @@ int main(void)
                         apply_samba_enabled(samba_enabled);
                     }
                     if (ev.key.key == SDLK_RETURN && settings_selected == 8) {
+                        state = STATE_PERF_CONFIG;
+                    }
+                    if (ev.key.key == SDLK_RETURN && settings_selected == 9) {
                         confirm_target = SETTINGS_ACTION_FACTORY_RESET;
                         confirm_return_state = STATE_SETTINGS;
                         state = STATE_CONFIRM;
@@ -2008,6 +2074,10 @@ int main(void)
                 }
                 if (ev.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN &&
                     ev.jbutton.button == BTN_SDL_A && settings_selected == 8) {
+                    state = STATE_PERF_CONFIG;
+                }
+                if (ev.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN &&
+                    ev.jbutton.button == BTN_SDL_A && settings_selected == 9) {
                     confirm_target = SETTINGS_ACTION_FACTORY_RESET;
                     confirm_return_state = STATE_SETTINGS;
                     state = STATE_CONFIRM;
@@ -2059,6 +2129,34 @@ int main(void)
                 }
                 if (brightness_pct != brightness_pct_prev)
                     write_brightness((int)((int64_t)2499 * brightness_pct / 100));
+            }
+            else if (state == STATE_PERF_CONFIG) {
+                if (ev.type == SDL_EVENT_KEY_DOWN) {
+                    if (ev.key.key == SDLK_UP)
+                        perf_selected = (perf_selected - 1 + 3) % 3;
+                    if (ev.key.key == SDLK_DOWN)
+                        perf_selected = (perf_selected + 1) % 3;
+                    if (ev.key.key == SDLK_RETURN) {
+                        save_perf_profile(perf_selected);
+                        apply_perf_profile(perf_selected);
+                    }
+                    if (ev.key.key == SDLK_ESCAPE)
+                        state = STATE_SETTINGS;
+                }
+                if (ev.type == SDL_EVENT_JOYSTICK_HAT_MOTION) {
+                    if (ev.jhat.value == SDL_HAT_UP)
+                        perf_selected = (perf_selected - 1 + 3) % 3;
+                    else if (ev.jhat.value == SDL_HAT_DOWN)
+                        perf_selected = (perf_selected + 1) % 3;
+                }
+                if (ev.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN &&
+                    ev.jbutton.button == BTN_SDL_A) {
+                    save_perf_profile(perf_selected);
+                    apply_perf_profile(perf_selected);
+                }
+                if (ev.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN &&
+                    ev.jbutton.button == BTN_SDL_B)
+                    state = STATE_SETTINGS;
             }
             else if (state == STATE_TIMEZONE_CONFIG) {
                 if (ev.type == SDL_EVENT_KEY_DOWN) {
@@ -2843,6 +2941,60 @@ int main(void)
             draw_line(ren, mx, 438.0f, SCREEN_W - 20.0f, 438.0f, c_green);
             draw_footer(ren, f_sm,
                 tr("[<>] Ajustar  [B] Aplicar  [A] Volver", "[<>] Adjust  [B] Apply  [A] Back"), s_version);
+
+        } else if (state == STATE_PERF_CONFIG) {
+            SDL_Color c_menu_gold  = {224, 176, 96, 255};
+            SDL_Color c_menu_beige = {168, 157, 124, 255};
+            SDL_Color c_menu_selbg = {58, 51, 36, 255};
+            draw_text_truncated(ren, f_sm, tr("Menú > Configuración > Rendimiento", "Menu > Settings > Performance"), c_green, mx, 20.0f, SCREEN_W - 190.0f);
+            draw_statusbar(ren, f_sm, f_xs, status_time, status_wifi_up, status_battery, wifi_icon_tex, battery_icon_tex);
+            struct { const char *title[2]; const char *desc[2]; SDL_Texture *icon; } perf_opts[3] = {
+                {{"Rendimiento máximo", "Maximum performance"},
+                 {"CPU y GPU siempre a máxima\nfrecuencia. Mayor consumo.",
+                  "CPU and GPU always at max\nfrequency. Higher consumption."},
+                 perf_bolt_tex},
+                {{"Equilibrado", "Balanced"},
+                 {"CPU adaptativa, GPU a máxima\nfrecuencia. Buen balance.",
+                  "Adaptive CPU, max GPU\nfrequency. Good balance."},
+                 perf_scale_tex},
+                {{"Ahorro de batería", "Battery saver"},
+                 {"CPU y GPU a frecuencia\nminima. Mayor autonomia.",
+                  "CPU and GPU at minimum\nfrequency. Longer battery life."},
+                 perf_battery_tex},
+            };
+            float perf_item_h = 58.0f;
+            float perf_y0 = 44.0f + (394.0f - 3.0f * perf_item_h) / 2.0f;
+            float perf_w = 480.0f;
+            float perf_x = (SCREEN_W - perf_w) / 2.0f;
+            for (int i = 0; i < 3; i++) {
+                float iy = perf_y0 + i * perf_item_h;
+                bool sel = (i == perf_selected);
+                SDL_Color titlec = sel ? c_menu_gold : c_menu_beige;
+                float pill_h2 = perf_item_h - 8.0f;
+                char desc_flat[128];
+                snprintf(desc_flat, sizeof(desc_flat), "%s", perf_opts[i].desc[current_lang]);
+                for (char *p = desc_flat; *p; p++) if (*p == '\n') *p = ' ';
+                int tw = 0, th = 0, dw = 0, dh = 0;
+                TTF_GetStringSize(f_med, perf_opts[i].title[current_lang], 0, &tw, &th);
+                TTF_GetStringSize(f_sm, desc_flat, 0, &dw, &dh);
+                float content_w = (float)(tw > dw ? tw : dw);
+                float pill_w2 = content_w + 38.0f + 30.0f;
+                if (pill_w2 > perf_w) pill_w2 = perf_w;
+                if (sel) {
+                    draw_rounded_rect_filled(ren, perf_x - 10.0f, iy - 6.0f,
+                                     pill_w2 + 20.0f, pill_h2, pill_h2 / 2.0f, c_menu_selbg);
+                }
+                if (perf_opts[i].icon) {
+                    SDL_SetTextureColorMod(perf_opts[i].icon, titlec.r, titlec.g, titlec.b);
+                    SDL_FRect icon_dst = {perf_x + 4.0f, iy, 24.0f, 24.0f};
+                    SDL_RenderTexture(ren, perf_opts[i].icon, NULL, &icon_dst);
+                }
+                draw_text(ren, f_med, perf_opts[i].title[current_lang], titlec, perf_x + 38.0f, iy);
+                draw_text_wrapped(ren, f_sm, desc_flat, c_menu_beige, perf_x + 38.0f, iy + 20.0f, perf_w - 30.0f, 15.0f);
+            }
+            draw_line(ren, mx, 438.0f, SCREEN_W - 20.0f, 438.0f, c_green);
+            draw_footer(ren, f_sm,
+                tr("[DPAD] Elegir  [B] Aplicar  [A] Volver", "[DPAD] Choose  [B] Apply  [A] Back"), s_version);
 
         } else if (state == STATE_TIMEZONE_CONFIG) {
             SDL_Color c_menu_gold  = {224, 176, 96, 255};
