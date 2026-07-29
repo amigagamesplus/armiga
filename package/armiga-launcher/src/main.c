@@ -2781,7 +2781,7 @@ int main(void)
             if (frac > 1.0f) frac = 1.0f;
             float bar_w = 200.0f;
             float bar_x = (SCREEN_W - bar_w) / 2.0f;
-            float bar_y = SCREEN_H - 14.0f;
+            float bar_y = SCREEN_H - 64.0f;
             draw_rect_filled(ren, bar_x, bar_y, bar_w, 4.0f, c_gray);
             draw_rect_filled(ren, bar_x, bar_y, bar_w * frac, 4.0f, c_green);
         }
