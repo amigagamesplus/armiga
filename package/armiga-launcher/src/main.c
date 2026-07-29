@@ -3214,66 +3214,65 @@ int main(void)
                 s_version);
 
         } else if (state == STATE_DEVMODE) {
+            SDL_Color c_menu_gold  = {224, 176, 96, 255};
+            SDL_Color c_menu_beige = {168, 157, 124, 255};
+            SDL_Color c_menu_selbg = {58, 51, 36, 255};
             /* Titulo pequeño arriba a la izquierda */
             draw_text_truncated(ren, f_sm, tr("Menú > Modo desarrollador", "Menu > Developer Mode"), c_green, mx, 20.0f, SCREEN_W - 190.0f);
             draw_statusbar(ren, f_sm, f_xs, status_time, status_wifi_up, status_battery, wifi_icon_tex, battery_icon_tex);
-            draw_line(ren, sep_x, 44.0f, sep_x, 438.0f, c_green);
 
-            /* Menú (columna izquierda), mismo estilo compacto que el menu principal */
+            /* Menú (columna izquierda), mismo estilo que el menu principal */
             float dev_y0 = 64.0f;
-            float dev_item_h = 26.0f;
+            float dev_item_h = 34.0f;
 
             for (int i = 0; i < DEV_MENU_COUNT; i++) {
                 float iy = dev_y0 + i * dev_item_h;
                 if (i == dev_selected) {
                     int text_w = 0, text_h = 0;
                     TTF_GetStringSize(f_sm, DEV_MENU_ITEMS[i], 0, &text_w, &text_h);
-                    float sel_w = (float)text_w + 24.0f;
-                    draw_rounded_rect_filled(ren, mx - 4.0f, iy - 4.0f,
-                                     sel_w, dev_item_h - 2.0f, 8.0f, c_selbg);
-                    draw_rect_filled(ren, mx - 4.0f, iy - 4.0f,
-                                     4.0f, dev_item_h - 2.0f, c_green);
-                    draw_text(ren, f_sm, DEV_MENU_ITEMS[i], c_green, mx + 8.0f, iy);
+                    float sel_w = (float)text_w + 32.0f;
+                    float pill_h = dev_item_h - 4.0f;
+                    draw_rounded_rect_filled(ren, mx - 10.0f, iy - 5.0f,
+                                     sel_w, pill_h, pill_h / 2.0f, c_menu_selbg);
+                    draw_text(ren, f_sm, DEV_MENU_ITEMS[i], c_menu_gold, mx + 8.0f, iy);
                 } else {
-                    draw_text(ren, f_sm, DEV_MENU_ITEMS[i], c_gray, mx + 8.0f, iy);
+                    draw_text(ren, f_sm, DEV_MENU_ITEMS[i], c_menu_beige, mx + 8.0f, iy);
                 }
             }
 
-            /* Panel derecho: info tecnica para el desarrollador */
-            float ry = 64.0f;
-            draw_text(ren, f_sm,  "IP",         c_green, rx, ry);
-            draw_text(ren, f_med, dev_ip,       c_white, rx, ry + 14.0f);
-            ry += 40.0f;
-            draw_text(ren, f_sm,  "UPTIME",     c_green, rx, ry);
-            draw_text(ren, f_med, dev_uptime,   c_white, rx, ry + 14.0f);
-            ry += 40.0f;
-            draw_text(ren, f_sm,  "RAM",        c_green, rx, ry);
-            draw_text(ren, f_med, dev_ram,      c_white, rx, ry + 14.0f);
-            ry += 40.0f;
-            draw_text(ren, f_sm,  tr("BATERÍA", "BATTERY"),    c_green, rx, ry);
+            /* Panel derecho: info tecnica, agrupada en 2 columnas */
             {
+                float ry0 = 64.0f;
+                float row_h = 40.0f;
                 char batt_buf[8];
                 if (status_battery >= 0)
                     snprintf(batt_buf, sizeof(batt_buf), "%d%%", status_battery);
                 else
                     strncpy(batt_buf, "--", sizeof(batt_buf));
-                draw_text(ren, f_med, batt_buf, c_white, rx, ry + 14.0f);
+                struct { const char *label; const char *val; } left_col[4] = {
+                    {"IP", dev_ip},
+                    {"UPTIME", dev_uptime},
+                    {"RAM", dev_ram},
+                    {tr("BATERÍA", "BATTERY"), batt_buf},
+                };
+                struct { const char *label; const char *val; } right_col[4] = {
+                    {"KERNEL", s_kernel},
+                    {"MESA", s_mesa},
+                    {"RETROARCH", s_retroarch},
+                    {"SDL3", s_sdl3},
+                };
+                float dm_rx = rx - 140.0f;
+                float col2_x = dm_rx + 150.0f;
+                for (int i = 0; i < 4; i++) {
+                    float ry = ry0 + i * row_h;
+                    draw_text(ren, f_sm, left_col[i].label, c_menu_beige, dm_rx, ry);
+                    draw_text(ren, f_med, left_col[i].val, c_menu_gold, dm_rx, ry + 16.0f);
+                    draw_text(ren, f_sm, right_col[i].label, c_menu_beige, col2_x, ry);
+                    draw_text(ren, f_med, right_col[i].val, c_menu_gold, col2_x, ry + 16.0f);
+                }
             }
-            ry += 40.0f;
-            draw_text(ren, f_sm,  "KERNEL",     c_green, rx, ry);
-            draw_text(ren, f_med, s_kernel,     c_white, rx, ry + 14.0f);
-            ry += 40.0f;
-            draw_text(ren, f_sm,  "MESA",       c_green, rx, ry);
-            draw_text(ren, f_med, s_mesa,       c_white, rx, ry + 14.0f);
-            ry += 40.0f;
-            draw_text(ren, f_sm,  "RETROARCH",  c_green, rx, ry);
-            draw_text(ren, f_med, s_retroarch,  c_white, rx, ry + 14.0f);
-            ry += 40.0f;
-            draw_text(ren, f_sm,  "SDL3",       c_green, rx, ry);
-            draw_text(ren, f_med, s_sdl3,       c_white, rx, ry + 14.0f);
 
             /* Barra inferior */
-            draw_line(ren, mx, 438.0f, SCREEN_W - 20.0f, 438.0f, c_green);
             draw_footer(ren, f_sm, tr("[B] Seleccionar  [A] Volver", "[B] Select  [A] Back"), s_version);
 
         } else if (state == STATE_CONFIRM) {
