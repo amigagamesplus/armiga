@@ -1526,9 +1526,8 @@ static void draw_statusbar(SDL_Renderer *ren, TTF_Font *f, TTF_Font *f_ampm,
     SDL_Color batt_fg = c_gold;
     if (battery >= 0) {
         snprintf(batt_buf, sizeof(batt_buf), "%d%%", battery);
-        if (battery <= 20)      batt_fg = c_red;
-        else if (battery <= 70) batt_fg = (SDL_Color){230, 150, 60, 255};
-        else                    batt_fg = c_gold;
+        if (battery <= 20) batt_fg = c_red;
+        else                batt_fg = c_gold;
     } else {
         strncpy(batt_buf, "--", sizeof(batt_buf));
     }
