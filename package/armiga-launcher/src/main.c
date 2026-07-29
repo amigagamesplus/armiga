@@ -79,6 +79,7 @@ typedef enum {
 #define ACTION_INFO    3
 #define ACTION_SETTINGS 4
 #define ACTION_SHELL   5
+#define ACTION_REBOOT  6
 
 #define KB_ROWS 4
 #define KB_MAX_COLS 10
@@ -135,6 +136,7 @@ static const char *MENU_ITEMS[][2] = {
     {"Diagnóstico del sistema",     "System Diagnostics"},
     {"Configuración",               "Settings"},
     {"Apagar dispositivo",          "Power Off"},
+    {"Reiniciar dispositivo",       "Reboot"},
 };
 static const char *MENU_DESC[][2] = {
     {"Explora y lanza juegos\n" "Amiga desde tu biblioteca.",
@@ -147,8 +149,10 @@ static const char *MENU_DESC[][2] = {
      "System settings:\n" "wireless network and more."},
     {"Apaga el dispositivo\n" "de forma segura.",
      "Shut down the device\n" "safely."},
+    {"Reinicia el dispositivo\n" "de forma segura.",
+     "Restart the device\n" "safely."},
 };
-#define MENU_COUNT 5
+#define MENU_COUNT 6
 
 static const char *SETTINGS_MENU_ITEMS[][2] = {
     {"Red inalámbrica",             "Wireless Network"},
@@ -1652,13 +1656,14 @@ int main(void)
     }
     /* Iconos monocromos del menu principal (PNG blanco+alfa, recoloreados
      * en tiempo real via SDL_SetTextureColorMod segun seleccion). */
-    #define MENU_ICON_COUNT 5
+    #define MENU_ICON_COUNT 6
     static const char *MENU_ICON_PATHS[MENU_ICON_COUNT] = {
         "/usr/share/armiga/icons/device-gamepad-2.png",
         "/usr/share/armiga/icons/cloud-download.png",
         "/usr/share/armiga/icons/activity.png",
         "/usr/share/armiga/icons/settings.png",
         "/usr/share/armiga/icons/power.png",
+        "/usr/share/armiga/icons/reboot.png",
     };
     SDL_Texture *menu_icon_tex[MENU_ICON_COUNT] = {0};
     for (int mi = 0; mi < MENU_ICON_COUNT; mi++) {
@@ -2480,6 +2485,10 @@ int main(void)
             if (action == ACTION_SHELL) {
                 /* "Apagar dispositivo" en menu principal */
                 exec_req = EXEC_SHUTDOWN;
+                running = false;
+            } else if (action == ACTION_REBOOT) {
+                /* "Reiniciar dispositivo" en menu principal */
+                exec_req = EXEC_REBOOT;
                 running = false;
             } else if (action == ACTION_ROMS) {
                 running = false;
