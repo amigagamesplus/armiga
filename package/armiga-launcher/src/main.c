@@ -2948,6 +2948,18 @@ int main(void)
             SDL_Color c_menu_selbg = {58, 51, 36, 255};
             draw_text_truncated(ren, f_sm, tr("Menú > Configuración > Rendimiento", "Menu > Settings > Performance"), c_green, mx, 20.0f, SCREEN_W - 190.0f);
             draw_statusbar(ren, f_sm, f_xs, status_time, status_wifi_up, status_battery, wifi_icon_tex, battery_icon_tex);
+            static const char *PERF_ACTIVE_LABEL[3][2] = {
+                {"Rendimiento máximo", "Maximum performance"},
+                {"Equilibrado", "Balanced"},
+                {"Ahorro de batería", "Battery saver"},
+            };
+            {
+                char active_buf[64];
+                snprintf(active_buf, sizeof(active_buf), "%s: %s",
+                         tr("Perfil activo", "Active profile"),
+                         PERF_ACTIVE_LABEL[perf_selected][current_lang]);
+                draw_text(ren, f_sm, active_buf, c_dkgreen, mx, 44.0f);
+            }
             struct { const char *title[2]; const char *desc[2]; SDL_Texture *icon; } perf_opts[3] = {
                 {{"Rendimiento máximo", "Maximum performance"},
                  {"CPU y GPU siempre a máxima\nfrecuencia. Mayor consumo.",
@@ -2963,7 +2975,7 @@ int main(void)
                  perf_battery_tex},
             };
             float perf_item_h = 58.0f;
-            float perf_y0 = 44.0f + (394.0f - 3.0f * perf_item_h) / 2.0f;
+            float perf_y0 = 66.0f + (372.0f - 3.0f * perf_item_h) / 2.0f;
             float perf_w = 480.0f;
             float perf_x = (SCREEN_W - perf_w) / 2.0f;
             for (int i = 0; i < 3; i++) {
