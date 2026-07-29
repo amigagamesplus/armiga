@@ -1479,12 +1479,13 @@ static void draw_rounded_rect_filled(SDL_Renderer *r, float x, float y,
     }
 }
 static float draw_status_pill(SDL_Renderer *ren, TTF_Font *f, float right_edge, float y_center,
-                               SDL_Texture *icon, const char *label, SDL_Color fg, SDL_Color bg)
+                               SDL_Texture *icon, const char *label, SDL_Color fg, SDL_Color bg,
+                               float icon_size_override)
 {
     int w = 0, h = 0;
     TTF_GetStringSize(f, label, 0, &w, &h);
     bool icon_only = (icon && w <= 10);
-    float icon_w = icon ? 20.0f : 0.0f;
+    float icon_w = icon ? (icon_size_override > 0.0f ? icon_size_override : 20.0f) : 0.0f;
     float icon_gap = (icon && !icon_only) ? 6.0f : 0.0f;
     float pad_x = icon_only ? 10.0f : 14.0f;
     float pill_h = (float)h + 14.0f;
@@ -1527,11 +1528,11 @@ static void draw_statusbar(SDL_Renderer *ren, TTF_Font *f, TTF_Font *f_ampm,
     } else {
         strncpy(batt_buf, "--", sizeof(batt_buf));
     }
-    right -= draw_status_pill(ren, f, right, y, battery_icon_tex, batt_buf, batt_fg, c_pill_on);
+    right -= draw_status_pill(ren, f, right, y, battery_icon_tex, batt_buf, batt_fg, c_pill_on, 24.0f);
     right -= gap;
 
     SDL_Color wifi_fg = wifi_up ? c_gold : c_dim_fg;
-    right -= draw_status_pill(ren, f, right, y, wifi_icon_tex, " ", wifi_fg, wifi_up ? c_pill_on : c_pill_off);
+    right -= draw_status_pill(ren, f, right, y, wifi_icon_tex, " ", wifi_fg, wifi_up ? c_pill_on : c_pill_off, 0.0f);
     right -= gap;
 
     {
@@ -1555,7 +1556,7 @@ static void draw_statusbar(SDL_Renderer *ren, TTF_Font *f, TTF_Font *f_ampm,
     right -= gap;
 
     int ssh_on = read_ssh_enabled();
-    right -= draw_status_pill(ren, f, right, y, NULL, "SSH", ssh_on ? c_gold : c_dim_fg, ssh_on ? c_pill_on : c_pill_off);
+    right -= draw_status_pill(ren, f, right, y, NULL, "SSH", ssh_on ? c_gold : c_dim_fg, ssh_on ? c_pill_on : c_pill_off, 0.0f);
 }
 /* Circulo relleno via barrido por filas (mismo principio que
  * draw_rounded_rect_filled, con radius aplicado a las 4 "esquinas"). */
