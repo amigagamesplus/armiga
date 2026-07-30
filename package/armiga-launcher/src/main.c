@@ -1348,6 +1348,21 @@ static void draw_text_centered(SDL_Renderer *r, TTF_Font *f, const char *t,
 /* Dibuja footer unificado: leyenda izquierda + version derecha */
 static SDL_Texture *g_perf_icons[3] = {NULL, NULL, NULL};
 
+#define DEVMODE_TEMP_HISTORY_LEN 60
+static int g_devmode_temp_history[DEVMODE_TEMP_HISTORY_LEN];
+static int g_devmode_temp_history_count = 0;
+
+static void devmode_push_temp(int temp_c)
+{
+    if (g_devmode_temp_history_count < DEVMODE_TEMP_HISTORY_LEN) {
+        g_devmode_temp_history[g_devmode_temp_history_count++] = temp_c;
+    } else {
+        memmove(g_devmode_temp_history, g_devmode_temp_history + 1,
+                (DEVMODE_TEMP_HISTORY_LEN - 1) * sizeof(int));
+        g_devmode_temp_history[DEVMODE_TEMP_HISTORY_LEN - 1] = temp_c;
+    }
+}
+
 static void draw_footer(SDL_Renderer *ren, TTF_Font *f,
                         const char *legend, const char *version)
 {
@@ -1842,6 +1857,10 @@ int main(void)
     char dev_ip[32]     = "sin red";
     char dev_uptime[16] = "--";
     char dev_ram[24]    = "--";
+    Uint64 dev_last_temp_sample = 0;
+    int dev_cpu_cur_freq = 0;
+    int dev_cpu_max_freq = 0;
+    read_sysfs_int("/sys/devices/system/cpu/cpu0/cpufreq/cpuinfo_max_freq", &dev_cpu_max_freq);
 
     char sysinfo_disk_data[32] = "--";
     char sysinfo_disk_root[32] = "--";
@@ -2570,6 +2589,8 @@ int main(void)
                 read_ip_address(dev_ip, sizeof(dev_ip));
                 read_uptime(dev_uptime, sizeof(dev_uptime));
                 read_ram_usage(dev_ram, sizeof(dev_ram));
+                g_devmode_temp_history_count = 0;
+                dev_last_temp_sample = 0;
             }
         } else if (state != STATE_MENU) {
             devmode_combo_held = false;
@@ -2796,6 +2817,14 @@ int main(void)
             read_mac_address(sysinfo_mac, sizeof(sysinfo_mac));
             snprintf(sysinfo_build, sizeof(sysinfo_build), "%s (%s)", s_build_date, s_build_number);
             last_sysinfo_update = now_ticks;
+        }
+        if (state == STATE_DEVMODE &&
+            (dev_last_temp_sample == 0 || now_ticks - dev_last_temp_sample > 1000)) {
+            int t = 0;
+            if (read_sysfs_int("/sys/class/thermal/thermal_zone2/temp", &t))
+                devmode_push_temp(t / 1000);
+            read_sysfs_int("/sys/devices/system/cpu/cpu0/cpufreq/scaling_cur_freq", &dev_cpu_cur_freq);
+            dev_last_temp_sample = now_ticks;
         }
 
         /* RENDER */
@@ -3445,6 +3474,47 @@ int main(void)
                     draw_text(ren, f_med, left_col[i].val, c_menu_gold, dm_rx, ry + 16.0f);
                     draw_text(ren, f_sm, right_col[i].label, c_menu_beige, col2_x, ry);
                     draw_text(ren, f_med, right_col[i].val, c_menu_gold, col2_x, ry + 16.0f);
+                }
+                float dm_rx2 = rx - 140.0f;
+                float g_x0 = dm_rx2;
+                float g_y0 = 250.0f;
+                float g_w  = (SCREEN_W - 20.0f) - dm_rx2;
+                float g_h  = 150.0f;
+                SDL_Color c_red = COL_RED;
+                int perf_now = read_perf_profile();
+                bool throttle_applicable = (perf_now == 0) && dev_cpu_max_freq > 0 && dev_cpu_cur_freq > 0;
+                bool throttling = throttle_applicable &&
+                    dev_cpu_cur_freq < (int)(dev_cpu_max_freq * 0.95f);
+                const char *throttle_label = !throttle_applicable
+                    ? tr("N/D", "N/A")
+                    : throttling
+                    ? tr("THROTTLING ACTIVO", "THROTTLING ACTIVE")
+                    : tr("Normal", "Normal");
+                SDL_Color throttle_c = !throttle_applicable ? c_menu_beige : (throttling ? c_red : c_menu_gold);
+                draw_text(ren, f_sm, tr("TEMPERATURA CPU", "CPU TEMPERATURE"), c_menu_beige, g_x0, g_y0 - 18.0f);
+                draw_text_right(ren, f_sm, throttle_label, throttle_c, g_x0 + g_w, g_y0 - 18.0f);
+                draw_rect_filled(ren, g_x0, g_y0, g_w, g_h, (SDL_Color){26, 24, 18, 255});
+                {
+                    int tmin = 30, tmax = 90;
+                    SDL_SetRenderDrawColor(ren, c_menu_gold.r, c_menu_gold.g, c_menu_gold.b, 255);
+                    for (int i = 0; i < g_devmode_temp_history_count - 1; i++) {
+                        int va = g_devmode_temp_history[i];
+                        int vb = g_devmode_temp_history[i + 1];
+                        float fa = (float)(va - tmin) / (float)(tmax - tmin);
+                        float fb = (float)(vb - tmin) / (float)(tmax - tmin);
+                        if (fa < 0.0f) fa = 0.0f; if (fa > 1.0f) fa = 1.0f;
+                        if (fb < 0.0f) fb = 0.0f; if (fb > 1.0f) fb = 1.0f;
+                        float xa = g_x0 + g_w * ((float)i / (float)(DEVMODE_TEMP_HISTORY_LEN - 1));
+                        float xb = g_x0 + g_w * ((float)(i + 1) / (float)(DEVMODE_TEMP_HISTORY_LEN - 1));
+                        float ya = g_y0 + g_h - fa * g_h;
+                        float yb = g_y0 + g_h - fb * g_h;
+                        SDL_RenderLine(ren, xa, ya, xb, yb);
+                    }
+                    if (g_devmode_temp_history_count > 0) {
+                        char tbuf[16];
+                        snprintf(tbuf, sizeof(tbuf), "%d C", g_devmode_temp_history[g_devmode_temp_history_count - 1]);
+                        draw_text(ren, f_med, tbuf, c_menu_gold, g_x0 + 4.0f, g_y0 + 4.0f);
+                    }
                 }
             }
 
