@@ -1,8 +1,6 @@
 name: Build MangoHud ARM64 (KMS/DRM + GLES)
 
 on:
-  push:
-    branches: [ main ]
   workflow_dispatch:
 
 jobs:
