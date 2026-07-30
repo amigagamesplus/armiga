@@ -1346,13 +1346,29 @@ static void draw_text_centered(SDL_Renderer *r, TTF_Font *f, const char *t,
  * Posicion fija: esquina superior derecha, y=18 */
 
 /* Dibuja footer unificado: leyenda izquierda + version derecha */
+static SDL_Texture *g_perf_icons[3] = {NULL, NULL, NULL};
+
 static void draw_footer(SDL_Renderer *ren, TTF_Font *f,
                         const char *legend, const char *version)
 {
     SDL_Color c_gray    = COL_GRAY;
     SDL_Color c_dkgreen = COL_DKGREEN;
+    SDL_Color c_gold    = {224, 176, 96, 255};
     draw_text(ren, f, legend, c_gray, 20.0f, 448.0f);
     draw_text_right(ren, f, version, c_dkgreen, SCREEN_W - 20.0f, 448.0f);
+
+    int active_profile = read_perf_profile();
+    SDL_Texture *active_icon = (active_profile >= 0 && active_profile < 3) ? g_perf_icons[active_profile] : NULL;
+    if (active_icon) {
+        int ver_w = 0, ver_h = 0;
+        TTF_GetStringSize(f, version, 0, &ver_w, &ver_h);
+        float icon_size = 24.0f;
+        float icon_x = SCREEN_W - 20.0f - (float)ver_w - 10.0f - icon_size;
+        float icon_y = 448.0f + ((float)ver_h - icon_size) / 2.0f + 2.0f;
+        SDL_SetTextureColorMod(active_icon, c_dkgreen.r, c_dkgreen.g, c_dkgreen.b);
+        SDL_FRect icon_dst = {icon_x, icon_y, icon_size, icon_size};
+        SDL_RenderTexture(ren, active_icon, NULL, &icon_dst);
+    }
 }
 
 
@@ -1734,6 +1750,9 @@ int main(void)
     SDL_Texture *perf_scale_tex = IMG_LoadTexture(ren, "/usr/share/armiga/icons/perf-scale.png");
     if (perf_scale_tex) SDL_SetTextureScaleMode(perf_scale_tex, SDL_SCALEMODE_LINEAR);
     SDL_Texture *perf_battery_tex = IMG_LoadTexture(ren, "/usr/share/armiga/icons/perf-battery.png");
+    g_perf_icons[0] = perf_bolt_tex;
+    g_perf_icons[1] = perf_scale_tex;
+    g_perf_icons[2] = perf_battery_tex;
     if (perf_battery_tex) SDL_SetTextureScaleMode(perf_battery_tex, SDL_SCALEMODE_LINEAR);
 
     /* Leer versiones */
@@ -2139,9 +2158,12 @@ int main(void)
                     if (ev.key.key == SDLK_RETURN) {
                         save_perf_profile(perf_selected);
                         apply_perf_profile(perf_selected);
-                    }
-                    if (ev.key.key == SDLK_ESCAPE)
                         state = STATE_SETTINGS;
+                    }
+                    if (ev.key.key == SDLK_ESCAPE) {
+                        perf_selected = read_perf_profile();
+                        state = STATE_SETTINGS;
+                    }
                 }
                 if (ev.type == SDL_EVENT_JOYSTICK_HAT_MOTION) {
                     if (ev.jhat.value == SDL_HAT_UP)
@@ -2153,10 +2175,13 @@ int main(void)
                     ev.jbutton.button == BTN_SDL_A) {
                     save_perf_profile(perf_selected);
                     apply_perf_profile(perf_selected);
+                    state = STATE_SETTINGS;
                 }
                 if (ev.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN &&
-                    ev.jbutton.button == BTN_SDL_B)
+                    ev.jbutton.button == BTN_SDL_B) {
+                    perf_selected = read_perf_profile();
                     state = STATE_SETTINGS;
+                }
             }
             else if (state == STATE_TIMEZONE_CONFIG) {
                 if (ev.type == SDL_EVENT_KEY_DOWN) {
@@ -2948,18 +2973,6 @@ int main(void)
             SDL_Color c_menu_selbg = {58, 51, 36, 255};
             draw_text_truncated(ren, f_sm, tr("Menú > Configuración > Rendimiento", "Menu > Settings > Performance"), c_green, mx, 20.0f, SCREEN_W - 190.0f);
             draw_statusbar(ren, f_sm, f_xs, status_time, status_wifi_up, status_battery, wifi_icon_tex, battery_icon_tex);
-            static const char *PERF_ACTIVE_LABEL[3][2] = {
-                {"Rendimiento máximo", "Maximum performance"},
-                {"Equilibrado", "Balanced"},
-                {"Ahorro de batería", "Battery saver"},
-            };
-            {
-                char active_buf[64];
-                snprintf(active_buf, sizeof(active_buf), "%s: %s",
-                         tr("Perfil activo", "Active profile"),
-                         PERF_ACTIVE_LABEL[perf_selected][current_lang]);
-                draw_text(ren, f_sm, active_buf, c_dkgreen, mx, 44.0f);
-            }
             struct { const char *title[2]; const char *desc[2]; SDL_Texture *icon; } perf_opts[3] = {
                 {{"Rendimiento máximo", "Maximum performance"},
                  {"CPU y GPU siempre a máxima\nfrecuencia. Mayor consumo.",
