@@ -15,7 +15,7 @@ Distribución Linux mínima basada en **Buildroot** para la consola **Anbernic R
 
 ## Estado actual
 
-**Versión:** 1.0
+**Versión:** 1.0.5
 
 ### Componentes funcionales
 
@@ -28,13 +28,14 @@ Distribución Linux mínima basada en **Buildroot** para la consola **Anbernic R
 - ✅ GPU governor forzado a `performance` (648MHz fijo — `simple_ondemand` no escalaba bien bajo carga real)
 - ✅ ZRAM swap (512MB, LZ4, `swappiness=100`)
 - ✅ Partición `amiga_data` (exFAT, autoexpansión al 100% de la SD en primer arranque)
-- ✅ Stack gráfico: SDL3 3.4.12 (kmsdrm) + Mesa 26.1.4 (GBM + Panfrost, `.so` stripped en overlay)
+- ✅ Stack gráfico: SDL3 3.4.12 (kmsdrm) + Mesa 26.1.6 (GBM + Panfrost, `.so` stripped en overlay)
 - ✅ Launcher propio en C/SDL3 (`armiga-launcher`), interfaz bilingüe **Español/English** (toggle `L1`, persistente)
-- ✅ RetroArch 1.22.2 + núcleo PUAE 2021
+- ✅ RetroArch 1.22.2 + núcleo PUAE 2021 (`puae2021_libretro.so`, build 6636d5f)
 - ✅ Sistema de actualización OTA (GitHub Releases → descarga → verificación SHA256 → flasheo del slot inactivo, todo asíncrono sin bloquear la UI)
 - ✅ Rollback automático A/B ante fallo de arranque (contador de intentos + reversión de slot)
-- ✅ Menú Configuración: red inalámbrica, copia de seguridad (crear/restaurar/eliminar), LED RGB de los analógicos, zona horaria, ahorro de pantalla, brillo, SSH, restablecer valores de fábrica
-- ✅ Modo desarrollador (terminal, btop) accesible con combo `SELECT+START+L1`
+- ✅ Menú Configuración: red inalámbrica, copia de seguridad (crear/restaurar/eliminar), LED RGB de los analógicos, zona horaria, ahorro de pantalla, brillo, perfiles de rendimiento (máximo/equilibrado/ahorro), SSH, restablecer valores de fábrica
+- ✅ Interfaz rediseñada "Workbench" (paleta beige/dorada sobre negro, iconografía monocroma Tabler Icons)
+- ✅ Modo desarrollador (terminal, btop, gráfico de temperatura CPU + detección de throttling) accesible con combo `SELECT+START+L1`
 
 ### Particiones (MBR, nunca GPT) — esquema A/B
 
@@ -56,8 +57,8 @@ Al arrancar, `S02bootcheck` compara el slot activo (leído de `/proc/cmdline`) c
 ```
 armiga-launcher / RetroArch (PUAE)
     └── SDL3 3.4.12 (backend: kmsdrm)
-        ├── libgbm.so.1.0.0 (Mesa 26.1.4)
-        │   └── dri_gbm.so → libgallium-26.1.4.so (Panfrost)
+        ├── libgbm.so.1.0.0 (Mesa 26.1.6)
+        │   └── dri_gbm.so → libgallium-26.1.6.so (Panfrost)
         ├── libEGL.so.1.0.0
         ├── libGLESv2.so.2.0.0
         └── libdrm
@@ -71,8 +72,11 @@ armiga-launcher / RetroArch (PUAE)
 ```
 armiga/
 ├── .github/workflows/
-│   ├── build.yml              # CI principal — imagen Buildroot completa
-│   └── build-mesa.yml         # CI Mesa (cross-compile GBM+Panfrost, .so commiteados)
+│   ├── build.yml                      # CI principal — imagen Buildroot completa (manual, apunta a tag para release)
+│   ├── build-mesa.yml                 # CI Mesa (cross-compile GBM+Panfrost, .so commiteados, manual)
+│   ├── build-mangohud.yml             # CI MangoHud ARM64 (manual)
+│   ├── build-retroarch.yml            # CI RetroArch estable (manual)
+│   └── build-retroarch-nightly.yml    # CI RetroArch nightly (manual)
 ├── board/armiga/
 │   ├── bootloader/            # Kernel, DTB y U-Boot precompilados (commiteados)
 │   ├── linux/dts/             # DTS propios (rg40xx-h, v2-panel)
