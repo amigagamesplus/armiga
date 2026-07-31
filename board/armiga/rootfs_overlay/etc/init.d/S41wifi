@@ -70,22 +70,29 @@ case "$1" in
             exit 0
         fi
 
-        # Arrancar DHCP client y esperar IP
+        # Arrancar DHCP client en background puro (-b ya lo hace, pero udhcpc -S a veces bloquea logs)
         udhcpc -i "$INTERFACE" -p "$PID_DHCP" -b -S -R 2>/dev/null &
-        # Esperar hasta 20s a que haya IP
-        tries=0
-        while [ $tries -lt 20 ]; do
-            if ip addr show "$INTERFACE" | grep -q "inet "; then
-                break
-            fi
-            tries=$((tries + 1))
-            sleep 1
-        done
-        # Desactivar power management del chip RTL8821CS: el ahorro de
-        # energia agresivo de este chipset provoca desconexiones/reconexiones
-        # intermitentes con el AP. Se aplica una vez conectado.
-        iwconfig "$INTERFACE" power off 2>/dev/null
-        echo "OK"
+
+        # === INICIO DEL BLOQUE MODIFICADO ===
+        # Enviar la espera de la IP y el parche de energia a un hilo en background.
+        # Esto libera inmediatamente el script principal para que siga el arranque.
+        (
+            tries=0
+            while [ $tries -lt 20 ]; do
+                if ip addr show "$INTERFACE" | grep -q "inet "; then
+                    # Desactivar power management del chip RTL8821CS: el ahorro de
+                    # energia agresivo de este chipset provoca desconexiones/reconexiones
+                    # intermitentes con el AP. Se aplica una vez conectado.
+                    iwconfig "$INTERFACE" power off 2>/dev/null
+                    break
+                fi
+                tries=$((tries + 1))
+                sleep 1
+            done
+        ) &
+        # === FIN DEL BLOQUE MODIFICADO ===
+
+        echo "OK (Async)"
         ;;
     stop)
         printf "Stopping WiFi ($INTERFACE): "
