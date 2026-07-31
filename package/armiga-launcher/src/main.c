@@ -1,3 +1,12 @@
+/* =============================================================================
+ * armiga-launcher — Launcher del sistema armiga para Anbernic RG40XX H
+ *
+ * Autor:    Vince
+ * Proyecto: armiga (https://github.com/amigagamesplus/armiga)
+ * Licencia: GPLv3
+ * =============================================================================
+ */
+
 #include <SDL3/SDL.h>
 #include <SDL3_ttf/SDL_ttf.h>
 #include <SDL3_image/SDL_image.h>
