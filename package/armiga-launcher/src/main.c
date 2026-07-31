@@ -1211,13 +1211,14 @@ static void restore_backup(const char *filename)
         "cd /media/amiga_data && tar xaf " BACKUP_DIR "/%s 2>/dev/null", filename);
     system(cmd);
 }
-static void read_release(char *kernel, char *mesa, char *retroarch, char *sdl3,
+static void read_release(char *kernel, char *mesa, char *retroarch, char *sdl3, char *puae_core,
                          char *build_date, char *version, char *build_number)
 {
     safe_copy(kernel,     "?", 32);
     safe_copy(mesa,       "?", 32);
     safe_copy(retroarch,  "?", 32);
     safe_copy(sdl3,       "?", 32);
+    if (puae_core) safe_copy(puae_core, "?", 32);
     if (build_date) safe_copy(build_date, "?", 24);
     if (version) safe_copy(version, "1.0", 32);
     if (build_number) safe_copy(build_number, "?", 16);
@@ -1231,6 +1232,7 @@ static void read_release(char *kernel, char *mesa, char *retroarch, char *sdl3,
             if (!strcmp(key, "MESA_VERSION"))      safe_copy(mesa,      val, 32);
             if (!strcmp(key, "RETROARCH_VERSION")) safe_copy(retroarch, val, 32);
             if (!strcmp(key, "SDL3_VERSION"))      safe_copy(sdl3,      val, 32);
+            if (puae_core && !strcmp(key, "PUAE2021_CORE_VERSION")) safe_copy(puae_core, val, 32);
             if (build_date && !strcmp(key, "BUILD_DATE")) safe_copy(build_date, val, 24);
             if (version && !strcmp(key, "ARMIGA_VERSION")) safe_copy(version, val, 32);
             if (build_number && !strcmp(key, "BUILD_NUMBER")) safe_copy(build_number, val, 16);
@@ -1771,8 +1773,8 @@ int main(void)
     if (perf_battery_tex) SDL_SetTextureScaleMode(perf_battery_tex, SDL_SCALEMODE_LINEAR);
 
     /* Leer versiones */
-    char s_kernel[32], s_mesa[32], s_retroarch[32], s_sdl3[32], s_build_date[24], s_version[32], s_build_number[16];
-    read_release(s_kernel, s_mesa, s_retroarch, s_sdl3, s_build_date, s_version, s_build_number);
+    char s_kernel[32], s_mesa[32], s_retroarch[32], s_sdl3[32], s_puae_core[32], s_build_date[24], s_version[32], s_build_number[16];
+    read_release(s_kernel, s_mesa, s_retroarch, s_sdl3, s_puae_core, s_build_date, s_version, s_build_number);
 
     /* Joystick */
     SDL_Joystick *joy = NULL;
@@ -3697,6 +3699,7 @@ int main(void)
             SI_ROW(SI_MX, y, SI_MX + SI_CW_L, "RetroArch", s_retroarch); y += SI_ROW_H;
             SI_ROW(SI_MX, y, SI_MX + SI_CW_L, "Mesa",      s_mesa);      y += SI_ROW_H;
             SI_ROW(SI_MX, y, SI_MX + SI_CW_L, "SDL3",      s_sdl3);      y += SI_ROW_H;
+            SI_ROW(SI_MX, y, SI_MX + SI_CW_L, "puae2021_libretro.so", s_puae_core); y += SI_ROW_H;
             }
 
             /* ── BLOQUE 3 DER: RED ───────────────────────────────────────── */
