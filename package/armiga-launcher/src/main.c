@@ -3713,7 +3713,7 @@ int main(void)
 
             /* ── BLOQUE 3 DER: RED ───────────────────────────────────────── */
             if (sysinfo_page == 1) {
-            y = SI_SEP_H2 + 4.0f;
+            y = SI_SEP_H2 + 4.0f - SI_ROW_H;
             si_row_idx = 0;
             SI_BLOCK_TITLE(SI_RX, y, tr("CONECTIVIDAD", "CONNECTIVITY"));
             y += 28.0f;
