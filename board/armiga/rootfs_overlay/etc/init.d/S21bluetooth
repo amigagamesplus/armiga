@@ -30,11 +30,19 @@ case "$1" in
             echo -n "bluetoothd "
         fi
 
+        sleep 1
+        # Arrancar bluealsa (puente A2DP <-> ALSA, modo fuente: armiga envia audio)
+        if command -v bluealsa >/dev/null 2>&1; then
+            bluealsa -p a2dp-source > /var/log/bluealsa.log 2>&1 &
+            echo -n "bluealsa "
+        fi
+
         echo "OK"
         ;;
     stop)
         printf "Stopping Bluetooth: "
         killall bluetoothd 2>/dev/null || true
+        killall bluealsa 2>/dev/null || true
         killall rtk_hciattach 2>/dev/null || true
         killall hciattach 2>/dev/null || true
         rfkill block bluetooth 2>/dev/null || true
