@@ -1,0 +1,17 @@
+#!/bin/sh
+# Empareja, confia y conecta con la MAC pasada como argumento.
+# Uso: armiga-bt-connect AA:BB:CC:DD:EE:FF
+MAC="$1"
+[ -z "$MAC" ] && exit 1
+(
+    echo "scan on"
+    sleep 5
+    echo "pair $MAC"
+    sleep 8
+    echo "trust $MAC"
+    sleep 1
+    echo "connect $MAC"
+    sleep 5
+    echo "scan off"
+    echo "quit"
+) | bluetoothctl > /tmp/armiga-bt-connect.log 2>&1

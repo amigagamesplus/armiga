@@ -71,7 +71,8 @@ typedef enum {
     STATE_TIMEZONE_CONFIG,
     STATE_SCREENDIM_CONFIG,
     STATE_BRIGHTNESS_CONFIG,
-    STATE_PERF_CONFIG
+    STATE_PERF_CONFIG,
+    STATE_BLUETOOTH_CONFIG
 } AppState;
 
 typedef enum {
@@ -1893,6 +1894,7 @@ int main(void)
     int ssh_enabled = read_ssh_enabled(); /* aplicado ya por S51ssh-toggle en boot, solo reflejar estado en UI */
     int samba_enabled = read_samba_enabled(); /* aplicado ya por S53samba-toggle en boot, solo reflejar estado en UI */
     int bt_enabled = read_bt_enabled(); /* aplicado ya por S22bluetooth-toggle en boot, solo reflejar estado en UI */
+    int bt_selected = 0; /* cursor en lista de dispositivos escaneados */
     int dim_saved_brightness = -1; /* brillo del usuario antes de atenuar, -1 = no atenuado */
     bool dim_active = false;
     Uint64 last_input_ticks = SDL_GetTicks();
@@ -2116,9 +2118,8 @@ int main(void)
                         state = STATE_PERF_CONFIG;
                     }
                     if (ev.key.key == SDLK_RETURN && settings_selected == 9) {
-                        bt_enabled = !bt_enabled;
-                        save_bt_enabled(bt_enabled);
-                        apply_bt_enabled(bt_enabled);
+                        bt_selected = 0;
+                        state = STATE_BLUETOOTH_CONFIG;
                     }
                     if (ev.key.key == SDLK_RETURN && settings_selected == 10) {
                         confirm_target = SETTINGS_ACTION_FACTORY_RESET;
@@ -2180,9 +2181,8 @@ int main(void)
                 }
                 if (ev.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN &&
                     ev.jbutton.button == BTN_SDL_A && settings_selected == 9) {
-                    bt_enabled = !bt_enabled;
-                    save_bt_enabled(bt_enabled);
-                    apply_bt_enabled(bt_enabled);
+                    bt_selected = 0;
+                    state = STATE_BLUETOOTH_CONFIG;
                 }
                 if (ev.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN &&
                     ev.jbutton.button == BTN_SDL_A && settings_selected == 10) {
@@ -2271,6 +2271,19 @@ int main(void)
                     perf_selected = read_perf_profile();
                     state = STATE_SETTINGS;
                 }
+            }
+            else if (state == STATE_BLUETOOTH_CONFIG) {
+                if (ev.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN &&
+                    ev.jbutton.button == BTN_SDL_SELECT) {
+                    bt_enabled = !bt_enabled;
+                    save_bt_enabled(bt_enabled);
+                    apply_bt_enabled(bt_enabled);
+                }
+                if (ev.type == SDL_EVENT_KEY_DOWN && ev.key.key == SDLK_ESCAPE)
+                    state = STATE_SETTINGS;
+                if (ev.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN &&
+                    ev.jbutton.button == BTN_SDL_B)
+                    state = STATE_SETTINGS;
             }
             else if (state == STATE_TIMEZONE_CONFIG) {
                 if (ev.type == SDL_EVENT_KEY_DOWN) {
@@ -3027,10 +3040,6 @@ int main(void)
                     snprintf(item_label, sizeof(item_label), "%s: %s",
                              SETTINGS_MENU_ITEMS[i][current_lang],
                              samba_enabled ? tr("Activado", "Enabled") : tr("Desactivado", "Disabled"));
-                } else if (i == 9) {
-                    snprintf(item_label, sizeof(item_label), "%s: %s",
-                             SETTINGS_MENU_ITEMS[i][current_lang],
-                             bt_enabled ? tr("Activado", "Enabled") : tr("Desactivado", "Disabled"));
                 } else {
                     safe_copy(item_label, SETTINGS_MENU_ITEMS[i][current_lang], sizeof(item_label));
                 }
@@ -3124,6 +3133,24 @@ int main(void)
             draw_footer(ren, f_sm,
                 tr("[DPAD] Elegir  [B] Aplicar  [A] Volver", "[DPAD] Choose  [B] Apply  [A] Back"), s_version);
 
+        } else if (state == STATE_BLUETOOTH_CONFIG) {
+            SDL_Color c_menu_gold  = {224, 176, 96, 255};
+            SDL_Color c_menu_beige = {168, 157, 124, 255};
+            SDL_Color c_menu_selbg = {58, 51, 36, 255};
+            draw_text_truncated(ren, f_sm, tr("Menú > Configuración > Bluetooth", "Menu > Settings > Bluetooth"), c_green, mx, 20.0f, SCREEN_W - 190.0f);
+            draw_statusbar(ren, f_sm, f_xs, status_time, status_wifi_up, status_battery, wifi_icon_tex, battery_icon_tex);
+            {
+                float toggle_y = 70.0f;
+                draw_text(ren, f_med, "Bluetooth", c_menu_beige, mx, toggle_y);
+                const char *bt_status = bt_enabled ? tr("Activado", "Enabled") : tr("Desactivado", "Disabled");
+                SDL_Color bt_status_c = bt_enabled ? c_green : c_gray;
+                draw_text_right(ren, f_med, bt_status, bt_status_c, SCREEN_W - mx, toggle_y);
+                draw_line(ren, mx, toggle_y + 30.0f, SCREEN_W - mx, toggle_y + 30.0f, c_green);
+            }
+            draw_text(ren, f_sm, tr("Lista de dispositivos: proximamente", "Device list: coming soon"), c_menu_beige, mx, 120.0f);
+            draw_line(ren, mx, 438.0f, SCREEN_W - 20.0f, 438.0f, c_green);
+            draw_footer(ren, f_sm,
+                tr("[SELECT] Activar/Desactivar  [A] Volver", "[SELECT] Toggle  [A] Back"), s_version);
         } else if (state == STATE_TIMEZONE_CONFIG) {
             SDL_Color c_menu_gold  = {224, 176, 96, 255};
             SDL_Color c_menu_beige = {168, 157, 124, 255};

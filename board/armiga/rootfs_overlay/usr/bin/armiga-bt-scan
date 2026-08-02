@@ -1,0 +1,22 @@
+#!/bin/sh
+# Escanea dispositivos Bluetooth durante ~10s y vuelca resultado a
+# /tmp/armiga-bt-devices.txt en formato "MAC|Nombre" por linea.
+# Pensado para lanzarse en background desde armiga-launcher.
+OUT="/tmp/armiga-bt-devices.txt"
+RAW="/tmp/armiga-bt-scan-raw.log"
+CLEAN="/tmp/armiga-bt-scan-clean.log"
+rm -f "$OUT" "$RAW" "$CLEAN"
+(
+    echo "scan on"
+    sleep 9
+    echo "scan off"
+    echo "quit"
+) | bluetoothctl > "$RAW" 2>/dev/null
+# Limpiar codigos ANSI (color/cursor) y retornos de carro antes de parsear
+ESC=$(printf '\033')
+sed "s/${ESC}\[[0-9;]*[a-zA-Z]//g; s/\r//g" "$RAW" > "$CLEAN"
+grep "\[NEW\] Device " "$CLEAN" | while read -r line; do
+    mac=$(echo "$line" | sed -n 's/.*\[NEW\] Device \([0-9A-Fa-f:]*\) .*/\1/p')
+    name=$(echo "$line" | sed -n 's/.*\[NEW\] Device [0-9A-Fa-f:]* //p')
+    [ -n "$mac" ] && echo "${mac}|${name}"
+done | awk -F'|' '{a[$1]=$0} END{for (k in a) print a[k]}' > "$OUT"
