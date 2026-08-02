@@ -174,9 +174,10 @@ static const char *SETTINGS_MENU_ITEMS[][2] = {
     {"SSH",                         "SSH"},
     {"Samba (\\\\armiga)",           "Samba (\\\\armiga)"},
     {"Rendimiento",                 "Performance"},
+    {"Bluetooth",                   "Bluetooth"},
     {"Restablecer valores de fábrica", "Factory reset"},
 };
-#define SETTINGS_MENU_COUNT 10
+#define SETTINGS_MENU_COUNT 11
 #define SETTINGS_ACTION_FACTORY_RESET 10
 
 /* Tiempos de inactividad seleccionables, en segundos. 0 = Nunca. */
@@ -935,6 +936,52 @@ static void apply_ssh_enabled(int enabled)
         system("/etc/init.d/S50dropbear start >/dev/null 2>&1");
     else
         system("/etc/init.d/S50dropbear stop >/dev/null 2>&1");
+}
+/* Lee BT_ENABLED de armiga.cfg. Default: activado (1). */
+static int read_bt_enabled(void)
+{
+    int enabled = 1;
+    FILE *f = fopen(ARMIGA_CONFIG_PATH, "r");
+    if (!f) return enabled;
+    char line[128];
+    while (fgets(line, sizeof(line), f)) {
+        char key[32], val[96];
+        if (sscanf(line, "%31[^=]=%95s", key, val) == 2) {
+            if (!strcmp(key, "BT_ENABLED")) enabled = atoi(val);
+        }
+    }
+    fclose(f);
+    return enabled ? 1 : 0;
+}
+/* Guarda BT_ENABLED en armiga.cfg, preservando otras claves. */
+static void save_bt_enabled(int enabled)
+{
+    char lines[32][128];
+    int n = 0;
+    FILE *f = fopen(ARMIGA_CONFIG_PATH, "r");
+    if (f) {
+        while (n < 32 && fgets(lines[n], sizeof(lines[n]), f)) {
+            char key[32], val[96];
+            if (sscanf(lines[n], "%31[^=]=%95s", key, val) == 2 &&
+                !strcmp(key, "BT_ENABLED")) {
+                continue;
+            }
+            n++;
+        }
+        fclose(f);
+    }
+    f = fopen(ARMIGA_CONFIG_PATH, "w");
+    if (!f) return;
+    for (int i = 0; i < n; i++) fputs(lines[i], f);
+    fprintf(f, "BT_ENABLED=%d\n", enabled ? 1 : 0);
+    fclose(f);
+}
+static void apply_bt_enabled(int enabled)
+{
+    if (enabled)
+        system("/etc/init.d/S21bluetooth start >/dev/null 2>&1");
+    else
+        system("/etc/init.d/S21bluetooth stop >/dev/null 2>&1");
 }
 /* Perfil de rendimiento: 0=Maximo, 1=Equilibrado (default), 2=Ahorro. */
 static int read_perf_profile(void)
@@ -1845,6 +1892,7 @@ int main(void)
     int dim_max_brightness = read_max_brightness();
     int ssh_enabled = read_ssh_enabled(); /* aplicado ya por S51ssh-toggle en boot, solo reflejar estado en UI */
     int samba_enabled = read_samba_enabled(); /* aplicado ya por S53samba-toggle en boot, solo reflejar estado en UI */
+    int bt_enabled = read_bt_enabled(); /* aplicado ya por S22bluetooth-toggle en boot, solo reflejar estado en UI */
     int dim_saved_brightness = -1; /* brillo del usuario antes de atenuar, -1 = no atenuado */
     bool dim_active = false;
     Uint64 last_input_ticks = SDL_GetTicks();
@@ -2068,6 +2116,11 @@ int main(void)
                         state = STATE_PERF_CONFIG;
                     }
                     if (ev.key.key == SDLK_RETURN && settings_selected == 9) {
+                        bt_enabled = !bt_enabled;
+                        save_bt_enabled(bt_enabled);
+                        apply_bt_enabled(bt_enabled);
+                    }
+                    if (ev.key.key == SDLK_RETURN && settings_selected == 10) {
                         confirm_target = SETTINGS_ACTION_FACTORY_RESET;
                         confirm_return_state = STATE_SETTINGS;
                         state = STATE_CONFIRM;
@@ -2127,6 +2180,12 @@ int main(void)
                 }
                 if (ev.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN &&
                     ev.jbutton.button == BTN_SDL_A && settings_selected == 9) {
+                    bt_enabled = !bt_enabled;
+                    save_bt_enabled(bt_enabled);
+                    apply_bt_enabled(bt_enabled);
+                }
+                if (ev.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN &&
+                    ev.jbutton.button == BTN_SDL_A && settings_selected == 10) {
                     confirm_target = SETTINGS_ACTION_FACTORY_RESET;
                     confirm_return_state = STATE_SETTINGS;
                     state = STATE_CONFIRM;
@@ -2968,6 +3027,10 @@ int main(void)
                     snprintf(item_label, sizeof(item_label), "%s: %s",
                              SETTINGS_MENU_ITEMS[i][current_lang],
                              samba_enabled ? tr("Activado", "Enabled") : tr("Desactivado", "Disabled"));
+                } else if (i == 9) {
+                    snprintf(item_label, sizeof(item_label), "%s: %s",
+                             SETTINGS_MENU_ITEMS[i][current_lang],
+                             bt_enabled ? tr("Activado", "Enabled") : tr("Desactivado", "Disabled"));
                 } else {
                     safe_copy(item_label, SETTINGS_MENU_ITEMS[i][current_lang], sizeof(item_label));
                 }
