@@ -1407,6 +1407,32 @@ static void draw_text_centered(SDL_Renderer *r, TTF_Font *f, const char *t,
 /* Dibuja footer unificado: leyenda izquierda + version derecha */
 static SDL_Texture *g_perf_icons[3] = {NULL, NULL, NULL};
 
+#define BT_MAX_DEVICES 16
+typedef struct { char mac[18]; char name[64]; } BTDevice;
+
+/* Parsea /tmp/armiga-bt-devices.txt (formato "MAC|Nombre" por linea,
+ * generado por armiga-bt-scan) hacia el array de dispositivos. */
+static int bt_parse_devices(BTDevice *devices, int max_count)
+{
+    FILE *f = fopen("/tmp/armiga-bt-devices.txt", "r");
+    if (!f) return 0;
+    char line[128];
+    int count = 0;
+    while (count < max_count && fgets(line, sizeof(line), f)) {
+        char *sep = strchr(line, '|');
+        if (!sep) continue;
+        *sep = 0;
+        char *name = sep + 1;
+        char *nl = strchr(name, '\n');
+        if (nl) *nl = 0;
+        safe_copy(devices[count].mac, line, sizeof(devices[count].mac));
+        safe_copy(devices[count].name, name, sizeof(devices[count].name));
+        count++;
+    }
+    fclose(f);
+    return count;
+}
+
 #define DEVMODE_TEMP_HISTORY_LEN 60
 static int g_devmode_temp_history[DEVMODE_TEMP_HISTORY_LEN];
 static int g_devmode_temp_history_count = 0;
@@ -1895,6 +1921,14 @@ int main(void)
     int samba_enabled = read_samba_enabled(); /* aplicado ya por S53samba-toggle en boot, solo reflejar estado en UI */
     int bt_enabled = read_bt_enabled(); /* aplicado ya por S22bluetooth-toggle en boot, solo reflejar estado en UI */
     int bt_selected = 0; /* cursor en lista de dispositivos escaneados */
+    BTDevice bt_devices[BT_MAX_DEVICES];
+    int bt_device_count = 0;
+    bool bt_scanning = false;
+    Uint64 bt_scan_start = 0;
+    Uint64 bt_last_poll = 0;
+    bool bt_connecting = false;
+    Uint64 bt_connect_start = 0;
+    char bt_connect_status[64] = "";
     int dim_saved_brightness = -1; /* brillo del usuario antes de atenuar, -1 = no atenuado */
     bool dim_active = false;
     Uint64 last_input_ticks = SDL_GetTicks();
@@ -2119,6 +2153,13 @@ int main(void)
                     }
                     if (ev.key.key == SDLK_RETURN && settings_selected == 9) {
                         bt_selected = 0;
+                        bt_device_count = 0;
+                        bt_connect_status[0] = 0;
+                        if (bt_enabled) {
+                            bt_scanning = true;
+                            bt_scan_start = SDL_GetTicks();
+                            system("armiga-bt-scan >/dev/null 2>&1 &");
+                        }
                         state = STATE_BLUETOOTH_CONFIG;
                     }
                     if (ev.key.key == SDLK_RETURN && settings_selected == 10) {
@@ -2182,6 +2223,13 @@ int main(void)
                 if (ev.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN &&
                     ev.jbutton.button == BTN_SDL_A && settings_selected == 9) {
                     bt_selected = 0;
+                    bt_device_count = 0;
+                    bt_connect_status[0] = 0;
+                    if (bt_enabled) {
+                        bt_scanning = true;
+                        bt_scan_start = SDL_GetTicks();
+                        system("armiga-bt-scan >/dev/null 2>&1 &");
+                    }
                     state = STATE_BLUETOOTH_CONFIG;
                 }
                 if (ev.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN &&
@@ -2278,6 +2326,30 @@ int main(void)
                     bt_enabled = !bt_enabled;
                     save_bt_enabled(bt_enabled);
                     apply_bt_enabled(bt_enabled);
+                    if (!bt_enabled) { bt_scanning = false; bt_device_count = 0; }
+                }
+                if (!bt_connecting && bt_device_count > 0) {
+                    if (ev.type == SDL_EVENT_KEY_DOWN) {
+                        if (ev.key.key == SDLK_UP)
+                            bt_selected = (bt_selected - 1 + bt_device_count) % bt_device_count;
+                        if (ev.key.key == SDLK_DOWN)
+                            bt_selected = (bt_selected + 1) % bt_device_count;
+                    }
+                    if (ev.type == SDL_EVENT_JOYSTICK_HAT_MOTION) {
+                        if (ev.jhat.value == SDL_HAT_UP)
+                            bt_selected = (bt_selected - 1 + bt_device_count) % bt_device_count;
+                        else if (ev.jhat.value == SDL_HAT_DOWN)
+                            bt_selected = (bt_selected + 1) % bt_device_count;
+                    }
+                    if (ev.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN &&
+                        ev.jbutton.button == BTN_SDL_A) {
+                        char cmd[128];
+                        snprintf(cmd, sizeof(cmd), "armiga-bt-connect %s >/dev/null 2>&1 &", bt_devices[bt_selected].mac);
+                        system(cmd);
+                        bt_connecting = true;
+                        bt_connect_start = SDL_GetTicks();
+                        bt_connect_status[0] = 0;
+                    }
                 }
                 if (ev.type == SDL_EVENT_KEY_DOWN && ev.key.key == SDLK_ESCAPE)
                     state = STATE_SETTINGS;
@@ -2909,6 +2981,34 @@ int main(void)
             read_sysfs_int("/sys/devices/system/cpu/cpu0/cpufreq/scaling_cur_freq", &dev_cpu_cur_freq);
             dev_last_temp_sample = now_ticks;
         }
+        if (state == STATE_BLUETOOTH_CONFIG &&
+            (bt_last_poll == 0 || now_ticks - bt_last_poll > 1000)) {
+            bt_device_count = bt_parse_devices(bt_devices, BT_MAX_DEVICES);
+            if (bt_scanning && now_ticks - bt_scan_start > 10000)
+                bt_scanning = false;
+            if (bt_connecting) {
+                FILE *fc = fopen("/tmp/armiga-bt-connect.log", "r");
+                if (fc) {
+                    char buf[4096];
+                    size_t rd = fread(buf, 1, sizeof(buf) - 1, fc);
+                    buf[rd] = 0;
+                    fclose(fc);
+                    if (strstr(buf, "Connection successful")) {
+                        safe_copy(bt_connect_status, tr("Conectado", "Connected"), sizeof(bt_connect_status));
+                        bt_connecting = false;
+                    } else if (strstr(buf, "Failed to connect") || strstr(buf, "Failed to pair")) {
+                        safe_copy(bt_connect_status, tr("Fallo de conexion", "Connection failed"), sizeof(bt_connect_status));
+                        bt_connecting = false;
+                    }
+                }
+                if (bt_connecting && now_ticks - bt_connect_start > 20000) {
+                    safe_copy(bt_connect_status, tr("Tiempo agotado", "Timed out"), sizeof(bt_connect_status));
+                    bt_connecting = false;
+                }
+            }
+            if (bt_selected >= bt_device_count) bt_selected = bt_device_count > 0 ? bt_device_count - 1 : 0;
+            bt_last_poll = now_ticks;
+        }
 
         /* RENDER */
         SDL_SetRenderDrawColor(ren, c_bg.r, c_bg.g, c_bg.b, 255);
@@ -3147,10 +3247,43 @@ int main(void)
                 draw_text_right(ren, f_med, bt_status, bt_status_c, SCREEN_W - mx, toggle_y);
                 draw_line(ren, mx, toggle_y + 30.0f, SCREEN_W - mx, toggle_y + 30.0f, c_green);
             }
-            draw_text(ren, f_sm, tr("Lista de dispositivos: proximamente", "Device list: coming soon"), c_menu_beige, mx, 120.0f);
+            if (!bt_enabled) {
+                draw_text(ren, f_sm, tr("Bluetooth desactivado", "Bluetooth disabled"), c_menu_beige, mx, 120.0f);
+            } else if (bt_connecting) {
+                char cbuf[96];
+                snprintf(cbuf, sizeof(cbuf), "%s %s...", tr("Conectando a", "Connecting to"), bt_devices[bt_selected].name[0] ? bt_devices[bt_selected].name : bt_devices[bt_selected].mac);
+                draw_text(ren, f_sm, cbuf, c_menu_gold, mx, 120.0f);
+            } else {
+                draw_text(ren, f_sm, tr("DISPOSITIVOS DISPONIBLES", "AVAILABLE DEVICES"), c_menu_beige, mx, 100.0f);
+                float bt_y0 = 128.0f;
+                float bt_item_h = 26.0f;
+                for (int i = 0; i < bt_device_count; i++) {
+                    float iy = bt_y0 + i * bt_item_h;
+                    const char *label = bt_devices[i].name[0] ? bt_devices[i].name : bt_devices[i].mac;
+                    bool sel = (i == bt_selected);
+                    SDL_Color labelc = sel ? c_menu_gold : c_menu_beige;
+                    if (sel) {
+                        int text_w = 0, text_h = 0;
+                        TTF_GetStringSize(f_sm, label, 0, &text_w, &text_h);
+                        float pill_h = bt_item_h - 4.0f;
+                        draw_rounded_rect_filled(ren, mx - 10.0f, iy - 3.0f,
+                                         (float)text_w + 20.0f, pill_h, pill_h / 2.0f, c_menu_selbg);
+                    }
+                    draw_text(ren, f_sm, label, labelc, mx + 4.0f, iy);
+                }
+                if (bt_device_count == 0 && !bt_scanning) {
+                    draw_text(ren, f_sm, tr("Ningun dispositivo encontrado", "No devices found"), c_menu_beige, mx, bt_y0);
+                }
+                if (bt_connect_status[0]) {
+                    draw_text(ren, f_sm, bt_connect_status, c_menu_gold, mx, 400.0f);
+                }
+                if (bt_scanning) {
+                    draw_text(ren, f_sm, tr("Buscando dispositivos...", "Searching for devices..."), c_menu_beige, mx, 400.0f);
+                }
+            }
             draw_line(ren, mx, 438.0f, SCREEN_W - 20.0f, 438.0f, c_green);
             draw_footer(ren, f_sm,
-                tr("[SELECT] Activar/Desactivar  [A] Volver", "[SELECT] Toggle  [A] Back"), s_version);
+                tr("[DPAD] Elegir  [B] Conectar  [SELECT] Activar  [A] Volver", "[DPAD] Choose  [B] Connect  [SELECT] Toggle  [A] Back"), s_version);
         } else if (state == STATE_TIMEZONE_CONFIG) {
             SDL_Color c_menu_gold  = {224, 176, 96, 255};
             SDL_Color c_menu_beige = {168, 157, 124, 255};
