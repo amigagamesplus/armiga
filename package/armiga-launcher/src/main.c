@@ -3128,7 +3128,7 @@ int main(void)
             draw_statusbar(ren, f_sm, f_xs, status_time, status_wifi_up, status_battery, wifi_icon_tex, battery_icon_tex);
 
             float settings_y0 = 64.0f;
-            float settings_item_h = 34.0f;
+            float settings_item_h = 32.0f;
             for (int i = 0; i < SETTINGS_MENU_COUNT; i++) {
                 float iy = settings_y0 + i * settings_item_h;
                 char item_label[64];
