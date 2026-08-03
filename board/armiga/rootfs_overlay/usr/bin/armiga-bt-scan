@@ -15,8 +15,29 @@ rm -f "$OUT" "$RAW" "$CLEAN"
 # Limpiar codigos ANSI (color/cursor) y retornos de carro antes de parsear
 ESC=$(printf '\033')
 sed "s/${ESC}\[[0-9;]*[a-zA-Z]//g; s/\r//g" "$RAW" > "$CLEAN"
+NAMEF="/tmp/armiga-bt-scan-names.tmp"
+RSSIF="/tmp/armiga-bt-scan-rssi.tmp"
+rm -f "$NAMEF" "$RSSIF"
+
 grep "\[NEW\] Device " "$CLEAN" | while read -r line; do
     mac=$(echo "$line" | sed -n 's/.*\[NEW\] Device \([0-9A-Fa-f:]*\) .*/\1/p')
     name=$(echo "$line" | sed -n 's/.*\[NEW\] Device [0-9A-Fa-f:]* //p')
     [ -n "$mac" ] && echo "${mac}|${name}"
-done | awk -F'|' '{a[$1]=$0} END{for (k in a) print a[k]}' > "$OUT"
+done > "$NAMEF"
+
+grep "RSSI: " "$CLEAN" | while read -r line; do
+    mac=$(echo "$line" | sed -n 's/.*Device \([0-9A-Fa-f:]*\) RSSI:.*/\1/p')
+    rssi=$(echo "$line" | sed -n 's/.*RSSI: 0x[0-9A-Fa-f]* (\(-\{0,1\}[0-9]*\)).*/\1/p')
+    [ -n "$mac" ] && [ -n "$rssi" ] && echo "${mac}|${rssi}"
+done > "$RSSIF"
+
+awk -F'|' '
+FNR==NR { name[$1]=$2; next }
+{ rssi[$1]=$2 }
+END {
+    for (m in name) {
+        r = (m in rssi) ? rssi[m] : ""
+        print m "|" name[m] "|" r
+    }
+}' "$NAMEF" "$RSSIF" > "$OUT"
+rm -f "$NAMEF" "$RSSIF"
