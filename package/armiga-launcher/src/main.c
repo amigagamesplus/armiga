@@ -726,9 +726,8 @@ static bool read_sysfs_int(const char *path, int *out)
     return true;
 }
 
-static void read_bt_connected(char *mac_out, size_t mac_sz, char *name_out, size_t name_sz);
 static void update_status(char *time_str, size_t time_str_sz,
-                          bool *wifi_up, int *battery_pct, bool *bt_up)
+                          bool *wifi_up, int *battery_pct)
 {
     time_t t = time(NULL);
     struct tm *lt = localtime(&t);
@@ -738,10 +737,6 @@ static void update_status(char *time_str, size_t time_str_sz,
     char operstate[16] = {0};
     *wifi_up = read_sysfs_str("/sys/class/net/wlan0/operstate", operstate, sizeof(operstate))
                && strncmp(operstate, "up", 2) == 0;
-
-    char bt_mac_tmp[18] = "";
-    read_bt_connected(bt_mac_tmp, sizeof(bt_mac_tmp), NULL, 0);
-    *bt_up = bt_mac_tmp[0] != 0;
 
     int cap = -1;
     read_sysfs_int("/sys/class/power_supply/battery/capacity", &cap);
@@ -2868,7 +2863,8 @@ int main(void)
         Uint64 now_ticks = SDL_GetTicks();
         if (last_status_update == 0 || now_ticks - last_status_update > 3000) {
             update_status(status_time, sizeof(status_time),
-                         &status_wifi_up, &status_battery, &status_bt_up);
+                         &status_wifi_up, &status_battery);
+            status_bt_up = (bool)bt_enabled;
             last_status_update = now_ticks;
         }
         /* Check de actualizacion en background: se lanza una sola vez,
