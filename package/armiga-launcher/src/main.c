@@ -987,16 +987,25 @@ static void apply_bt_enabled(int enabled)
 /* Consulta el MAC actualmente conectado via bluetoothctl (estado real del
  * sistema; bt_connected_mac es variable de proceso y se pierde al matar
  * o reiniciar el launcher aunque el BT siga conectado a nivel de SO). */
-static void read_bt_connected_mac(char *out, size_t outsz)
+static void read_bt_connected(char *mac_out, size_t mac_sz, char *name_out, size_t name_sz)
 {
-    if (outsz > 0) out[0] = 0;
+    if (mac_sz > 0) mac_out[0] = 0;
+    if (name_out && name_sz > 0) name_out[0] = 0;
     FILE *fp = popen("bluetoothctl devices Connected 2>/dev/null", "r");
     if (!fp) return;
-    char line[128];
+    char line[160];
     if (fgets(line, sizeof(line), fp)) {
         char mac[18] = "";
-        if (sscanf(line, "Device %17s", mac) == 1) {
-            snprintf(out, outsz, "%s", mac);
+        int consumed = 0;
+        if (sscanf(line, "Device %17s%n", mac, &consumed) == 1) {
+            snprintf(mac_out, mac_sz, "%s", mac);
+            if (name_out && name_sz > 0) {
+                char *rest = line + consumed;
+                while (*rest == ' ') rest++;
+                char *nl = strchr(rest, '\n');
+                if (nl) *nl = 0;
+                snprintf(name_out, name_sz, "%s", rest);
+            }
         }
     }
     pclose(fp);
@@ -1960,6 +1969,7 @@ int main(void)
     Uint64 bt_connect_start = 0;
     char bt_connect_status[64] = "";
     char bt_connected_mac[18] = "";
+    char bt_connected_name[64] = "";
     char bt_connect_target_mac[18] = "";
     int dim_saved_brightness = -1; /* brillo del usuario antes de atenuar, -1 = no atenuado */
     bool dim_active = false;
@@ -2187,7 +2197,7 @@ int main(void)
                         bt_selected = 0;
                         bt_device_count = 0;
                         bt_connect_status[0] = 0;
-                        read_bt_connected_mac(bt_connected_mac, sizeof(bt_connected_mac));
+                        read_bt_connected(bt_connected_mac, sizeof(bt_connected_mac), bt_connected_name, sizeof(bt_connected_name));
                         if (bt_enabled) {
                             bt_scanning = true;
                             bt_scan_start = SDL_GetTicks();
@@ -2258,7 +2268,7 @@ int main(void)
                     bt_selected = 0;
                     bt_device_count = 0;
                     bt_connect_status[0] = 0;
-                    read_bt_connected_mac(bt_connected_mac, sizeof(bt_connected_mac));
+                    read_bt_connected(bt_connected_mac, sizeof(bt_connected_mac), bt_connected_name, sizeof(bt_connected_name));
                     if (bt_enabled) {
                         bt_scanning = true;
                         bt_scan_start = SDL_GetTicks();
@@ -3019,8 +3029,27 @@ int main(void)
         if (state == STATE_BLUETOOTH_CONFIG &&
             (bt_last_poll == 0 || now_ticks - bt_last_poll > 1000)) {
             bt_device_count = bt_parse_devices(bt_devices, BT_MAX_DEVICES);
+            if (bt_connected_mac[0]) {
+                bool bt_conn_found = false;
+                for (int bi = 0; bi < bt_device_count; bi++) {
+                    if (!strcmp(bt_devices[bi].mac, bt_connected_mac)) { bt_conn_found = true; break; }
+                }
+                if (!bt_conn_found && bt_device_count < BT_MAX_DEVICES) {
+                    memmove(&bt_devices[1], &bt_devices[0], sizeof(BTDevice) * bt_device_count);
+                    safe_copy(bt_devices[0].mac, bt_connected_mac, sizeof(bt_devices[0].mac));
+                    safe_copy(bt_devices[0].name, bt_connected_name, sizeof(bt_devices[0].name));
+                    bt_devices[0].rssi = 0;
+                    bt_devices[0].has_rssi = false;
+                    bt_device_count++;
+                }
+            }
             if (bt_scanning && now_ticks - bt_scan_start > 10000)
                 bt_scanning = false;
+            if (!bt_scanning && !bt_connecting && now_ticks - bt_scan_start > 15000) {
+                bt_scanning = true;
+                bt_scan_start = now_ticks;
+                system("armiga-bt-scan >/dev/null 2>&1 &");
+            }
             if (bt_connecting) {
                 FILE *fc = fopen("/tmp/armiga-bt-connect.log", "r");
                 if (fc) {
@@ -3311,8 +3340,12 @@ int main(void)
                         draw_rounded_rect_filled(ren, mx - 10.0f, iy - 4.0f,
                                          SCREEN_W - 2.0f * mx + 20.0f, row_h, row_h / 2.0f, c_bt_card);
                     } else if (sel) {
-                        draw_rounded_rect_filled(ren, mx - 10.0f, iy - 4.0f,
-                                         SCREEN_W - 2.0f * mx + 20.0f, row_h, row_h / 2.0f, c_menu_selbg);
+                        int lbl_w = 0, lbl_h = 0;
+                        TTF_GetStringSize(f_sm, label, 0, &lbl_w, &lbl_h);
+                        float pill_pad = 10.0f;
+                        float pill_x = mx + 4.0f - pill_pad;
+                        float pill_w = (float)lbl_w + pill_pad * 2.0f;
+                        draw_rounded_rect_filled(ren, pill_x, iy - 4.0f, pill_w, row_h, row_h / 2.0f, c_menu_selbg);
                     }
                     SDL_Color labelc = connected ? c_menu_gold : (sel ? c_menu_gold : c_menu_beige);
                     draw_text(ren, f_sm, label, labelc, mx + 4.0f, iy);
@@ -3324,9 +3357,6 @@ int main(void)
                         snprintf(rbuf, sizeof(rbuf), "%d dBm", bt_devices[i].rssi);
                         draw_text_right(ren, f_sm, rbuf, c_bt_dim, SCREEN_W - mx - 6.0f, iy);
                     }
-                    if (sel && !connected) {
-                        draw_rect_filled(ren, mx - 2.0f, iy + 2.0f, 3.0f, row_h - 8.0f, c_menu_gold);
-                    }
                 }
                 if (bt_device_count == 0 && !bt_scanning) {
                     draw_text(ren, f_sm, tr("Ningun dispositivo encontrado", "No devices found"), c_menu_beige, mx, bt_y0);
@@ -3334,13 +3364,13 @@ int main(void)
                 if (bt_connecting) {
                     char cbuf[96];
                     snprintf(cbuf, sizeof(cbuf), "%s %s...", tr("Conectando a", "Connecting to"), bt_devices[bt_selected].name[0] ? bt_devices[bt_selected].name : bt_devices[bt_selected].mac);
-                    draw_text(ren, f_sm, cbuf, c_menu_gold, mx, 400.0f);
+                    draw_text(ren, f_sm, cbuf, c_menu_gold, mx, 392.0f);
                 } else if (bt_connect_status[0]) {
-                    draw_text(ren, f_sm, bt_connect_status, c_menu_gold, mx, 400.0f);
+                    draw_text(ren, f_sm, bt_connect_status, c_menu_gold, mx, 392.0f);
                 }
                 if (bt_scanning) {
                     float sp_cx = mx + 6.0f;
-                    float sp_cy = 407.0f;
+                    float sp_cy = 423.0f;
                     float sp_r = 6.0f;
                     int active = (int)((now_ticks / 100) % 8);
                     for (int d = 0; d < 8; d++) {
@@ -3352,7 +3382,7 @@ int main(void)
                         SDL_Color dotc = {shade, shade > 200 ? 176 : (Uint8)(shade * 0.78f), 60, 255};
                         draw_rect_filled(ren, dx - 1.5f, dy - 1.5f, 3.0f, 3.0f, dotc);
                     }
-                    draw_text(ren, f_sm, tr("Buscando dispositivos...", "Searching for devices..."), c_menu_beige, mx + 20.0f, 400.0f);
+                    draw_text(ren, f_sm, tr("Buscando dispositivos...", "Searching for devices..."), c_menu_beige, mx + 20.0f, 416.0f);
                 }
             }
             draw_line(ren, mx, 438.0f, SCREEN_W - 20.0f, 438.0f, c_green);

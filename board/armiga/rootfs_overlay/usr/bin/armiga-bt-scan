@@ -5,7 +5,7 @@
 OUT="/tmp/armiga-bt-devices.txt"
 RAW="/tmp/armiga-bt-scan-raw.log"
 CLEAN="/tmp/armiga-bt-scan-clean.log"
-rm -f "$OUT" "$RAW" "$CLEAN"
+rm -f "$RAW" "$CLEAN"
 (
     echo "scan on"
     sleep 9
@@ -39,5 +39,6 @@ END {
         r = (m in rssi) ? rssi[m] : ""
         print m "|" name[m] "|" r
     }
-}' "$NAMEF" "$RSSIF" > "$OUT"
+}' "$NAMEF" "$RSSIF" > "${OUT}.new"
+mv "${OUT}.new" "$OUT"
 rm -f "$NAMEF" "$RSSIF"
