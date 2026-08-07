@@ -46,8 +46,11 @@ case "$1" in
         printf "Stopping Bluetooth: "
         killall bluetoothd 2>/dev/null || true
         killall bluealsa 2>/dev/null || true
-        killall rtk_hciattach 2>/dev/null || true
-        killall hciattach 2>/dev/null || true
+        # NUNCA matar rtk_hciattach/hciattach: el chip RTL8821CS via UART no
+        # soporta un segundo attach fiable en la misma sesion de kernel
+        # (cuelgue/fallo confirmado). rfkill block ya desactiva el radio sin
+        # tocar el proceso de adjunto serie, dejando /sys/class/bluetooth/hci0
+        # vivo para que el proximo 'start' tome el camino rapido.
         rfkill block bluetooth 2>/dev/null || true
         echo "OK"
         ;;

@@ -979,36 +979,36 @@ static void save_bt_enabled(int enabled)
 }
 static void apply_bt_enabled(int enabled)
 {
+    /* Nunca bloquear el hilo principal: S21bluetooth puede tardar (sleeps
+     * internos, arranque de bluetoothd/bluealsa) y un system() sincrono aqui
+     * congela el mando. Se lanza en background, igual que scan/connect. */
     if (enabled)
-        system("/etc/init.d/S21bluetooth start >/dev/null 2>&1");
+        system("/etc/init.d/S21bluetooth start >/dev/null 2>&1 &");
     else
-        system("/etc/init.d/S21bluetooth stop >/dev/null 2>&1");
+        system("/etc/init.d/S21bluetooth stop >/dev/null 2>&1 &");
 }
-/* Consulta el MAC actualmente conectado via bluetoothctl (estado real del
- * sistema; bt_connected_mac es variable de proceso y se pierde al matar
- * o reiniciar el launcher aunque el BT siga conectado a nivel de SO). */
+/* Lee el MAC/nombre conectado desde el fichero que arma armiga-bt-scan en
+ * background (formato "MAC|Nombre"). NUNCA lanza un subproceso propio aqui:
+ * un popen() sincrono a bluetoothctl desde el hilo principal se ha
+ * confirmado que puede colgarse (contencion con la sesion de escaneo en
+ * paralelo) y congela el mando por completo. Solo lectura de fichero. */
 static void read_bt_connected(char *mac_out, size_t mac_sz, char *name_out, size_t name_sz)
 {
     if (mac_sz > 0) mac_out[0] = 0;
     if (name_out && name_sz > 0) name_out[0] = 0;
-    FILE *fp = popen("bluetoothctl devices Connected 2>/dev/null", "r");
-    if (!fp) return;
+    FILE *f = fopen("/tmp/armiga-bt-connected.txt", "r");
+    if (!f) return;
     char line[160];
-    if (fgets(line, sizeof(line), fp)) {
-        char mac[18] = "";
-        int consumed = 0;
-        if (sscanf(line, "Device %17s%n", mac, &consumed) == 1) {
-            snprintf(mac_out, mac_sz, "%s", mac);
-            if (name_out && name_sz > 0) {
-                char *rest = line + consumed;
-                while (*rest == ' ') rest++;
-                char *nl = strchr(rest, '\n');
-                if (nl) *nl = 0;
-                snprintf(name_out, name_sz, "%s", rest);
-            }
+    if (fgets(line, sizeof(line), f)) {
+        line[strcspn(line, "\r\n")] = 0;
+        char *sep = strchr(line, '|');
+        if (sep) {
+            *sep = 0;
+            snprintf(mac_out, mac_sz, "%s", line);
+            if (name_out && name_sz > 0) snprintf(name_out, name_sz, "%s", sep + 1);
         }
     }
-    pclose(fp);
+    fclose(f);
 }
 /* Perfil de rendimiento: 0=Maximo, 1=Equilibrado (default), 2=Ahorro. */
 static int read_perf_profile(void)
@@ -3038,6 +3038,7 @@ int main(void)
         if (state == STATE_BLUETOOTH_CONFIG &&
             (bt_last_poll == 0 || now_ticks - bt_last_poll > 1000)) {
             bt_device_count = bt_parse_devices(bt_devices, BT_MAX_DEVICES);
+            read_bt_connected(bt_connected_mac, sizeof(bt_connected_mac), bt_connected_name, sizeof(bt_connected_name));
             if (bt_connected_mac[0]) {
                 bool bt_conn_found = false;
                 for (int bi = 0; bi < bt_device_count; bi++) {
