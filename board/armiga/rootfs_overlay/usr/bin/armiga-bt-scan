@@ -10,7 +10,6 @@ rm -f "$RAW" "$CLEAN"
     echo "scan on"
     sleep 9
     echo "scan off"
-    echo "devices Connected"
     echo "quit"
 ) | bluetoothctl > "$RAW" 2>/dev/null
 # Limpiar codigos ANSI (color/cursor) y retornos de carro antes de parsear
@@ -44,8 +43,10 @@ END {
 mv "${OUT}.new" "$OUT"
 rm -f "$NAMEF" "$RSSIF"
 
-# Dispositivo conectado (linea "Device MAC Nombre" sin corchetes, procede
-# solo de "devices Connected"; el listado de escaneo usa "[NEW] Device").
+# Dispositivo conectado: llamada NO interactiva y secuencial (nunca
+# concurrente con la sesion de escaneo de arriba, que ya ha terminado aqui).
+# "devices Connected" solo funciona como argumento CLI, no como comando
+# interactivo dentro de una sesion scripteada (confirmado empiricamente).
 CONN="/tmp/armiga-bt-connected.txt"
-grep "^Device " "$CLEAN" | head -1 | sed -n 's/^Device \([0-9A-Fa-f:]*\) \(.*\)/\1|\2/p' > "${CONN}.new"
+bluetoothctl devices Connected 2>/dev/null | sed -n 's/^Device \([0-9A-Fa-f:]*\) \(.*\)/\1|\2/p' | head -1 > "${CONN}.new"
 mv "${CONN}.new" "$CONN"

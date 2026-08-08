@@ -1,0 +1,8 @@
+#!/bin/sh
+# Comprobacion ligera (sin escaneo activo) del dispositivo BT actualmente
+# conectado. Pensado para lanzarse periodicamente en background desde
+# armiga-launcher, independientemente de la pantalla en la que este el
+# usuario, para que el enrutado de audio a RetroArch sea transparente.
+CONN="/tmp/armiga-bt-connected.txt"
+bluetoothctl devices Connected 2>/dev/null | sed -n 's/^Device \([0-9A-Fa-f:]*\) \(.*\)/\1|\2/p' | head -1 > "${CONN}.new"
+mv "${CONN}.new" "$CONN"

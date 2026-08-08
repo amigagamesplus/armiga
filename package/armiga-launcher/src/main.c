@@ -2066,6 +2066,9 @@ int main(void)
     bool status_bt_up = false;
     int  status_battery = -1;
     Uint64 last_status_update = 0;
+    Uint64 last_bt_check_trigger = 0;
+    char rt_bt_applied_mac[18] = "";
+    bool rt_bt_applied_init = false;
 
     SDL_Color c_bg      = COL_BG;
     SDL_Color c_green   = COL_GREEN;
@@ -2890,6 +2893,30 @@ int main(void)
             status_bt_up = (bool)bt_enabled;
             last_status_update = now_ticks;
         }
+        /* Enrutado transparente de audio BT -> RetroArch: comprobacion
+         * ligera en background cada ~6s (sea cual sea la pantalla actual),
+         * sin bloquear nunca el hilo principal. Si el conectado cambia
+         * respecto a lo ya aplicado, actualiza retroarch.cfg. */
+        /* Nunca competir con la pantalla Bluetooth: ella ya gestiona su
+         * propio ciclo de escaneo/emparejamiento/conexion con sesiones
+         * bluetoothctl propias. Lanzar este check ahi tambien causaba
+         * fallos de conexion por contencion. Solo activo fuera de esa
+         * pantalla y sin una conexion en curso. */
+        if (bt_enabled && !bt_connecting && state != STATE_BLUETOOTH_CONFIG &&
+            (last_bt_check_trigger == 0 || now_ticks - last_bt_check_trigger > 6000)) {
+            system("armiga-bt-connected-check >/dev/null 2>&1 &");
+            last_bt_check_trigger = now_ticks;
+        }
+        if (state != STATE_BLUETOOTH_CONFIG) {
+            char live_mac[18] = "";
+            read_bt_connected(live_mac, sizeof(live_mac), NULL, 0);
+            if (!bt_enabled) live_mac[0] = 0;
+            if (!rt_bt_applied_init || strcmp(live_mac, rt_bt_applied_mac) != 0) {
+                set_retroarch_audio_device(live_mac[0] ? live_mac : NULL);
+                safe_copy(rt_bt_applied_mac, live_mac, sizeof(rt_bt_applied_mac));
+                rt_bt_applied_init = true;
+            }
+        }
         /* Check de actualizacion en background: se lanza una sola vez,
          * 2s despues de arrancar (da tiempo a que el WiFi conecte),
          * sin bloquear la UI ni interferir con STATE_UPDATE. */
@@ -3090,12 +3117,18 @@ int main(void)
                     size_t rd = fread(buf, 1, sizeof(buf) - 1, fc);
                     buf[rd] = 0;
                     fclose(fc);
+                    /* "Failed to pair: ...AlreadyExists" es benigno: el
+                     * dispositivo ya estaba emparejado de una sesion previa,
+                     * el flujo de trust/connect continua y suele acabar en
+                     * exito unos segundos despues. No cortar el polling por
+                     * este mensaje concreto (confirmado en log real). */
+                    bool bt_pair_failed_real = strstr(buf, "Failed to pair") && !strstr(buf, "AlreadyExists");
                     if (strstr(buf, "Connection successful")) {
                         safe_copy(bt_connect_status, tr("Conectado", "Connected"), sizeof(bt_connect_status));
                         safe_copy(bt_connected_mac, bt_connect_target_mac, sizeof(bt_connected_mac));
                         set_retroarch_audio_device(bt_connect_target_mac);
                         bt_connecting = false;
-                    } else if (strstr(buf, "Failed to connect") || strstr(buf, "Failed to pair")) {
+                    } else if (strstr(buf, "Failed to connect") || bt_pair_failed_real) {
                         safe_copy(bt_connect_status, tr("Fallo de conexion", "Connection failed"), sizeof(bt_connect_status));
                         bt_connecting = false;
                     }

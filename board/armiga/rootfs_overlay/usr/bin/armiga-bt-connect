@@ -3,6 +3,12 @@
 # Uso: armiga-bt-connect AA:BB:CC:DD:EE:FF
 MAC="$1"
 [ -z "$MAC" ] && exit 1
+# Eliminar cualquier emparejamiento previo (link key desincronizada tras
+# multiples reinicios de BT puede causar "Authentication Failed" o el
+# benigno pero confuso "Failed to pair: AlreadyExists"). Se ignora el error
+# si no habia emparejamiento previo. Fuera de la sesion piped, en su propia
+# invocacion no interactiva.
+bluetoothctl remove "$MAC" >/dev/null 2>&1
 (
     echo "scan on"
     sleep 5
