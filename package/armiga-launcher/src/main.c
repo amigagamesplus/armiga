@@ -1988,6 +1988,7 @@ int main(void)
     int bt_device_count = 0;
     bool bt_scanning = false;
     Uint64 bt_scan_start = 0;
+    Uint64 bt_light_check_trigger = 0;
     Uint64 bt_last_poll = 0;
     bool bt_connecting = false;
     Uint64 bt_connect_start = 0;
@@ -2403,6 +2404,8 @@ int main(void)
                     if (!bt_enabled) {
                         bt_scanning = false;
                         bt_device_count = 0;
+                        bt_connected_mac[0] = 0;
+                        bt_connected_name[0] = 0;
                         set_retroarch_audio_device(NULL);
                     }
                 }
@@ -3104,18 +3107,18 @@ int main(void)
             (bt_last_poll == 0 || now_ticks - bt_last_poll > 1000)) {
             bt_device_count = bt_parse_devices(bt_devices, BT_MAX_DEVICES);
             read_bt_connected(bt_connected_mac, sizeof(bt_connected_mac), bt_connected_name, sizeof(bt_connected_name));
+            /* El dispositivo conectado/emparejado ya se muestra en la
+             * pildora de arriba: se excluye por completo de "disponibles"
+             * (ni se dibuja ni es navegable ahi), evita informacion
+             * duplicada y una fila fantasma. */
             if (bt_connected_mac[0]) {
-                bool bt_conn_found = false;
                 for (int bi = 0; bi < bt_device_count; bi++) {
-                    if (!strcmp(bt_devices[bi].mac, bt_connected_mac)) { bt_conn_found = true; break; }
-                }
-                if (!bt_conn_found && bt_device_count < BT_MAX_DEVICES) {
-                    memmove(&bt_devices[1], &bt_devices[0], sizeof(BTDevice) * bt_device_count);
-                    safe_copy(bt_devices[0].mac, bt_connected_mac, sizeof(bt_devices[0].mac));
-                    safe_copy(bt_devices[0].name, bt_connected_name, sizeof(bt_devices[0].name));
-                    bt_devices[0].rssi = 0;
-                    bt_devices[0].has_rssi = false;
-                    bt_device_count++;
+                    if (!strcmp(bt_devices[bi].mac, bt_connected_mac)) {
+                        memmove(&bt_devices[bi], &bt_devices[bi + 1],
+                                sizeof(BTDevice) * (bt_device_count - bi - 1));
+                        bt_device_count--;
+                        break;
+                    }
                 }
             }
             if (bt_scanning && now_ticks - bt_scan_start > 10000)
@@ -3124,6 +3127,15 @@ int main(void)
                 bt_scanning = true;
                 bt_scan_start = now_ticks;
                 system("armiga-bt-scan >/dev/null 2>&1 &");
+            }
+            /* Chequeo ligero (sin escaneo activo) del conectado, mas
+             * frecuente que el ciclo completo de arriba, para que una
+             * desconexion se refleje antes en la pildora/fila. Nunca se
+             * solapa con escaneo o conexion en curso. */
+            if (!bt_scanning && !bt_connecting && bt_enabled &&
+                (bt_light_check_trigger == 0 || now_ticks - bt_light_check_trigger > 4000)) {
+                system("armiga-bt-connected-check >/dev/null 2>&1 &");
+                bt_light_check_trigger = now_ticks;
             }
             if (bt_connecting) {
                 FILE *fc = fopen("/tmp/armiga-bt-connect.log", "r");
@@ -3411,10 +3423,18 @@ int main(void)
                 SDL_Color bt_status_c = bt_enabled ? c_green : c_bt_dim;
                 draw_text(ren, f_sm, bt_status, bt_status_c, badge_x + badge_pad, badge_y + 3.0f);
                 if (bt_connected_mac[0] && bt_connected_name[0]) {
-                    char paired_buf[96];
-                    snprintf(paired_buf, sizeof(paired_buf), "%s: %s", tr("Emparejado", "Paired"), bt_connected_name);
-                    draw_text_truncated(ren, f_sm, paired_buf, c_green, mx + toggle_w + 16.0f, toggle_y + 10.0f,
-                                         SCREEN_W - mx - (mx + toggle_w + 16.0f));
+                    char paired_buf[80];
+                    snprintf(paired_buf, sizeof(paired_buf), "%s %s", tr("Conectado a", "Connected to"), bt_connected_name);
+                    int pw = 0, ph = 0;
+                    TTF_GetStringSize(f_sm, paired_buf, 0, &pw, &ph);
+                    float pbadge_pad = 12.0f;
+                    float pbadge_max_w = SCREEN_W - mx - (mx + toggle_w + 16.0f);
+                    float pbadge_w = (float)pw + pbadge_pad * 2.0f;
+                    if (pbadge_w > pbadge_max_w) pbadge_w = pbadge_max_w;
+                    float pbadge_h = toggle_h;
+                    draw_rounded_rect_filled(ren, mx + toggle_w + 16.0f, toggle_y, pbadge_w, pbadge_h, pbadge_h / 2.0f, c_bt_card);
+                    draw_text_truncated(ren, f_sm, paired_buf, c_green, mx + toggle_w + 16.0f + pbadge_pad, toggle_y + (pbadge_h - (float)ph) / 2.0f,
+                                         pbadge_w - pbadge_pad * 2.0f);
                 }
             }
             if (!bt_enabled) {
@@ -3443,8 +3463,10 @@ int main(void)
                     bool sel = (i == bt_selected);
                     bool connected = (bt_connected_mac[0] && !strcmp(bt_connected_mac, bt_devices[i].mac));
                     if (connected) {
-                        draw_rounded_rect_filled(ren, mx - 10.0f, iy - 4.0f,
-                                         SCREEN_W - 2.0f * mx + 20.0f, row_h, row_h / 2.0f, c_bt_card);
+                        /* Sin capsula de fondo aqui: el estado de
+                         * emparejado/conectado ya se muestra en la pildora
+                         * de arriba; el texto en verde/dorado de la fila
+                         * basta como indicador, evita informacion duplicada. */
                     } else if (sel) {
                         int lbl_w = 0, lbl_h = 0;
                         TTF_GetStringSize(f_sm, label, 0, &lbl_w, &lbl_h);
