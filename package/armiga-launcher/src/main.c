@@ -2907,11 +2907,26 @@ int main(void)
             system("armiga-bt-connected-check >/dev/null 2>&1 &");
             last_bt_check_trigger = now_ticks;
         }
-        if (state != STATE_BLUETOOTH_CONFIG) {
+        /* Deteccion de transicion conectado->desconectado: SIEMPRE activa,
+         * en cualquier pantalla (incluida la de Bluetooth), para que el
+         * vinculo se elimine sin importar donde estuviera el usuario en el
+         * momento exacto de la desconexion. Solo el lanzamiento del check
+         * en background se restringe fuera de la pantalla BT (para no
+         * competir con su propio ciclo de escaneo). */
+        {
             char live_mac[18] = "";
             read_bt_connected(live_mac, sizeof(live_mac), NULL, 0);
             if (!bt_enabled) live_mac[0] = 0;
             if (!rt_bt_applied_init || strcmp(live_mac, rt_bt_applied_mac) != 0) {
+                if (rt_bt_applied_init && rt_bt_applied_mac[0] && !live_mac[0]) {
+                    /* Transicion conectado -> desconectado: eliminar el
+                     * vinculo (bonding) para que el auricular no se
+                     * reconecte solo la proxima vez que se encienda.
+                     * Vince quiere conexion siempre elegida manualmente. */
+                    char rm_cmd[80];
+                    snprintf(rm_cmd, sizeof(rm_cmd), "bluetoothctl remove %s >/dev/null 2>&1 &", rt_bt_applied_mac);
+                    system(rm_cmd);
+                }
                 set_retroarch_audio_device(live_mac[0] ? live_mac : NULL);
                 safe_copy(rt_bt_applied_mac, live_mac, sizeof(rt_bt_applied_mac));
                 rt_bt_applied_init = true;
@@ -3376,20 +3391,31 @@ int main(void)
             {
                 float toggle_y = 64.0f;
                 float toggle_h = 34.0f;
-                draw_rounded_rect_filled(ren, mx, toggle_y, SCREEN_W - 2.0f * mx, toggle_h, toggle_h / 2.0f, c_bt_card);
-                draw_text(ren, f_med, "Bluetooth", c_menu_gold, mx + 16.0f, toggle_y + 8.0f);
+                int lw = 0, lh = 0;
+                TTF_GetStringSize(f_med, "Bluetooth", 0, &lw, &lh);
                 const char *bt_status = bt_enabled ? tr("ACTIVADO", "ENABLED") : tr("DESACTIVADO", "DISABLED");
                 int sw = 0, sh = 0;
                 TTF_GetStringSize(f_sm, bt_status, 0, &sw, &sh);
                 float badge_pad = 10.0f;
                 float badge_w = (float)sw + badge_pad * 2.0f;
                 float badge_h = (float)sh + 6.0f;
-                float badge_x = SCREEN_W - mx - 12.0f - badge_w;
+                float label_pad = 16.0f;
+                float badge_gap = 16.0f;
+                float toggle_w = label_pad + (float)lw + badge_gap + badge_w + 12.0f;
+                draw_rounded_rect_filled(ren, mx, toggle_y, toggle_w, toggle_h, toggle_h / 2.0f, c_bt_card);
+                draw_text(ren, f_med, "Bluetooth", c_menu_gold, mx + label_pad, toggle_y + 8.0f);
+                float badge_x = mx + toggle_w - 12.0f - badge_w;
                 float badge_y = toggle_y + (toggle_h - badge_h) / 2.0f;
                 SDL_Color badge_bg = {24, 22, 16, 255};
                 draw_rounded_rect_filled(ren, badge_x, badge_y, badge_w, badge_h, badge_h / 2.0f, badge_bg);
                 SDL_Color bt_status_c = bt_enabled ? c_green : c_bt_dim;
                 draw_text(ren, f_sm, bt_status, bt_status_c, badge_x + badge_pad, badge_y + 3.0f);
+                if (bt_connected_mac[0] && bt_connected_name[0]) {
+                    char paired_buf[96];
+                    snprintf(paired_buf, sizeof(paired_buf), "%s: %s", tr("Emparejado", "Paired"), bt_connected_name);
+                    draw_text_truncated(ren, f_sm, paired_buf, c_green, mx + toggle_w + 16.0f, toggle_y + 10.0f,
+                                         SCREEN_W - mx - (mx + toggle_w + 16.0f));
+                }
             }
             if (!bt_enabled) {
                 draw_text(ren, f_sm, tr("Bluetooth desactivado", "Bluetooth disabled"), c_menu_beige, mx, 116.0f);
@@ -3430,8 +3456,8 @@ int main(void)
                     SDL_Color labelc = connected ? c_menu_gold : (sel ? c_menu_gold : c_menu_beige);
                     draw_text(ren, f_sm, label, labelc, mx + 4.0f, iy);
                     if (connected) {
-                        const char *badge = tr("Emparejado · Conectado", "Paired · Connected");
-                        draw_text_right(ren, f_sm, badge, c_green, SCREEN_W - mx - 6.0f, iy);
+                        /* Sin badge aqui: ya se muestra "Emparejado: <nombre>"
+                         * en la pildora de arriba, este texto era redundante. */
                     } else if (bt_devices[i].has_rssi) {
                         char rbuf[16];
                         snprintf(rbuf, sizeof(rbuf), "%d dBm", bt_devices[i].rssi);

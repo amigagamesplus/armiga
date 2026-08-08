@@ -9,13 +9,15 @@ MAC="$1"
 # si no habia emparejamiento previo. Fuera de la sesion piped, en su propia
 # invocacion no interactiva.
 bluetoothctl remove "$MAC" >/dev/null 2>&1
+# Sin "trust": Trusted es lo que activa la reconexion automatica de BlueZ
+# cuando el dispositivo se enciende (p.ej. al sacar el auricular de la
+# funda). Vince quiere conexion siempre manual, elegida desde el launcher.
+# El emparejamiento (pair) y la conexion manual funcionan igual sin trust.
 (
     echo "scan on"
     sleep 5
     echo "pair $MAC"
     sleep 8
-    echo "trust $MAC"
-    sleep 1
     echo "connect $MAC"
     sleep 5
     echo "scan off"
