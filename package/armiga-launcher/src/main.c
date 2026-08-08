@@ -977,6 +977,23 @@ static void save_bt_enabled(int enabled)
     fprintf(f, "BT_ENABLED=%d\n", enabled ? 1 : 0);
     fclose(f);
 }
+/* Fija (o revierte a altavoz) el audio_device de RetroArch para que el
+ * audio del emulador salga por el Bluetooth conectado. mac==NULL o vacio
+ * revierte a salida por defecto (altavoz interno). */
+static void set_retroarch_audio_device(const char *mac)
+{
+    char cmd[300];
+    if (mac && mac[0]) {
+        snprintf(cmd, sizeof(cmd),
+            "sed -i 's|^audio_device = .*|audio_device = \"bluealsa:DEV=%s,PROFILE=a2dp\"|' "
+            "/media/amiga_data/retroarch/retroarch.cfg", mac);
+    } else {
+        snprintf(cmd, sizeof(cmd),
+            "sed -i 's|^audio_device = .*|audio_device = \"\"|' "
+            "/media/amiga_data/retroarch/retroarch.cfg");
+    }
+    system(cmd);
+}
 static void apply_bt_enabled(int enabled)
 {
     /* Nunca bloquear el hilo principal: S21bluetooth puede tardar (sleeps
@@ -2206,6 +2223,7 @@ int main(void)
                         bt_device_count = 0;
                         bt_connect_status[0] = 0;
                         read_bt_connected(bt_connected_mac, sizeof(bt_connected_mac), bt_connected_name, sizeof(bt_connected_name));
+                        if (bt_connected_mac[0]) set_retroarch_audio_device(bt_connected_mac);
                         if (bt_enabled) {
                             bt_scanning = true;
                             bt_scan_start = SDL_GetTicks();
@@ -2277,6 +2295,7 @@ int main(void)
                     bt_device_count = 0;
                     bt_connect_status[0] = 0;
                     read_bt_connected(bt_connected_mac, sizeof(bt_connected_mac), bt_connected_name, sizeof(bt_connected_name));
+                    if (bt_connected_mac[0]) set_retroarch_audio_device(bt_connected_mac);
                     if (bt_enabled) {
                         bt_scanning = true;
                         bt_scan_start = SDL_GetTicks();
@@ -2378,7 +2397,11 @@ int main(void)
                     bt_enabled = !bt_enabled;
                     save_bt_enabled(bt_enabled);
                     apply_bt_enabled(bt_enabled);
-                    if (!bt_enabled) { bt_scanning = false; bt_device_count = 0; }
+                    if (!bt_enabled) {
+                        bt_scanning = false;
+                        bt_device_count = 0;
+                        set_retroarch_audio_device(NULL);
+                    }
                 }
                 if (!bt_connecting && bt_device_count > 0) {
                     if (ev.type == SDL_EVENT_KEY_DOWN) {
@@ -3070,6 +3093,7 @@ int main(void)
                     if (strstr(buf, "Connection successful")) {
                         safe_copy(bt_connect_status, tr("Conectado", "Connected"), sizeof(bt_connect_status));
                         safe_copy(bt_connected_mac, bt_connect_target_mac, sizeof(bt_connected_mac));
+                        set_retroarch_audio_device(bt_connect_target_mac);
                         bt_connecting = false;
                     } else if (strstr(buf, "Failed to connect") || strstr(buf, "Failed to pair")) {
                         safe_copy(bt_connect_status, tr("Fallo de conexion", "Connection failed"), sizeof(bt_connect_status));
