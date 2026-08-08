@@ -16,18 +16,28 @@ case "$1" in
 
         # Attach RTL BT chip al HCI vía UART
         # rtk_hciattach es específico de Realtek — si no existe, usar hciattach genérico
-        if command -v rtk_hciattach >/dev/null 2>&1; then
-            rtk_hciattach -n -s "$BT_SPEED" "$BT_UART" rtk_h5 &
+        if [ -d /sys/class/bluetooth/hci0 ]; then
+            hciconfig hci0 up 2>/dev/null
         else
-            hciattach "$BT_UART" rtk_h5 "$BT_SPEED" flow nosleep &
+            if command -v rtk_hciattach >/dev/null 2>&1; then
+                rtk_hciattach -n -s "$BT_SPEED" "$BT_UART" rtk_h5 &
+            else
+                hciattach "$BT_UART" rtk_h5 "$BT_SPEED" flow nosleep &
+            fi
+            sleep 2
         fi
 
-        sleep 2
-
         # Arrancar bluetoothd
-        if command -v bluetoothd >/dev/null 2>&1; then
-            bluetoothd &
+        if [ -x /usr/libexec/bluetooth/bluetoothd ]; then
+            /usr/libexec/bluetooth/bluetoothd &
             echo -n "bluetoothd "
+        fi
+
+        sleep 1
+        # Arrancar bluealsa (puente A2DP <-> ALSA, modo fuente: armiga envia audio)
+        if command -v bluealsa >/dev/null 2>&1; then
+            bluealsa -p a2dp-source > /var/log/bluealsa.log 2>&1 &
+            echo -n "bluealsa "
         fi
 
         echo "OK"
@@ -35,8 +45,12 @@ case "$1" in
     stop)
         printf "Stopping Bluetooth: "
         killall bluetoothd 2>/dev/null || true
-        killall rtk_hciattach 2>/dev/null || true
-        killall hciattach 2>/dev/null || true
+        killall bluealsa 2>/dev/null || true
+        # NUNCA matar rtk_hciattach/hciattach: el chip RTL8821CS via UART no
+        # soporta un segundo attach fiable en la misma sesion de kernel
+        # (cuelgue/fallo confirmado). rfkill block ya desactiva el radio sin
+        # tocar el proceso de adjunto serie, dejando /sys/class/bluetooth/hci0
+        # vivo para que el proximo 'start' tome el camino rapido.
         rfkill block bluetooth 2>/dev/null || true
         echo "OK"
         ;;

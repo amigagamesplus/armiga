@@ -1,0 +1,52 @@
+#!/bin/sh
+# Escanea dispositivos Bluetooth durante ~10s y vuelca resultado a
+# /tmp/armiga-bt-devices.txt en formato "MAC|Nombre" por linea.
+# Pensado para lanzarse en background desde armiga-launcher.
+OUT="/tmp/armiga-bt-devices.txt"
+RAW="/tmp/armiga-bt-scan-raw.log"
+CLEAN="/tmp/armiga-bt-scan-clean.log"
+rm -f "$RAW" "$CLEAN"
+(
+    echo "scan on"
+    sleep 9
+    echo "scan off"
+    echo "quit"
+) | bluetoothctl > "$RAW" 2>/dev/null
+# Limpiar codigos ANSI (color/cursor) y retornos de carro antes de parsear
+ESC=$(printf '\033')
+sed "s/${ESC}\[[0-9;]*[a-zA-Z]//g; s/\r//g" "$RAW" > "$CLEAN"
+NAMEF="/tmp/armiga-bt-scan-names.tmp"
+RSSIF="/tmp/armiga-bt-scan-rssi.tmp"
+rm -f "$NAMEF" "$RSSIF"
+
+grep "\[NEW\] Device " "$CLEAN" | while read -r line; do
+    mac=$(echo "$line" | sed -n 's/.*\[NEW\] Device \([0-9A-Fa-f:]*\) .*/\1/p')
+    name=$(echo "$line" | sed -n 's/.*\[NEW\] Device [0-9A-Fa-f:]* //p')
+    [ -n "$mac" ] && echo "${mac}|${name}"
+done > "$NAMEF"
+
+grep "RSSI: " "$CLEAN" | while read -r line; do
+    mac=$(echo "$line" | sed -n 's/.*Device \([0-9A-Fa-f:]*\) RSSI:.*/\1/p')
+    rssi=$(echo "$line" | sed -n 's/.*RSSI: 0x[0-9A-Fa-f]* (\(-\{0,1\}[0-9]*\)).*/\1/p')
+    [ -n "$mac" ] && [ -n "$rssi" ] && echo "${mac}|${rssi}"
+done > "$RSSIF"
+
+awk -F'|' '
+FNR==NR { name[$1]=$2; next }
+{ rssi[$1]=$2 }
+END {
+    for (m in name) {
+        r = (m in rssi) ? rssi[m] : ""
+        print m "|" name[m] "|" r
+    }
+}' "$NAMEF" "$RSSIF" > "${OUT}.new"
+mv "${OUT}.new" "$OUT"
+rm -f "$NAMEF" "$RSSIF"
+
+# Dispositivo conectado: llamada NO interactiva y secuencial (nunca
+# concurrente con la sesion de escaneo de arriba, que ya ha terminado aqui).
+# "devices Connected" solo funciona como argumento CLI, no como comando
+# interactivo dentro de una sesion scripteada (confirmado empiricamente).
+CONN="/tmp/armiga-bt-connected.txt"
+bluetoothctl devices Connected 2>/dev/null | sed -n 's/^Device \([0-9A-Fa-f:]*\) \(.*\)/\1|\2/p' | head -1 > "${CONN}.new"
+mv "${CONN}.new" "$CONN"

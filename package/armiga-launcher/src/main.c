@@ -71,7 +71,8 @@ typedef enum {
     STATE_TIMEZONE_CONFIG,
     STATE_SCREENDIM_CONFIG,
     STATE_BRIGHTNESS_CONFIG,
-    STATE_PERF_CONFIG
+    STATE_PERF_CONFIG,
+    STATE_BLUETOOTH_CONFIG
 } AppState;
 
 typedef enum {
@@ -174,9 +175,10 @@ static const char *SETTINGS_MENU_ITEMS[][2] = {
     {"SSH",                         "SSH"},
     {"Samba (\\\\armiga)",           "Samba (\\\\armiga)"},
     {"Rendimiento",                 "Performance"},
+    {"Bluetooth",                   "Bluetooth"},
     {"Restablecer valores de fábrica", "Factory reset"},
 };
-#define SETTINGS_MENU_COUNT 10
+#define SETTINGS_MENU_COUNT 11
 #define SETTINGS_ACTION_FACTORY_RESET 10
 
 /* Tiempos de inactividad seleccionables, en segundos. 0 = Nunca. */
@@ -936,6 +938,95 @@ static void apply_ssh_enabled(int enabled)
     else
         system("/etc/init.d/S50dropbear stop >/dev/null 2>&1");
 }
+/* Lee BT_ENABLED de armiga.cfg. Default: activado (1). */
+static int read_bt_enabled(void)
+{
+    int enabled = 1;
+    FILE *f = fopen(ARMIGA_CONFIG_PATH, "r");
+    if (!f) return enabled;
+    char line[128];
+    while (fgets(line, sizeof(line), f)) {
+        char key[32], val[96];
+        if (sscanf(line, "%31[^=]=%95s", key, val) == 2) {
+            if (!strcmp(key, "BT_ENABLED")) enabled = atoi(val);
+        }
+    }
+    fclose(f);
+    return enabled ? 1 : 0;
+}
+/* Guarda BT_ENABLED en armiga.cfg, preservando otras claves. */
+static void save_bt_enabled(int enabled)
+{
+    char lines[32][128];
+    int n = 0;
+    FILE *f = fopen(ARMIGA_CONFIG_PATH, "r");
+    if (f) {
+        while (n < 32 && fgets(lines[n], sizeof(lines[n]), f)) {
+            char key[32], val[96];
+            if (sscanf(lines[n], "%31[^=]=%95s", key, val) == 2 &&
+                !strcmp(key, "BT_ENABLED")) {
+                continue;
+            }
+            n++;
+        }
+        fclose(f);
+    }
+    f = fopen(ARMIGA_CONFIG_PATH, "w");
+    if (!f) return;
+    for (int i = 0; i < n; i++) fputs(lines[i], f);
+    fprintf(f, "BT_ENABLED=%d\n", enabled ? 1 : 0);
+    fclose(f);
+}
+/* Fija (o revierte a altavoz) el audio_device de RetroArch para que el
+ * audio del emulador salga por el Bluetooth conectado. mac==NULL o vacio
+ * revierte a salida por defecto (altavoz interno). */
+static void set_retroarch_audio_device(const char *mac)
+{
+    char cmd[300];
+    if (mac && mac[0]) {
+        snprintf(cmd, sizeof(cmd),
+            "sed -i 's|^audio_device = .*|audio_device = \"bluealsa:DEV=%s,PROFILE=a2dp\"|' "
+            "/media/amiga_data/retroarch/retroarch.cfg", mac);
+    } else {
+        snprintf(cmd, sizeof(cmd),
+            "sed -i 's|^audio_device = .*|audio_device = \"\"|' "
+            "/media/amiga_data/retroarch/retroarch.cfg");
+    }
+    system(cmd);
+}
+static void apply_bt_enabled(int enabled)
+{
+    /* Nunca bloquear el hilo principal: S21bluetooth puede tardar (sleeps
+     * internos, arranque de bluetoothd/bluealsa) y un system() sincrono aqui
+     * congela el mando. Se lanza en background, igual que scan/connect. */
+    if (enabled)
+        system("/etc/init.d/S21bluetooth start >/dev/null 2>&1 &");
+    else
+        system("/etc/init.d/S21bluetooth stop >/dev/null 2>&1 &");
+}
+/* Lee el MAC/nombre conectado desde el fichero que arma armiga-bt-scan en
+ * background (formato "MAC|Nombre"). NUNCA lanza un subproceso propio aqui:
+ * un popen() sincrono a bluetoothctl desde el hilo principal se ha
+ * confirmado que puede colgarse (contencion con la sesion de escaneo en
+ * paralelo) y congela el mando por completo. Solo lectura de fichero. */
+static void read_bt_connected(char *mac_out, size_t mac_sz, char *name_out, size_t name_sz)
+{
+    if (mac_sz > 0) mac_out[0] = 0;
+    if (name_out && name_sz > 0) name_out[0] = 0;
+    FILE *f = fopen("/tmp/armiga-bt-connected.txt", "r");
+    if (!f) return;
+    char line[160];
+    if (fgets(line, sizeof(line), f)) {
+        line[strcspn(line, "\r\n")] = 0;
+        char *sep = strchr(line, '|');
+        if (sep) {
+            *sep = 0;
+            snprintf(mac_out, mac_sz, "%s", line);
+            if (name_out && name_sz > 0) snprintf(name_out, name_sz, "%s", sep + 1);
+        }
+    }
+    fclose(f);
+}
 /* Perfil de rendimiento: 0=Maximo, 1=Equilibrado (default), 2=Ahorro. */
 static int read_perf_profile(void)
 {
@@ -1359,6 +1450,45 @@ static void draw_text_centered(SDL_Renderer *r, TTF_Font *f, const char *t,
 /* Dibuja footer unificado: leyenda izquierda + version derecha */
 static SDL_Texture *g_perf_icons[3] = {NULL, NULL, NULL};
 
+#define BT_MAX_DEVICES 16
+typedef struct { char mac[18]; char name[64]; int rssi; bool has_rssi; } BTDevice;
+
+/* Parsea /tmp/armiga-bt-devices.txt (formato "MAC|Nombre|RSSI" por linea,
+ * generado por armiga-bt-scan; RSSI puede venir vacio) hacia el array. */
+static int bt_parse_devices(BTDevice *devices, int max_count)
+{
+    FILE *f = fopen("/tmp/armiga-bt-devices.txt", "r");
+    if (!f) return 0;
+    char line[128];
+    int count = 0;
+    while (count < max_count && fgets(line, sizeof(line), f)) {
+        char *nl = strchr(line, '\n');
+        if (nl) *nl = 0;
+        char *sep1 = strchr(line, '|');
+        if (!sep1) continue;
+        *sep1 = 0;
+        char *name = sep1 + 1;
+        char *sep2 = strchr(name, '|');
+        char *rssi_str = NULL;
+        if (sep2) {
+            *sep2 = 0;
+            rssi_str = sep2 + 1;
+        }
+        safe_copy(devices[count].mac, line, sizeof(devices[count].mac));
+        safe_copy(devices[count].name, name, sizeof(devices[count].name));
+        if (rssi_str && rssi_str[0]) {
+            devices[count].rssi = atoi(rssi_str);
+            devices[count].has_rssi = true;
+        } else {
+            devices[count].rssi = 0;
+            devices[count].has_rssi = false;
+        }
+        count++;
+    }
+    fclose(f);
+    return count;
+}
+
 #define DEVMODE_TEMP_HISTORY_LEN 60
 static int g_devmode_temp_history[DEVMODE_TEMP_HISTORY_LEN];
 static int g_devmode_temp_history_count = 0;
@@ -1606,8 +1736,9 @@ static float draw_status_pill(SDL_Renderer *ren, TTF_Font *f, float right_edge, 
     return pill_w;
 }
 static void draw_statusbar(SDL_Renderer *ren, TTF_Font *f, TTF_Font *f_ampm,
-                            const char *time_str, bool wifi_up, int battery,
-                            SDL_Texture *wifi_icon_tex, SDL_Texture *battery_icon_tex)
+                            const char *time_str, bool wifi_up, int battery, bool bt_up,
+                            SDL_Texture *wifi_icon_tex, SDL_Texture *battery_icon_tex,
+                            SDL_Texture *bt_icon_tex)
 {
     SDL_Color c_cream    = {240, 230, 200, 255};
     SDL_Color c_gold     = {224, 176, 96, 255};
@@ -1629,6 +1760,10 @@ static void draw_statusbar(SDL_Renderer *ren, TTF_Font *f, TTF_Font *f_ampm,
         strncpy(batt_buf, "--", sizeof(batt_buf));
     }
     right -= draw_status_pill(ren, f, right, y, battery_icon_tex, batt_buf, batt_fg, c_pill_on, 24.0f);
+    right -= gap;
+
+    SDL_Color bt_fg = bt_up ? c_gold : c_dim_fg;
+    right -= draw_status_pill(ren, f, right, y, bt_icon_tex, " ", bt_fg, bt_up ? c_pill_on : c_pill_off, 0.0f);
     right -= gap;
 
     SDL_Color wifi_fg = wifi_up ? c_gold : c_dim_fg;
@@ -1769,6 +1904,8 @@ int main(void)
     /* Iconos de la barra de estado (wifi, bateria) */
     SDL_Texture *wifi_icon_tex = IMG_LoadTexture(ren, "/usr/share/armiga/icons/wifi.png");
     if (wifi_icon_tex) SDL_SetTextureScaleMode(wifi_icon_tex, SDL_SCALEMODE_LINEAR);
+    SDL_Texture *bt_icon_tex = IMG_LoadTexture(ren, "/usr/share/armiga/icons/bluetooth.png");
+    if (bt_icon_tex) SDL_SetTextureScaleMode(bt_icon_tex, SDL_SCALEMODE_LINEAR);
     SDL_Texture *battery_icon_tex = IMG_LoadTexture(ren, "/usr/share/armiga/icons/battery-3.png");
     if (battery_icon_tex) SDL_SetTextureScaleMode(battery_icon_tex, SDL_SCALEMODE_LINEAR);
     SDL_Texture *perf_bolt_tex = IMG_LoadTexture(ren, "/usr/share/armiga/icons/perf-bolt.png");
@@ -1845,6 +1982,20 @@ int main(void)
     int dim_max_brightness = read_max_brightness();
     int ssh_enabled = read_ssh_enabled(); /* aplicado ya por S51ssh-toggle en boot, solo reflejar estado en UI */
     int samba_enabled = read_samba_enabled(); /* aplicado ya por S53samba-toggle en boot, solo reflejar estado en UI */
+    int bt_enabled = read_bt_enabled(); /* aplicado ya por S22bluetooth-toggle en boot, solo reflejar estado en UI */
+    int bt_selected = 0; /* cursor en lista de dispositivos escaneados */
+    BTDevice bt_devices[BT_MAX_DEVICES];
+    int bt_device_count = 0;
+    bool bt_scanning = false;
+    Uint64 bt_scan_start = 0;
+    Uint64 bt_light_check_trigger = 0;
+    Uint64 bt_last_poll = 0;
+    bool bt_connecting = false;
+    Uint64 bt_connect_start = 0;
+    char bt_connect_status[64] = "";
+    char bt_connected_mac[18] = "";
+    char bt_connected_name[64] = "";
+    char bt_connect_target_mac[18] = "";
     int dim_saved_brightness = -1; /* brillo del usuario antes de atenuar, -1 = no atenuado */
     bool dim_active = false;
     Uint64 last_input_ticks = SDL_GetTicks();
@@ -1913,8 +2064,12 @@ int main(void)
 
     char status_time[8] = "--:--";
     bool status_wifi_up = false;
+    bool status_bt_up = false;
     int  status_battery = -1;
     Uint64 last_status_update = 0;
+    Uint64 last_bt_check_trigger = 0;
+    char rt_bt_applied_mac[18] = "";
+    bool rt_bt_applied_init = false;
 
     SDL_Color c_bg      = COL_BG;
     SDL_Color c_green   = COL_GREEN;
@@ -2068,6 +2223,19 @@ int main(void)
                         state = STATE_PERF_CONFIG;
                     }
                     if (ev.key.key == SDLK_RETURN && settings_selected == 9) {
+                        bt_selected = 0;
+                        bt_device_count = 0;
+                        bt_connect_status[0] = 0;
+                        read_bt_connected(bt_connected_mac, sizeof(bt_connected_mac), bt_connected_name, sizeof(bt_connected_name));
+                        if (bt_connected_mac[0]) set_retroarch_audio_device(bt_connected_mac);
+                        if (bt_enabled) {
+                            bt_scanning = true;
+                            bt_scan_start = SDL_GetTicks();
+                            system("armiga-bt-scan >/dev/null 2>&1 &");
+                        }
+                        state = STATE_BLUETOOTH_CONFIG;
+                    }
+                    if (ev.key.key == SDLK_RETURN && settings_selected == 10) {
                         confirm_target = SETTINGS_ACTION_FACTORY_RESET;
                         confirm_return_state = STATE_SETTINGS;
                         state = STATE_CONFIRM;
@@ -2127,6 +2295,20 @@ int main(void)
                 }
                 if (ev.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN &&
                     ev.jbutton.button == BTN_SDL_A && settings_selected == 9) {
+                    bt_selected = 0;
+                    bt_device_count = 0;
+                    bt_connect_status[0] = 0;
+                    read_bt_connected(bt_connected_mac, sizeof(bt_connected_mac), bt_connected_name, sizeof(bt_connected_name));
+                    if (bt_connected_mac[0]) set_retroarch_audio_device(bt_connected_mac);
+                    if (bt_enabled) {
+                        bt_scanning = true;
+                        bt_scan_start = SDL_GetTicks();
+                        system("armiga-bt-scan >/dev/null 2>&1 &");
+                    }
+                    state = STATE_BLUETOOTH_CONFIG;
+                }
+                if (ev.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN &&
+                    ev.jbutton.button == BTN_SDL_A && settings_selected == 10) {
                     confirm_target = SETTINGS_ACTION_FACTORY_RESET;
                     confirm_return_state = STATE_SETTINGS;
                     state = STATE_CONFIRM;
@@ -2212,6 +2394,50 @@ int main(void)
                     perf_selected = read_perf_profile();
                     state = STATE_SETTINGS;
                 }
+            }
+            else if (state == STATE_BLUETOOTH_CONFIG) {
+                if (ev.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN &&
+                    ev.jbutton.button == BTN_SDL_SELECT) {
+                    bt_enabled = !bt_enabled;
+                    save_bt_enabled(bt_enabled);
+                    apply_bt_enabled(bt_enabled);
+                    if (!bt_enabled) {
+                        bt_scanning = false;
+                        bt_device_count = 0;
+                        bt_connected_mac[0] = 0;
+                        bt_connected_name[0] = 0;
+                        set_retroarch_audio_device(NULL);
+                    }
+                }
+                if (!bt_connecting && bt_device_count > 0) {
+                    if (ev.type == SDL_EVENT_KEY_DOWN) {
+                        if (ev.key.key == SDLK_UP)
+                            bt_selected = (bt_selected - 1 + bt_device_count) % bt_device_count;
+                        if (ev.key.key == SDLK_DOWN)
+                            bt_selected = (bt_selected + 1) % bt_device_count;
+                    }
+                    if (ev.type == SDL_EVENT_JOYSTICK_HAT_MOTION) {
+                        if (ev.jhat.value == SDL_HAT_UP)
+                            bt_selected = (bt_selected - 1 + bt_device_count) % bt_device_count;
+                        else if (ev.jhat.value == SDL_HAT_DOWN)
+                            bt_selected = (bt_selected + 1) % bt_device_count;
+                    }
+                    if (ev.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN &&
+                        ev.jbutton.button == BTN_SDL_A) {
+                        char cmd[128];
+                        safe_copy(bt_connect_target_mac, bt_devices[bt_selected].mac, sizeof(bt_connect_target_mac));
+                        snprintf(cmd, sizeof(cmd), "armiga-bt-connect %s >/dev/null 2>&1 &", bt_devices[bt_selected].mac);
+                        system(cmd);
+                        bt_connecting = true;
+                        bt_connect_start = SDL_GetTicks();
+                        bt_connect_status[0] = 0;
+                    }
+                }
+                if (ev.type == SDL_EVENT_KEY_DOWN && ev.key.key == SDLK_ESCAPE)
+                    state = STATE_SETTINGS;
+                if (ev.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN &&
+                    ev.jbutton.button == BTN_SDL_B)
+                    state = STATE_SETTINGS;
             }
             else if (state == STATE_TIMEZONE_CONFIG) {
                 if (ev.type == SDL_EVENT_KEY_DOWN) {
@@ -2667,7 +2893,47 @@ int main(void)
         if (last_status_update == 0 || now_ticks - last_status_update > 3000) {
             update_status(status_time, sizeof(status_time),
                          &status_wifi_up, &status_battery);
+            status_bt_up = (bool)bt_enabled;
             last_status_update = now_ticks;
+        }
+        /* Enrutado transparente de audio BT -> RetroArch: comprobacion
+         * ligera en background cada ~6s (sea cual sea la pantalla actual),
+         * sin bloquear nunca el hilo principal. Si el conectado cambia
+         * respecto a lo ya aplicado, actualiza retroarch.cfg. */
+        /* Nunca competir con la pantalla Bluetooth: ella ya gestiona su
+         * propio ciclo de escaneo/emparejamiento/conexion con sesiones
+         * bluetoothctl propias. Lanzar este check ahi tambien causaba
+         * fallos de conexion por contencion. Solo activo fuera de esa
+         * pantalla y sin una conexion en curso. */
+        if (bt_enabled && !bt_connecting && state != STATE_BLUETOOTH_CONFIG &&
+            (last_bt_check_trigger == 0 || now_ticks - last_bt_check_trigger > 6000)) {
+            system("armiga-bt-connected-check >/dev/null 2>&1 &");
+            last_bt_check_trigger = now_ticks;
+        }
+        /* Deteccion de transicion conectado->desconectado: SIEMPRE activa,
+         * en cualquier pantalla (incluida la de Bluetooth), para que el
+         * vinculo se elimine sin importar donde estuviera el usuario en el
+         * momento exacto de la desconexion. Solo el lanzamiento del check
+         * en background se restringe fuera de la pantalla BT (para no
+         * competir con su propio ciclo de escaneo). */
+        {
+            char live_mac[18] = "";
+            read_bt_connected(live_mac, sizeof(live_mac), NULL, 0);
+            if (!bt_enabled) live_mac[0] = 0;
+            if (!rt_bt_applied_init || strcmp(live_mac, rt_bt_applied_mac) != 0) {
+                if (rt_bt_applied_init && rt_bt_applied_mac[0] && !live_mac[0]) {
+                    /* Transicion conectado -> desconectado: eliminar el
+                     * vinculo (bonding) para que el auricular no se
+                     * reconecte solo la proxima vez que se encienda.
+                     * Vince quiere conexion siempre elegida manualmente. */
+                    char rm_cmd[80];
+                    snprintf(rm_cmd, sizeof(rm_cmd), "bluetoothctl remove %s >/dev/null 2>&1 &", rt_bt_applied_mac);
+                    system(rm_cmd);
+                }
+                set_retroarch_audio_device(live_mac[0] ? live_mac : NULL);
+                safe_copy(rt_bt_applied_mac, live_mac, sizeof(rt_bt_applied_mac));
+                rt_bt_applied_init = true;
+            }
         }
         /* Check de actualizacion en background: se lanza una sola vez,
          * 2s despues de arrancar (da tiempo a que el WiFi conecte),
@@ -2837,6 +3103,71 @@ int main(void)
             read_sysfs_int("/sys/devices/system/cpu/cpu0/cpufreq/scaling_cur_freq", &dev_cpu_cur_freq);
             dev_last_temp_sample = now_ticks;
         }
+        if (state == STATE_BLUETOOTH_CONFIG &&
+            (bt_last_poll == 0 || now_ticks - bt_last_poll > 1000)) {
+            bt_device_count = bt_parse_devices(bt_devices, BT_MAX_DEVICES);
+            read_bt_connected(bt_connected_mac, sizeof(bt_connected_mac), bt_connected_name, sizeof(bt_connected_name));
+            /* El dispositivo conectado/emparejado ya se muestra en la
+             * pildora de arriba: se excluye por completo de "disponibles"
+             * (ni se dibuja ni es navegable ahi), evita informacion
+             * duplicada y una fila fantasma. */
+            if (bt_connected_mac[0]) {
+                for (int bi = 0; bi < bt_device_count; bi++) {
+                    if (!strcmp(bt_devices[bi].mac, bt_connected_mac)) {
+                        memmove(&bt_devices[bi], &bt_devices[bi + 1],
+                                sizeof(BTDevice) * (bt_device_count - bi - 1));
+                        bt_device_count--;
+                        break;
+                    }
+                }
+            }
+            if (bt_scanning && now_ticks - bt_scan_start > 10000)
+                bt_scanning = false;
+            if (!bt_scanning && !bt_connecting && now_ticks - bt_scan_start > 15000) {
+                bt_scanning = true;
+                bt_scan_start = now_ticks;
+                system("armiga-bt-scan >/dev/null 2>&1 &");
+            }
+            /* Chequeo ligero (sin escaneo activo) del conectado, mas
+             * frecuente que el ciclo completo de arriba, para que una
+             * desconexion se refleje antes en la pildora/fila. Nunca se
+             * solapa con escaneo o conexion en curso. */
+            if (!bt_scanning && !bt_connecting && bt_enabled &&
+                (bt_light_check_trigger == 0 || now_ticks - bt_light_check_trigger > 4000)) {
+                system("armiga-bt-connected-check >/dev/null 2>&1 &");
+                bt_light_check_trigger = now_ticks;
+            }
+            if (bt_connecting) {
+                FILE *fc = fopen("/tmp/armiga-bt-connect.log", "r");
+                if (fc) {
+                    char buf[4096];
+                    size_t rd = fread(buf, 1, sizeof(buf) - 1, fc);
+                    buf[rd] = 0;
+                    fclose(fc);
+                    /* "Failed to pair: ...AlreadyExists" es benigno: el
+                     * dispositivo ya estaba emparejado de una sesion previa,
+                     * el flujo de trust/connect continua y suele acabar en
+                     * exito unos segundos despues. No cortar el polling por
+                     * este mensaje concreto (confirmado en log real). */
+                    bool bt_pair_failed_real = strstr(buf, "Failed to pair") && !strstr(buf, "AlreadyExists");
+                    if (strstr(buf, "Connection successful")) {
+                        safe_copy(bt_connect_status, tr("Conectado", "Connected"), sizeof(bt_connect_status));
+                        safe_copy(bt_connected_mac, bt_connect_target_mac, sizeof(bt_connected_mac));
+                        set_retroarch_audio_device(bt_connect_target_mac);
+                        bt_connecting = false;
+                    } else if (strstr(buf, "Failed to connect") || bt_pair_failed_real) {
+                        safe_copy(bt_connect_status, tr("Fallo de conexion", "Connection failed"), sizeof(bt_connect_status));
+                        bt_connecting = false;
+                    }
+                }
+                if (bt_connecting && now_ticks - bt_connect_start > 20000) {
+                    safe_copy(bt_connect_status, tr("Tiempo agotado", "Timed out"), sizeof(bt_connect_status));
+                    bt_connecting = false;
+                }
+            }
+            if (bt_selected >= bt_device_count) bt_selected = bt_device_count > 0 ? bt_device_count - 1 : 0;
+            bt_last_poll = now_ticks;
+        }
 
         /* RENDER */
         SDL_SetRenderDrawColor(ren, c_bg.r, c_bg.g, c_bg.b, 255);
@@ -2852,7 +3183,7 @@ int main(void)
         /* Slogan */
         draw_text(ren, f_sm, "68K SOUL, ARM64 HEART.", c_dkgreen, mx + 2.0f, 94.0f);
 
-        draw_statusbar(ren, f_sm, f_xs, status_time, status_wifi_up, status_battery, wifi_icon_tex, battery_icon_tex);
+        draw_statusbar(ren, f_sm, f_xs, status_time, status_wifi_up, status_battery, status_bt_up, wifi_icon_tex, battery_icon_tex, bt_icon_tex);
 
 
         /* Menú */
@@ -2953,10 +3284,10 @@ int main(void)
             SDL_Color c_menu_beige = {168, 157, 124, 255};
             SDL_Color c_menu_selbg = {58, 51, 36, 255};
             draw_text_truncated(ren, f_sm, tr("Menú > Configuración", "Menu > Settings"), c_green, mx, 20.0f, SCREEN_W - 190.0f);
-            draw_statusbar(ren, f_sm, f_xs, status_time, status_wifi_up, status_battery, wifi_icon_tex, battery_icon_tex);
+            draw_statusbar(ren, f_sm, f_xs, status_time, status_wifi_up, status_battery, status_bt_up, wifi_icon_tex, battery_icon_tex, bt_icon_tex);
 
             float settings_y0 = 64.0f;
-            float settings_item_h = 34.0f;
+            float settings_item_h = 32.0f;
             for (int i = 0; i < SETTINGS_MENU_COUNT; i++) {
                 float iy = settings_y0 + i * settings_item_h;
                 char item_label[64];
@@ -2989,7 +3320,7 @@ int main(void)
 
         } else if (state == STATE_BRIGHTNESS_CONFIG) {
             draw_text_truncated(ren, f_sm, tr("Menú > Configuración > Brillo de pantalla", "Menu > Settings > Screen Brightness"), c_green, mx, 20.0f, SCREEN_W - 190.0f);
-            draw_statusbar(ren, f_sm, f_xs, status_time, status_wifi_up, status_battery, wifi_icon_tex, battery_icon_tex);
+            draw_statusbar(ren, f_sm, f_xs, status_time, status_wifi_up, status_battery, status_bt_up, wifi_icon_tex, battery_icon_tex, bt_icon_tex);
 
             {
                 float iy = 90.0f;
@@ -3012,7 +3343,7 @@ int main(void)
             SDL_Color c_menu_beige = {168, 157, 124, 255};
             SDL_Color c_menu_selbg = {58, 51, 36, 255};
             draw_text_truncated(ren, f_sm, tr("Menú > Configuración > Rendimiento", "Menu > Settings > Performance"), c_green, mx, 20.0f, SCREEN_W - 190.0f);
-            draw_statusbar(ren, f_sm, f_xs, status_time, status_wifi_up, status_battery, wifi_icon_tex, battery_icon_tex);
+            draw_statusbar(ren, f_sm, f_xs, status_time, status_wifi_up, status_battery, status_bt_up, wifi_icon_tex, battery_icon_tex, bt_icon_tex);
             struct { const char *title[2]; const char *desc[2]; SDL_Texture *icon; } perf_opts[3] = {
                 {{"Rendimiento máximo", "Maximum performance"},
                  {"CPU y GPU siempre a máxima\nfrecuencia. Mayor consumo.",
@@ -3061,12 +3392,141 @@ int main(void)
             draw_footer(ren, f_sm,
                 tr("[DPAD] Elegir  [B] Aplicar  [A] Volver", "[DPAD] Choose  [B] Apply  [A] Back"), s_version);
 
+        } else if (state == STATE_BLUETOOTH_CONFIG) {
+            SDL_Color c_menu_gold  = {224, 176, 96, 255};
+            SDL_Color c_menu_beige = {168, 157, 124, 255};
+            SDL_Color c_menu_selbg = {58, 51, 36, 255};
+            SDL_Color c_bt_card    = {58, 51, 36, 255};
+            SDL_Color c_bt_dim     = {90, 84, 66, 255};
+            draw_text_truncated(ren, f_sm, tr("Menú > Configuración > Bluetooth", "Menu > Settings > Bluetooth"), c_green, mx, 20.0f, SCREEN_W - 190.0f);
+            draw_statusbar(ren, f_sm, f_xs, status_time, status_wifi_up, status_battery, status_bt_up, wifi_icon_tex, battery_icon_tex, bt_icon_tex);
+            {
+                float toggle_y = 64.0f;
+                float toggle_h = 34.0f;
+                int lw = 0, lh = 0;
+                TTF_GetStringSize(f_med, "Bluetooth", 0, &lw, &lh);
+                const char *bt_status = bt_enabled ? tr("ACTIVADO", "ENABLED") : tr("DESACTIVADO", "DISABLED");
+                int sw = 0, sh = 0;
+                TTF_GetStringSize(f_sm, bt_status, 0, &sw, &sh);
+                float badge_pad = 10.0f;
+                float badge_w = (float)sw + badge_pad * 2.0f;
+                float badge_h = (float)sh + 6.0f;
+                float label_pad = 16.0f;
+                float badge_gap = 16.0f;
+                float toggle_w = label_pad + (float)lw + badge_gap + badge_w + 12.0f;
+                draw_rounded_rect_filled(ren, mx, toggle_y, toggle_w, toggle_h, toggle_h / 2.0f, c_bt_card);
+                draw_text(ren, f_med, "Bluetooth", c_menu_gold, mx + label_pad, toggle_y + 8.0f);
+                float badge_x = mx + toggle_w - 12.0f - badge_w;
+                float badge_y = toggle_y + (toggle_h - badge_h) / 2.0f;
+                SDL_Color badge_bg = {24, 22, 16, 255};
+                draw_rounded_rect_filled(ren, badge_x, badge_y, badge_w, badge_h, badge_h / 2.0f, badge_bg);
+                SDL_Color bt_status_c = bt_enabled ? c_green : c_bt_dim;
+                draw_text(ren, f_sm, bt_status, bt_status_c, badge_x + badge_pad, badge_y + 3.0f);
+                if (bt_connected_mac[0] && bt_connected_name[0]) {
+                    char paired_buf[80];
+                    snprintf(paired_buf, sizeof(paired_buf), "%s %s", tr("Conectado a", "Connected to"), bt_connected_name);
+                    int pw = 0, ph = 0;
+                    TTF_GetStringSize(f_sm, paired_buf, 0, &pw, &ph);
+                    float pbadge_pad = 12.0f;
+                    float pbadge_max_w = SCREEN_W - mx - (mx + toggle_w + 16.0f);
+                    float pbadge_w = (float)pw + pbadge_pad * 2.0f;
+                    if (pbadge_w > pbadge_max_w) pbadge_w = pbadge_max_w;
+                    float pbadge_h = toggle_h;
+                    draw_rounded_rect_filled(ren, mx + toggle_w + 16.0f, toggle_y, pbadge_w, pbadge_h, pbadge_h / 2.0f, c_bt_card);
+                    draw_text_truncated(ren, f_sm, paired_buf, c_green, mx + toggle_w + 16.0f + pbadge_pad, toggle_y + (pbadge_h - (float)ph) / 2.0f,
+                                         pbadge_w - pbadge_pad * 2.0f);
+                }
+            }
+            if (!bt_enabled) {
+                draw_text(ren, f_sm, tr("Bluetooth desactivado", "Bluetooth disabled"), c_menu_beige, mx, 116.0f);
+            } else {
+                draw_text(ren, f_sm, tr("DISPOSITIVOS DISPONIBLES", "AVAILABLE DEVICES"), c_bt_dim, mx, 112.0f);
+                float bt_y0 = 134.0f;
+                float bt_item_h = 30.0f;
+                int bt_visible = 9;
+                bool bt_has_more = bt_device_count > bt_visible;
+                /* Si hay mas de los que caben, se reserva la ultima fila
+                 * solo para el indicador "+N mas" (nunca comparte fila con
+                 * un dispositivo real, evita solapar con su dBm). */
+                int bt_list_rows = bt_has_more ? bt_visible - 1 : bt_visible;
+                int bt_scroll = 0;
+                if (bt_selected >= bt_list_rows)
+                    bt_scroll = bt_selected - bt_list_rows + 1;
+                if (bt_scroll > bt_device_count - bt_list_rows)
+                    bt_scroll = bt_device_count - bt_list_rows;
+                if (bt_scroll < 0) bt_scroll = 0;
+                for (int row = 0; row < bt_list_rows && (row + bt_scroll) < bt_device_count; row++) {
+                    int i = row + bt_scroll;
+                    float iy = bt_y0 + row * bt_item_h;
+                    float row_h = bt_item_h - 4.0f;
+                    const char *label = bt_devices[i].name[0] ? bt_devices[i].name : bt_devices[i].mac;
+                    bool sel = (i == bt_selected);
+                    bool connected = (bt_connected_mac[0] && !strcmp(bt_connected_mac, bt_devices[i].mac));
+                    if (connected) {
+                        /* Sin capsula de fondo aqui: el estado de
+                         * emparejado/conectado ya se muestra en la pildora
+                         * de arriba; el texto en verde/dorado de la fila
+                         * basta como indicador, evita informacion duplicada. */
+                    } else if (sel) {
+                        int lbl_w = 0, lbl_h = 0;
+                        TTF_GetStringSize(f_sm, label, 0, &lbl_w, &lbl_h);
+                        float pill_pad = 10.0f;
+                        float pill_x = mx + 4.0f - pill_pad;
+                        float pill_w = (float)lbl_w + pill_pad * 2.0f;
+                        draw_rounded_rect_filled(ren, pill_x, iy - 4.0f, pill_w, row_h, row_h / 2.0f, c_menu_selbg);
+                    }
+                    SDL_Color labelc = connected ? c_menu_gold : (sel ? c_menu_gold : c_menu_beige);
+                    draw_text(ren, f_sm, label, labelc, mx + 4.0f, iy);
+                    if (connected) {
+                        /* Sin badge aqui: ya se muestra "Emparejado: <nombre>"
+                         * en la pildora de arriba, este texto era redundante. */
+                    } else if (bt_devices[i].has_rssi) {
+                        char rbuf[16];
+                        snprintf(rbuf, sizeof(rbuf), "%d dBm", bt_devices[i].rssi);
+                        draw_text_right(ren, f_sm, rbuf, c_bt_dim, SCREEN_W - mx - 6.0f, iy);
+                    }
+                }
+                if (bt_scroll + bt_list_rows < bt_device_count) {
+                    char more_buf[32];
+                    snprintf(more_buf, sizeof(more_buf), "+ %d %s", bt_device_count - (bt_scroll + bt_list_rows), tr("dispositivos mas", "more devices"));
+                    draw_text(ren, f_xs, more_buf, c_bt_dim, mx + 4.0f, bt_y0 + bt_list_rows * bt_item_h + 4.0f);
+                }
+                if (bt_device_count == 0 && !bt_scanning) {
+                    draw_text(ren, f_sm, tr("Ningun dispositivo encontrado", "No devices found"), c_menu_beige, mx, bt_y0);
+                }
+                if (bt_connecting) {
+                    char cbuf[96];
+                    snprintf(cbuf, sizeof(cbuf), "%s %s...", tr("Conectando a", "Connecting to"), bt_devices[bt_selected].name[0] ? bt_devices[bt_selected].name : bt_devices[bt_selected].mac);
+                    draw_text(ren, f_sm, cbuf, c_menu_gold, mx, 392.0f);
+                } else if (bt_connect_status[0]) {
+                    draw_text(ren, f_sm, bt_connect_status, c_menu_gold, mx, 392.0f);
+                }
+                if (bt_scanning) {
+                    float sp_cx = mx + 6.0f;
+                    float sp_cy = 423.0f;
+                    float sp_r = 6.0f;
+                    int active = (int)((now_ticks / 100) % 8);
+                    for (int d = 0; d < 8; d++) {
+                        float ang = (float)d * (2.0f * 3.14159265f / 8.0f);
+                        float dx = sp_cx + sp_r * SDL_cosf(ang);
+                        float dy = sp_cy + sp_r * SDL_sinf(ang);
+                        int dist = (d - active + 8) % 8;
+                        Uint8 shade = (Uint8)(90 + (7 - dist) * 19);
+                        SDL_Color dotc = {shade, shade > 200 ? 176 : (Uint8)(shade * 0.78f), 60, 255};
+                        draw_rect_filled(ren, dx - 1.5f, dy - 1.5f, 3.0f, 3.0f, dotc);
+                    }
+                    draw_text(ren, f_sm, tr("Buscando dispositivos...", "Searching for devices..."), c_menu_beige, mx + 20.0f, 416.0f);
+                }
+            }
+            draw_line(ren, mx, 438.0f, SCREEN_W - 20.0f, 438.0f, c_green);
+            draw_footer(ren, f_sm,
+                tr("[DPAD] Elegir  [B] Conectar  [SELECT] Activar  [A] Volver", "[DPAD] Choose  [B] Connect  [SELECT] Toggle  [A] Back"), s_version);
         } else if (state == STATE_TIMEZONE_CONFIG) {
             SDL_Color c_menu_gold  = {224, 176, 96, 255};
             SDL_Color c_menu_beige = {168, 157, 124, 255};
             SDL_Color c_menu_selbg = {58, 51, 36, 255};
             draw_text_truncated(ren, f_sm, tr("Menú > Configuración > Zona horaria", "Menu > Settings > Time Zone"), c_green, mx, 20.0f, SCREEN_W - 190.0f);
-            draw_statusbar(ren, f_sm, f_xs, status_time, status_wifi_up, status_battery, wifi_icon_tex, battery_icon_tex);
+            draw_statusbar(ren, f_sm, f_xs, status_time, status_wifi_up, status_battery, status_bt_up, wifi_icon_tex, battery_icon_tex, bt_icon_tex);
 
             float tz_y0 = 60.0f;
             float tz_item_h = 20.0f;
@@ -3116,7 +3576,7 @@ int main(void)
             SDL_Color c_menu_beige = {168, 157, 124, 255};
             SDL_Color c_menu_selbg = {58, 51, 36, 255};
             draw_text_truncated(ren, f_sm, tr("Menú > Configuración > Ahorro de pantalla", "Menu > Settings > Screen Dimming"), c_green, mx, 20.0f, SCREEN_W - 190.0f);
-            draw_statusbar(ren, f_sm, f_xs, status_time, status_wifi_up, status_battery, wifi_icon_tex, battery_icon_tex);
+            draw_statusbar(ren, f_sm, f_xs, status_time, status_wifi_up, status_battery, status_bt_up, wifi_icon_tex, battery_icon_tex, bt_icon_tex);
 
             float dim_y0 = 70.0f;
             float dim_item_h = 46.0f;
@@ -3175,7 +3635,7 @@ int main(void)
             SDL_Color c_menu_beige = {168, 157, 124, 255};
             SDL_Color c_menu_selbg = {58, 51, 36, 255};
             draw_text_truncated(ren, f_sm, tr("Menú > Configuración > Copia de seguridad", "Menu > Settings > Backup"), c_green, mx, 20.0f, SCREEN_W - 190.0f);
-            draw_statusbar(ren, f_sm, f_xs, status_time, status_wifi_up, status_battery, wifi_icon_tex, battery_icon_tex);
+            draw_statusbar(ren, f_sm, f_xs, status_time, status_wifi_up, status_battery, status_bt_up, wifi_icon_tex, battery_icon_tex, bt_icon_tex);
             float bkm_y0 = 64.0f;
             float bkm_item_h = 34.0f;
             for (int i = 0; i < BACKUP_MENU_COUNT; i++) {
@@ -3216,7 +3676,7 @@ int main(void)
 
         } else if (state == STATE_BACKUP_LIST) {
             draw_text_truncated(ren, f_sm, tr("Menú > Configuración > Copia de seguridad > Restaurar copia", "Menu > Settings > Backup > Restore Backup"), c_green, mx, 20.0f, SCREEN_W - 190.0f);
-            draw_statusbar(ren, f_sm, f_xs, status_time, status_wifi_up, status_battery, wifi_icon_tex, battery_icon_tex);
+            draw_statusbar(ren, f_sm, f_xs, status_time, status_wifi_up, status_battery, status_bt_up, wifi_icon_tex, battery_icon_tex, bt_icon_tex);
             float bkl_y0 = 64.0f;
             float bkl_item_h = 26.0f;
             if (backup_count == 0) {
@@ -3246,7 +3706,7 @@ int main(void)
             SDL_Color c_menu_beige = {168, 157, 124, 255};
             SDL_Color c_menu_selbg = {58, 51, 36, 255};
             draw_text_truncated(ren, f_sm, tr("Menú > Configuración > Red inalámbrica", "Menu > Settings > Wireless Network"), c_green, mx, 20.0f, SCREEN_W - 190.0f);
-            draw_statusbar(ren, f_sm, f_xs, status_time, status_wifi_up, status_battery, wifi_icon_tex, battery_icon_tex);
+            draw_statusbar(ren, f_sm, f_xs, status_time, status_wifi_up, status_battery, status_bt_up, wifi_icon_tex, battery_icon_tex, bt_icon_tex);
 
             float wifi_y0 = 64.0f;
             float wifi_item_h = 44.0f;
@@ -3306,7 +3766,7 @@ int main(void)
             SDL_Color c_menu_beige = {168, 157, 124, 255};
             SDL_Color c_menu_selbg = {58, 51, 36, 255};
             draw_text_truncated(ren, f_sm, tr("Menú > Configuración > LED RGB analógicos", "Menu > Settings > Analog Stick LEDs"), c_green, mx, 20.0f, SCREEN_W - 190.0f);
-            draw_statusbar(ren, f_sm, f_xs, status_time, status_wifi_up, status_battery, wifi_icon_tex, battery_icon_tex);
+            draw_statusbar(ren, f_sm, f_xs, status_time, status_wifi_up, status_battery, status_bt_up, wifi_icon_tex, battery_icon_tex, bt_icon_tex);
 
             static const char *LED_SLIDER_LABELS[][2] = {
                 {"R (derecho)", "R (right)"},
@@ -3388,7 +3848,7 @@ int main(void)
             draw_text(ren, f_sm,
                 wifi_field_selected == 0 ? "SSID" : tr("CONTRASEÑA", "PASSWORD"),
                 c_green, mx, 20.0f);
-            draw_statusbar(ren, f_sm, f_xs, status_time, status_wifi_up, status_battery, wifi_icon_tex, battery_icon_tex);
+            draw_statusbar(ren, f_sm, f_xs, status_time, status_wifi_up, status_battery, status_bt_up, wifi_icon_tex, battery_icon_tex, bt_icon_tex);
 
             draw_rect_filled(ren, mx, 56.0f, SCREEN_W - 40.0f, 30.0f, c_selbg);
             draw_text(ren, f_med, kb_buffer[0] ? kb_buffer : "", c_white, mx + 8.0f, 62.0f);
@@ -3435,7 +3895,7 @@ int main(void)
             SDL_Color c_menu_selbg = {58, 51, 36, 255};
             /* Titulo pequeño arriba a la izquierda */
             draw_text_truncated(ren, f_sm, tr("Menú > Modo desarrollador", "Menu > Developer Mode"), c_green, mx, 20.0f, SCREEN_W - 190.0f);
-            draw_statusbar(ren, f_sm, f_xs, status_time, status_wifi_up, status_battery, wifi_icon_tex, battery_icon_tex);
+            draw_statusbar(ren, f_sm, f_xs, status_time, status_wifi_up, status_battery, status_bt_up, wifi_icon_tex, battery_icon_tex, bt_icon_tex);
 
             /* Menú (columna izquierda), mismo estilo que el menu principal */
             float dev_y0 = 64.0f;
@@ -3567,7 +4027,7 @@ int main(void)
 
             /* Título y separador superior: siempre en el margen fijo, no en SI_MX centrado */
             draw_text_truncated(ren, f_sm, tr("Menú > Diagnóstico del sistema", "Menu > System Diagnostics"), c_green, 20.0f, 20.0f, SCREEN_W - 190.0f);
-            draw_statusbar(ren, f_sm, f_xs, status_time, status_wifi_up, status_battery, wifi_icon_tex, battery_icon_tex);
+            draw_statusbar(ren, f_sm, f_xs, status_time, status_wifi_up, status_battery, status_bt_up, wifi_icon_tex, battery_icon_tex, bt_icon_tex);
 
             /* Indicador de pagina: encima del footer, alineado a la derecha */
             {
@@ -3713,7 +4173,7 @@ int main(void)
 
             /* ── BLOQUE 3 DER: RED ───────────────────────────────────────── */
             if (sysinfo_page == 1) {
-            y = SI_SEP_H2 + 4.0f;
+            y = SI_SEP_H2 + 4.0f - SI_ROW_H;
             si_row_idx = 0;
             SI_BLOCK_TITLE(SI_RX, y, tr("CONECTIVIDAD", "CONNECTIVITY"));
             y += 28.0f;
@@ -3733,7 +4193,7 @@ int main(void)
         } else if (state == STATE_UPDATE) {
             const float UX = 20.0f;
             draw_text_truncated(ren, f_sm, tr("Menú > Actualización de sistema", "Menu > System Update"), c_green, UX, 20.0f, SCREEN_W - 190.0f);
-            draw_statusbar(ren, f_sm, f_xs, status_time, status_wifi_up, status_battery, wifi_icon_tex, battery_icon_tex);
+            draw_statusbar(ren, f_sm, f_xs, status_time, status_wifi_up, status_battery, status_bt_up, wifi_icon_tex, battery_icon_tex, bt_icon_tex);
 
             /* Versión actual */
             {

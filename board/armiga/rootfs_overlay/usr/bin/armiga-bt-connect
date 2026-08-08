@@ -1,0 +1,25 @@
+#!/bin/sh
+# Empareja, confia y conecta con la MAC pasada como argumento.
+# Uso: armiga-bt-connect AA:BB:CC:DD:EE:FF
+MAC="$1"
+[ -z "$MAC" ] && exit 1
+# Eliminar cualquier emparejamiento previo (link key desincronizada tras
+# multiples reinicios de BT puede causar "Authentication Failed" o el
+# benigno pero confuso "Failed to pair: AlreadyExists"). Se ignora el error
+# si no habia emparejamiento previo. Fuera de la sesion piped, en su propia
+# invocacion no interactiva.
+bluetoothctl remove "$MAC" >/dev/null 2>&1
+# Sin "trust": Trusted es lo que activa la reconexion automatica de BlueZ
+# cuando el dispositivo se enciende (p.ej. al sacar el auricular de la
+# funda). Vince quiere conexion siempre manual, elegida desde el launcher.
+# El emparejamiento (pair) y la conexion manual funcionan igual sin trust.
+(
+    echo "scan on"
+    sleep 5
+    echo "pair $MAC"
+    sleep 8
+    echo "connect $MAC"
+    sleep 5
+    echo "scan off"
+    echo "quit"
+) | bluetoothctl > /tmp/armiga-bt-connect.log 2>&1
