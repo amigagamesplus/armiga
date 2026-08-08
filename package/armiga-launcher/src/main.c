@@ -3397,8 +3397,21 @@ int main(void)
                 draw_text(ren, f_sm, tr("DISPOSITIVOS DISPONIBLES", "AVAILABLE DEVICES"), c_bt_dim, mx, 112.0f);
                 float bt_y0 = 134.0f;
                 float bt_item_h = 30.0f;
-                for (int i = 0; i < bt_device_count; i++) {
-                    float iy = bt_y0 + i * bt_item_h;
+                int bt_visible = 9;
+                bool bt_has_more = bt_device_count > bt_visible;
+                /* Si hay mas de los que caben, se reserva la ultima fila
+                 * solo para el indicador "+N mas" (nunca comparte fila con
+                 * un dispositivo real, evita solapar con su dBm). */
+                int bt_list_rows = bt_has_more ? bt_visible - 1 : bt_visible;
+                int bt_scroll = 0;
+                if (bt_selected >= bt_list_rows)
+                    bt_scroll = bt_selected - bt_list_rows + 1;
+                if (bt_scroll > bt_device_count - bt_list_rows)
+                    bt_scroll = bt_device_count - bt_list_rows;
+                if (bt_scroll < 0) bt_scroll = 0;
+                for (int row = 0; row < bt_list_rows && (row + bt_scroll) < bt_device_count; row++) {
+                    int i = row + bt_scroll;
+                    float iy = bt_y0 + row * bt_item_h;
                     float row_h = bt_item_h - 4.0f;
                     const char *label = bt_devices[i].name[0] ? bt_devices[i].name : bt_devices[i].mac;
                     bool sel = (i == bt_selected);
@@ -3424,6 +3437,11 @@ int main(void)
                         snprintf(rbuf, sizeof(rbuf), "%d dBm", bt_devices[i].rssi);
                         draw_text_right(ren, f_sm, rbuf, c_bt_dim, SCREEN_W - mx - 6.0f, iy);
                     }
+                }
+                if (bt_scroll + bt_list_rows < bt_device_count) {
+                    char more_buf[32];
+                    snprintf(more_buf, sizeof(more_buf), "+ %d %s", bt_device_count - (bt_scroll + bt_list_rows), tr("dispositivos mas", "more devices"));
+                    draw_text(ren, f_xs, more_buf, c_bt_dim, mx + 4.0f, bt_y0 + bt_list_rows * bt_item_h + 4.0f);
                 }
                 if (bt_device_count == 0 && !bt_scanning) {
                     draw_text(ren, f_sm, tr("Ningun dispositivo encontrado", "No devices found"), c_menu_beige, mx, bt_y0);
