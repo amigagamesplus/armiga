@@ -1,58 +1,58 @@
-<img src="docs/assets/logo-armiga.png" alt="armiga" width="550">
+[![armiga](https://github.com/amigagamesplus/armiga/raw/main/docs/assets/logo-armiga.png)](/amigagamesplus/armiga/blob/main/docs/assets/logo-armiga.png)
 
-Distribución Linux mínima basada en **Buildroot** para la consola **Anbernic RG40XX H** (Allwinner H700), enfocada en emulación de Commodore Amiga vía **RetroArch + núcleo PUAE**.
+Minimal Linux distribution based on **Buildroot** for the **Anbernic RG40XX H** console (Allwinner H700), focused on Commodore Amiga emulation via **RetroArch + PUAE core**.
 
 ## Hardware
 
-| Componente | Detalle |
-|---|---|
-| SoC | Allwinner H700 (ARM64, Cortex-A53 x4 @ 1.51GHz) |
-| GPU | Mali-G31 MP2 (Panfrost) |
-| RAM | 1 GB LPDDR4 |
-| WiFi/BT | RTL8821CS (SDIO) |
-| Pantalla | 640×480 |
-| Almacenamiento | MicroSD (mmcblk0) |
+| Component      | Detail                                          |
+| --------------- | ----------------------------------------------- |
+| SoC             | Allwinner H700 (ARM64, Cortex-A53 x4 @ 1.51GHz) |
+| GPU             | Mali-G31 MP2 (Panfrost)                         |
+| RAM             | 1 GB LPDDR4                                     |
+| WiFi/BT         | RTL8821CS (SDIO)                                |
+| Display         | 640×480                                         |
+| Storage         | MicroSD (mmcblk0)                               |
 
-## Estado actual
+## Current status
 
-**Versión:** 1.0.5
+**Version:** 1.0.5
 
-### Componentes funcionales
+### Working components
 
-- ✅ Arranque (U-Boot + kernel 7.0.14-armiga + DTB)
-- ✅ Esquema de particiones **A/B** con rollback automático (ver más abajo)
-- ✅ Rootfs en **SquashFS + zstd** (system/system_b, 300MB por slot, ro)
-- ✅ WiFi RTL8821CS (`wpa_supplicant` + `udhcpc`, config generada en `/tmp` — `/etc` es ro)
-- ✅ SSH (Dropbear, root, puerto 22) — activado por defecto, toggleable desde Configuración
-- ✅ CPU governor dinámico: `performance` en uso normal, `powersave` durante ahorro de pantalla
-- ✅ GPU governor forzado a `performance` (648MHz fijo — `simple_ondemand` no escalaba bien bajo carga real)
+- ✅ Boot (U-Boot + kernel 7.0.14-armiga + DTB)
+- ✅ **A/B** partition scheme with automatic rollback (see below)
+- ✅ Rootfs on **SquashFS + zstd** (system/system_b, 300MB per slot, ro)
+- ✅ RTL8821CS WiFi (`wpa_supplicant` + `udhcpc`, config generated in `/tmp` — `/etc` is ro)
+- ✅ SSH (Dropbear, root, port 22) — enabled by default, toggleable from Settings
+- ✅ Dynamic CPU governor: `performance` in normal use, `powersave` during screensaver
+- ✅ GPU governor forced to `performance` (fixed 648MHz — `simple_ondemand` didn't scale well under real load)
 - ✅ ZRAM swap (512MB, LZ4, `swappiness=100`)
-- ✅ Partición `amiga_data` (exFAT, autoexpansión al 100% de la SD en primer arranque)
-- ✅ Stack gráfico: SDL3 3.4.12 (kmsdrm) + Mesa 26.1.6 (GBM + Panfrost, `.so` stripped en overlay)
-- ✅ Launcher propio en C/SDL3 (`armiga-launcher`), interfaz bilingüe **Español/English** (toggle `L1`, persistente)
-- ✅ RetroArch 1.22.2 + núcleo PUAE 2021 (`puae2021_libretro.so`, build 6636d5f)
-- ✅ Sistema de actualización OTA (GitHub Releases → descarga → verificación SHA256 → flasheo del slot inactivo, todo asíncrono sin bloquear la UI)
-- ✅ Rollback automático A/B ante fallo de arranque (contador de intentos + reversión de slot)
-- ✅ Menú Configuración: red inalámbrica, copia de seguridad (crear/restaurar/eliminar), LED RGB de los analógicos, zona horaria, ahorro de pantalla, brillo, perfiles de rendimiento (máximo/equilibrado/ahorro), SSH, restablecer valores de fábrica
-- ✅ Interfaz rediseñada "Workbench" (paleta beige/dorada sobre negro, iconografía monocroma Tabler Icons)
-- ✅ Modo desarrollador (terminal, btop, gráfico de temperatura CPU + detección de throttling) accesible con combo `SELECT+START+L1`
+- ✅ `amiga_data` partition (exFAT, auto-expands to 100% of the SD card on first boot)
+- ✅ Graphics stack: SDL3 3.4.12 (kmsdrm) + Mesa 26.1.6 (GBM + Panfrost, stripped `.so` in overlay)
+- ✅ Custom C/SDL3 launcher (`armiga-launcher`), bilingual **Spanish/English** interface (toggle `L1`, persistent)
+- ✅ RetroArch 1.22.2 + PUAE 2021 core (`puae2021_libretro.so`, build 6636d5f)
+- ✅ OTA update system (GitHub Releases → download → SHA256 verification → flash inactive slot, all async without blocking the UI)
+- ✅ Automatic A/B rollback on boot failure (attempt counter + slot reversion)
+- ✅ Settings menu: wireless network, backup (create/restore/delete), analog stick RGB LEDs, timezone, screensaver, brightness, performance profiles (maximum/balanced/power saving), SSH, factory reset
+- ✅ Redesigned "Workbench" interface (beige/gold palette on black, monochrome Tabler Icons iconography)
+- ✅ Developer mode (terminal, btop, CPU temperature graph + throttling detection) accessible with `SELECT+START+L1` combo
 
-### Particiones (MBR, nunca GPT) — esquema A/B
+### Partitions (MBR, never GPT) — A/B scheme
 
-| # | Etiqueta | FS | Tamaño | Contenido | Montaje |
-|---|---|---|---|---|---|
-| 1 | boot | FAT32 | 64 MB | Kernel, dtb.img, extlinux.conf (labels armiga-A/B) | `/boot` (bajo demanda) |
-| 2 | system | squashfs | 300 MB | Rootfs — slot A | `/` (ro) si `DEFAULT=armiga-A` |
-| 3 | system_b | squashfs | 300 MB | Rootfs — slot B (copia idéntica en cada build) | `/` (ro) si `DEFAULT=armiga-B` |
-| 4 | amiga_data | exFAT | resto del disco | Kickstarts, ROMs, configs, saves | `/media/amiga_data` |
+| # | Label       | FS       | Size            | Content                                            | Mount                           |
+| --- | ----------- | -------- | --------------- | -------------------------------------------------- | -------------------------------- |
+| 1 | boot        | FAT32    | 64 MB           | Kernel, dtb.img, extlinux.conf (armiga-A/B labels) | `/boot` (on demand)              |
+| 2 | system      | squashfs | 300 MB          | Rootfs — slot A                                    | `/` (ro) if `DEFAULT=armiga-A`   |
+| 3 | system\_b   | squashfs | 300 MB          | Rootfs — slot B (identical copy on every build)    | `/` (ro) if `DEFAULT=armiga-B`   |
+| 4 | amiga\_data | exFAT    | rest of the disk | Kickstarts, ROMs, configs, saves                   | `/media/amiga_data`              |
 
-`amiga_data` **siempre** debe ser la última partición física, para que la auto-expansión al 100% del disco funcione en SD de cualquier tamaño.
+`amiga_data` **must always** be the last physical partition, so that auto-expansion to 100% of the disk works on SD cards of any size.
 
-### Rollback automático A/B
+### Automatic A/B rollback
 
-Al arrancar, `S02bootcheck` compara el slot activo (leído de `/proc/cmdline`) contra un contador de intentos persistido en `p1`. Si el launcher no confirma un arranque exitoso (primer frame SDL renderizado) en 3 intentos consecutivos, el sistema revierte automáticamente `DEFAULT` en `extlinux.conf` al último slot conocido como bueno y reinicia — sin intervención del usuario.
+On boot, `S02bootcheck` compares the active slot (read from `/proc/cmdline`) against an attempt counter persisted on `p1`. If the launcher doesn't confirm a successful boot (first SDL frame rendered) within 3 consecutive attempts, the system automatically reverts `DEFAULT` in `extlinux.conf` to the last known-good slot and reboots — no user intervention required.
 
-### Stack gráfico
+### Graphics stack
 
 ```
 armiga-launcher / RetroArch (PUAE)
@@ -62,38 +62,37 @@ armiga-launcher / RetroArch (PUAE)
         ├── libEGL.so.1.0.0
         ├── libGLESv2.so.2.0.0
         └── libdrm
-            └── DRM/KMS kernel (Panfrost, Mali-G31 @ 648MHz fijo)
+            └── DRM/KMS kernel (Panfrost, Mali-G31 @ fixed 648MHz)
 ```
+> **Mesa 25+ note:** `panfrost_dri.so` no longer exists. The Panfrost driver lives in `libgallium-<version>.so`, loaded via `dri_gbm.so`. Don't look under `/usr/lib/dri/`.
 
-> **Nota Mesa 25+:** `panfrost_dri.so` ya no existe. El driver Panfrost está en `libgallium-<version>.so`, cargado vía `dri_gbm.so`. No buscar en `/usr/lib/dri/`.
-
-## Estructura del repositorio
+## Repository structure
 
 ```
 armiga/
 ├── .github/workflows/
-│   ├── build.yml                      # CI principal — imagen Buildroot completa (manual, apunta a tag para release)
-│   ├── build-mesa.yml                 # CI Mesa (cross-compile GBM+Panfrost, .so commiteados, manual)
-│   ├── build-mangohud.yml             # CI MangoHud ARM64 (manual)
-│   ├── build-retroarch.yml            # CI RetroArch estable (manual)
-│   └── build-retroarch-nightly.yml    # CI RetroArch nightly (manual)
+│   ├── build.yml                      # Main CI — full Buildroot image (manual, points to tag for release)
+│   ├── build-mesa.yml                 # Mesa CI (cross-compile GBM+Panfrost, committed .so files, manual)
+│   ├── build-mangohud.yml             # MangoHud ARM64 CI (manual)
+│   ├── build-retroarch.yml            # Stable RetroArch CI (manual)
+│   └── build-retroarch-nightly.yml    # Nightly RetroArch CI (manual)
 ├── board/armiga/
-│   ├── bootloader/            # Kernel, DTB y U-Boot precompilados (commiteados)
-│   ├── linux/dts/             # DTS propios (rg40xx-h, v2-panel)
+│   ├── bootloader/            # Precompiled kernel, DTB and U-Boot (committed)
+│   ├── linux/dts/             # Custom DTS files (rg40xx-h, v2-panel)
 │   ├── rootfs_overlay/
-│   │   ├── usr/lib/           # Mesa .so (stripped)
+│   │   ├── usr/lib/           # Mesa .so files (stripped)
 │   │   ├── usr/bin/           # armiga-launcher-wrapper, retroarch (wrapper)
 │   │   ├── etc/retroarch/     # retroarch.cfg.template, armiga.cfg, autoconfig/
-│   │   ├── etc/init.d/        # Scripts de arranque (S02bootcheck, S06gpu, S07zram, S40partitions, S41wifi, S43update, ...)
-│   │   └── media/amiga_data/  # Mountpoint estático (necesario: rootfs es ro)
-│   ├── post-build.sh          # Genera /etc/armiga-release
-│   ├── post-image.sh          # Genera extlinux.conf, amiga_data.img, invoca genimage
+│   │   ├── etc/init.d/        # Boot scripts (S02bootcheck, S06gpu, S07zram, S40partitions, S41wifi, S43update, ...)
+│   │   └── media/amiga_data/  # Static mountpoint (needed: rootfs is ro)
+│   ├── post-build.sh          # Generates /etc/armiga-release
+│   ├── post-image.sh          # Generates extlinux.conf, amiga_data.img, invokes genimage
 │   └── genimage.cfg
 ├── configs/armiga_defconfig
 ├── package/
 │   ├── sdl3/
 │   ├── sdl3_ttf/
-│   └── armiga-launcher/       # Launcher propio (C + SDL3)
+│   └── armiga-launcher/       # Custom launcher (C + SDL3)
 ├── Config.in
 ├── external.mk
 └── external.desc
@@ -101,35 +100,35 @@ armiga/
 
 ## Build
 
-### Requisitos
+### Requirements
 
-- Ubuntu 22.04+ (o GitHub Actions)
-- Paquetes: `build-essential wget cpio unzip rsync bc python3 libssl-dev`
+- Ubuntu 22.04+ (or GitHub Actions)
+- Packages: `build-essential wget cpio unzip rsync bc python3 libssl-dev`
 
-### Build en GitHub Actions
+### Build on GitHub Actions
 
-Trigger manual (`workflow_dispatch`) en Actions → Build armiga → Run workflow. **Verificar que la rama seleccionada en "Use workflow from" sea la correcta** antes de lanzar.
-Tiempo estimado: 30-40 min (~1h+ si se modifica `configs/armiga_defconfig`, invalida la cache de ccache/toolchain).
+Manual trigger (`workflow_dispatch`) in Actions → Build armiga → Run workflow. **Verify that the branch selected in "Use workflow from" is correct** before launching.
+Estimated time: 30-40 min (~1h+ if `configs/armiga_defconfig` is modified, which invalidates the ccache/toolchain cache).
 
-### Build local
+### Local build
 
-```bash
+```
 make BR2_EXTERNAL=$PWD -C buildroot-2026.02.2 O=$PWD/output armiga_defconfig
 make -C output -j$(nproc)
 ```
 
-## Notas críticas
+## Critical notes
 
-- **Rootfs es SquashFS de solo lectura.** Cualquier código que escriba en tiempo de ejecución debe apuntar a `/media/amiga_data` o a tmpfs (`/tmp`, `/var/*`), nunca a rutas de rootfs. Esto incluye configs generadas (`wpa_supplicant.conf`), caches (shader cache de Mesa), y mountpoints (deben existir ya en el overlay, no crearse con `mkdir` en runtime).
-- **`amiga_data` es siempre la última partición física** (hoy p4) — necesario para que la auto-expansión funcione.
-- **`rootfstype=` en `extlinux.conf` debe coincidir siempre con el filesystem real** de system/system_b. Un desajuste causa fallo de arranque silencioso.
-- **Bit ejecutable en git**: usar siempre `git update-index --chmod=+x` tras añadir un script nuevo; verificar con `git ls-files -s` (debe mostrar `100755`). No asumir que `chmod +x` local se preserva en el commit.
-- **`.so` grandes**: siempre `aarch64-linux-gnu-strip --strip-unneeded` antes de commitear. `libgallium` sin stripar pesa ~110-120MB; stripped, ~23MB.
-- **`dd` sobre el dispositivo es destructivo** — verificar siempre offsets (`sfdisk -d`, posicional) antes de flashear.
-- **GitHub API `/releases/latest` no devuelve prereleases** — el launcher usa `/releases`.
-- **BusyBox awk no soporta `match()` con array** — usar `grep`+`cut` para parsear `sfdisk -d`.
-- **Nunca parchear el squashfs manualmente en la SD** (`unsquashfs`/`mksquashfs` a mano) — no preserva atributos extendidos de forma fiable. Cualquier cambio se recompila desde Buildroot.
+- **Rootfs is read-only SquashFS.** Any code that writes at runtime must point to `/media/amiga_data` or tmpfs (`/tmp`, `/var/*`), never to rootfs paths. This includes generated configs (`wpa_supplicant.conf`), caches (Mesa shader cache), and mountpoints (must already exist in the overlay, not created with `mkdir` at runtime).
+- **`amiga_data` must always be the last physical partition** (currently p4) — required for auto-expansion to work.
+- **`rootfstype=` in `extlinux.conf` must always match the real filesystem** of system/system_b. A mismatch causes a silent boot failure.
+- **Executable bit in git**: always use `git update-index --chmod=+x` after adding a new script; verify with `git ls-files -s` (should show `100755`). Don't assume a local `chmod +x` is preserved in the commit.
+- **Large `.so` files**: always `aarch64-linux-gnu-strip --strip-unneeded` before committing. `libgallium` unstripped weighs ~110-120MB; stripped, ~23MB.
+- **`dd` on the device is destructive** — always verify offsets (`sfdisk -d`, positional) before flashing.
+- **GitHub API `/releases/latest` doesn't return prereleases** — the launcher uses `/releases`.
+- **BusyBox awk doesn't support `match()` with array** — use `grep`+`cut` to parse `sfdisk -d`.
+- **Never patch the squashfs manually on the SD** (`unsquashfs`/`mksquashfs` by hand) — doesn't reliably preserve extended attributes. Any change is rebuilt from Buildroot.
 
-## Licencia
+## License
 
-Cada componente mantiene su licencia original.
+Each component retains its original license.
