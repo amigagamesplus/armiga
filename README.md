@@ -15,7 +15,7 @@ Minimal Linux distribution based on **Buildroot** for the **Anbernic RG40XX H** 
 
 ## Current status
 
-**Version:** 1.0.5
+**Version:** 1.0.6
 
 ### Working components
 
