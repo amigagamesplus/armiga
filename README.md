@@ -1,4 +1,4 @@
-[![armiga](https://github.com/amigagamesplus/armiga/raw/main/docs/assets/logo-armiga.png)](/amigagamesplus/armiga/blob/main/docs/assets/logo-armiga.png)
+<img src="docs/assets/logo-armiga.png" alt="armiga" width="550">
 
 Minimal Linux distribution based on **Buildroot** for the **Anbernic RG40XX H** console (Allwinner H700), focused on Commodore Amiga emulation via **RetroArch + PUAE core**.
 
