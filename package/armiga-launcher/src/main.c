@@ -1730,7 +1730,9 @@ static void draw_rounded_rect_filled(SDL_Renderer *r, float x, float y,
         draw_rect_filled(r, x, y, w, h, c);
         return;
     }
-    SDL_SetRenderDrawColor(r, c.r, c.g, c.b, c.a);
+    SDL_BlendMode prev_blend;
+    SDL_GetRenderDrawBlendMode(r, &prev_blend);
+    SDL_SetRenderDrawBlendMode(r, SDL_BLENDMODE_BLEND);
     int rows = (int)h;
     for (int row = 0; row < rows; row++) {
         float dy = (float)row;
@@ -1747,9 +1749,23 @@ static void draw_rounded_rect_filled(SDL_Renderer *r, float x, float y,
             float dx2 = radius * radius - corner_dy * corner_dy;
             inset = radius - (dx2 > 0.0f ? SDL_sqrtf(dx2) : 0.0f);
         }
-        SDL_FRect line_rect = {x + inset, y + dy, w - inset * 2.0f, 1.0f};
+        /* Cuerpo solido de la fila, a color completo */
+        float inset_floor = SDL_floorf(inset);
+        float edge_frac = inset - inset_floor; /* cobertura fraccional del pixel de borde, 0..1 */
+        SDL_SetRenderDrawColor(r, c.r, c.g, c.b, c.a);
+        SDL_FRect line_rect = {x + inset_floor + 1.0f, y + dy, w - (inset_floor + 1.0f) * 2.0f, 1.0f};
         if (line_rect.w > 0.0f) SDL_RenderFillRect(r, &line_rect);
+        /* Pixel de borde con alpha parcial (antialiasing), a ambos lados */
+        if (edge_frac > 0.001f && inset_floor >= 0.0f) {
+            Uint8 edge_alpha = (Uint8)((1.0f - edge_frac) * (float)c.a);
+            SDL_SetRenderDrawColor(r, c.r, c.g, c.b, edge_alpha);
+            SDL_FRect left_edge = {x + inset_floor, y + dy, 1.0f, 1.0f};
+            SDL_FRect right_edge = {x + w - inset_floor - 1.0f, y + dy, 1.0f, 1.0f};
+            SDL_RenderFillRect(r, &left_edge);
+            SDL_RenderFillRect(r, &right_edge);
+        }
     }
+    SDL_SetRenderDrawBlendMode(r, prev_blend);
 }
 static float draw_status_pill(SDL_Renderer *ren, TTF_Font *f, float right_edge, float y_center,
                                SDL_Texture *icon, const char *label, SDL_Color fg, SDL_Color bg,
