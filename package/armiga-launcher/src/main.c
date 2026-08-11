@@ -1933,6 +1933,8 @@ int main(void)
     int selected = 0;
     float menu_cursor_y = -1.0f; /* -1 = sin inicializar, se fija en el primer frame de STATE_MENU */
     Uint64 menu_lerp_last_time = SDL_GetTicksNS();
+    float settings_cursor_y = -1.0f;
+    Uint64 settings_lerp_last_time = SDL_GetTicksNS();
     int dev_selected = 0;
     int confirm_target = DEV_ACTION_REBOOT; /* cual de los dos confirm. */
     AppState confirm_return_state = STATE_DEVMODE;
@@ -3302,6 +3304,17 @@ int main(void)
 
             float settings_y0 = 64.0f;
             float settings_item_h = 32.0f;
+            {
+                float target_y = settings_y0 + settings_selected * settings_item_h;
+                if (settings_cursor_y < 0.0f) settings_cursor_y = target_y;
+                Uint64 now_ns = SDL_GetTicksNS();
+                float dt = (float)(now_ns - settings_lerp_last_time) / 1000000000.0f;
+                settings_lerp_last_time = now_ns;
+                if (dt > 0.1f) dt = 0.1f;
+                float lerp_speed = 15.0f;
+                settings_cursor_y += (target_y - settings_cursor_y) * lerp_speed * dt;
+                if (fabsf(target_y - settings_cursor_y) < 0.5f) settings_cursor_y = target_y;
+            }
             for (int i = 0; i < SETTINGS_MENU_COUNT; i++) {
                 float iy = settings_y0 + i * settings_item_h;
                 char item_label[64];
@@ -3321,7 +3334,7 @@ int main(void)
                     TTF_GetStringSize(f_med, item_label, 0, &text_w, &text_h);
                     float sel_w = (float)text_w + 32.0f;
                     float pill_h = settings_item_h - 4.0f;
-                    draw_rounded_rect_filled(ren, mx - 10.0f, iy - 5.0f,
+                    draw_rounded_rect_filled(ren, mx - 10.0f, settings_cursor_y - 5.0f,
                                      sel_w, pill_h, pill_h / 2.0f, c_menu_selbg);
                     draw_text(ren, f_med, item_label, c_menu_gold, mx + 8.0f, iy);
                 } else {
