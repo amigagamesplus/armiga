@@ -1935,6 +1935,8 @@ int main(void)
     Uint64 menu_lerp_last_time = SDL_GetTicksNS();
     float settings_cursor_y = -1.0f;
     Uint64 settings_lerp_last_time = SDL_GetTicksNS();
+    float wifi_cursor_y = -1.0f;
+    Uint64 wifi_lerp_last_time = SDL_GetTicksNS();
     int dev_selected = 0;
     int confirm_target = DEV_ACTION_REBOOT; /* cual de los dos confirm. */
     AppState confirm_return_state = STATE_DEVMODE;
@@ -3739,6 +3741,18 @@ int main(void)
             float wifi_item_h = 44.0f;
 
             {
+                float target_y = wifi_y0 + wifi_field_selected * wifi_item_h;
+                if (wifi_cursor_y < 0.0f) wifi_cursor_y = target_y;
+                Uint64 now_ns = SDL_GetTicksNS();
+                float dt = (float)(now_ns - wifi_lerp_last_time) / 1000000000.0f;
+                wifi_lerp_last_time = now_ns;
+                if (dt > 0.1f) dt = 0.1f;
+                float lerp_speed = 15.0f;
+                wifi_cursor_y += (target_y - wifi_cursor_y) * lerp_speed * dt;
+                if (fabsf(target_y - wifi_cursor_y) < 0.5f) wifi_cursor_y = target_y;
+            }
+
+            {
                 float iy = wifi_y0;
                 bool sel = (wifi_field_selected == 0);
                 SDL_Color labelc = sel ? c_menu_gold : c_menu_beige;
@@ -3749,7 +3763,7 @@ int main(void)
                     TTF_GetStringSize(f_med, ssid_disp, 0, &vw, &vh);
                     float sel_w = (float)(lw > vw ? lw : vw) + 40.0f;
                     float pill_h = wifi_item_h + 4.0f;
-                    draw_rounded_rect_filled(ren, mx - 14.0f, iy - 8.0f,
+                    draw_rounded_rect_filled(ren, mx - 14.0f, wifi_cursor_y - 8.0f,
                                      sel_w, pill_h, pill_h / 2.0f, c_menu_selbg);
                 }
                 draw_text(ren, f_sm, "SSID", labelc, mx + 8.0f, iy);
@@ -3776,7 +3790,7 @@ int main(void)
                     TTF_GetStringSize(f_med, masked, 0, &vw, &vh);
                     float sel_w = (float)(lw > vw ? lw : vw) + 40.0f;
                     float pill_h = wifi_item_h + 4.0f;
-                    draw_rounded_rect_filled(ren, mx - 14.0f, iy - 8.0f,
+                    draw_rounded_rect_filled(ren, mx - 14.0f, wifi_cursor_y - 8.0f,
                                      sel_w, pill_h, pill_h / 2.0f, c_menu_selbg);
                 }
                 draw_text(ren, f_sm, tr("CONTRASEÑA", "PASSWORD"), labelc, mx + 8.0f, iy);
