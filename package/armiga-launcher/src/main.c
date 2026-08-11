@@ -1949,6 +1949,8 @@ int main(void)
     Uint64 dim_lerp_last_time = SDL_GetTicksNS();
     float perf_cursor_y = -1.0f;
     Uint64 perf_lerp_last_time = SDL_GetTicksNS();
+    float bt_cursor_y = -1.0f;
+    Uint64 bt_lerp_last_time = SDL_GetTicksNS();
     int dev_selected = 0;
     int confirm_target = DEV_ACTION_REBOOT; /* cual de los dos confirm. */
     AppState confirm_return_state = STATE_DEVMODE;
@@ -3507,6 +3509,17 @@ int main(void)
                 if (bt_scroll > bt_device_count - bt_list_rows)
                     bt_scroll = bt_device_count - bt_list_rows;
                 if (bt_scroll < 0) bt_scroll = 0;
+                {
+                    float target_y = bt_y0 + (bt_selected - bt_scroll) * bt_item_h;
+                    if (bt_cursor_y < 0.0f) bt_cursor_y = target_y;
+                    Uint64 now_ns = SDL_GetTicksNS();
+                    float dt = (float)(now_ns - bt_lerp_last_time) / 1000000000.0f;
+                    bt_lerp_last_time = now_ns;
+                    if (dt > 0.1f) dt = 0.1f;
+                    float lerp_speed = 15.0f;
+                    bt_cursor_y += (target_y - bt_cursor_y) * lerp_speed * dt;
+                    if (fabsf(target_y - bt_cursor_y) < 0.5f) bt_cursor_y = target_y;
+                }
                 for (int row = 0; row < bt_list_rows && (row + bt_scroll) < bt_device_count; row++) {
                     int i = row + bt_scroll;
                     float iy = bt_y0 + row * bt_item_h;
@@ -3525,7 +3538,7 @@ int main(void)
                         float pill_pad = 10.0f;
                         float pill_x = mx + 4.0f - pill_pad;
                         float pill_w = (float)lbl_w + pill_pad * 2.0f;
-                        draw_rounded_rect_filled(ren, pill_x, iy - 4.0f, pill_w, row_h, row_h / 2.0f, c_menu_selbg);
+                        draw_rounded_rect_filled(ren, pill_x, bt_cursor_y - 4.0f, pill_w, row_h, row_h / 2.0f, c_menu_selbg);
                     }
                     SDL_Color labelc = connected ? c_menu_gold : (sel ? c_menu_gold : c_menu_beige);
                     draw_text(ren, f_sm, label, labelc, mx + 4.0f, iy);
