@@ -14,6 +14,7 @@
 #include <stdlib.h>
 #include <stdbool.h>
 #include <string.h>
+#include <math.h>
 #include <time.h>
 #include <unistd.h>
 #include <errno.h>
@@ -1930,6 +1931,8 @@ int main(void)
     SDL_free(jids);
 
     int selected = 0;
+    float menu_cursor_y = -1.0f; /* -1 = sin inicializar, se fija en el primer frame de STATE_MENU */
+    Uint64 menu_lerp_last_time = SDL_GetTicksNS();
     int dev_selected = 0;
     int confirm_target = DEV_ACTION_REBOOT; /* cual de los dos confirm. */
     AppState confirm_return_state = STATE_DEVMODE;
@@ -3190,6 +3193,17 @@ int main(void)
         SDL_Color c_menu_gold  = {224, 176, 96, 255};
         SDL_Color c_menu_beige = {168, 157, 124, 255};
         SDL_Color c_menu_selbg = {58, 51, 36, 255};
+        {
+            float target_y = menu_y0 + selected * item_h;
+            if (menu_cursor_y < 0.0f) menu_cursor_y = target_y;
+            Uint64 now_ns = SDL_GetTicksNS();
+            float dt = (float)(now_ns - menu_lerp_last_time) / 1000000000.0f;
+            menu_lerp_last_time = now_ns;
+            if (dt > 0.1f) dt = 0.1f;
+            float lerp_speed = 15.0f;
+            menu_cursor_y += (target_y - menu_cursor_y) * lerp_speed * dt;
+            if (fabsf(target_y - menu_cursor_y) < 0.5f) menu_cursor_y = target_y;
+        }
         for (int i = 0; i < MENU_COUNT; i++) {
             float iy = menu_y0 + i * item_h;
             if (i == selected) {
@@ -3198,7 +3212,7 @@ int main(void)
                 float sel_w = 46.0f + (float)text_w + 32.0f; /* icono+texto, aire lateral moderado */
                 float pill_h = item_h - 4.0f;
                 float pill_radius = pill_h / 2.0f;
-                draw_rounded_rect_filled(ren, mx - 10.0f, iy - 5.0f,
+                draw_rounded_rect_filled(ren, mx - 10.0f, menu_cursor_y - 5.0f,
                                  sel_w, pill_h, pill_radius, c_menu_selbg);
                 if (menu_icon_tex[i]) {
                     SDL_SetTextureColorMod(menu_icon_tex[i], c_menu_gold.r, c_menu_gold.g, c_menu_gold.b);
