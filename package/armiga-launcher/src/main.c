@@ -1947,6 +1947,8 @@ int main(void)
     Uint64 tz_lerp_last_time = SDL_GetTicksNS();
     float dim_cursor_y = -1.0f;
     Uint64 dim_lerp_last_time = SDL_GetTicksNS();
+    float perf_cursor_y = -1.0f;
+    Uint64 perf_lerp_last_time = SDL_GetTicksNS();
     int dev_selected = 0;
     int confirm_target = DEV_ACTION_REBOOT; /* cual de los dos confirm. */
     AppState confirm_return_state = STATE_DEVMODE;
@@ -3401,6 +3403,17 @@ int main(void)
             float perf_y0 = 66.0f + (372.0f - 3.0f * perf_item_h) / 2.0f;
             float perf_w = 480.0f;
             float perf_x = (SCREEN_W - perf_w) / 2.0f;
+            {
+                float target_y = perf_y0 + perf_selected * perf_item_h;
+                if (perf_cursor_y < 0.0f) perf_cursor_y = target_y;
+                Uint64 now_ns = SDL_GetTicksNS();
+                float dt = (float)(now_ns - perf_lerp_last_time) / 1000000000.0f;
+                perf_lerp_last_time = now_ns;
+                if (dt > 0.1f) dt = 0.1f;
+                float lerp_speed = 15.0f;
+                perf_cursor_y += (target_y - perf_cursor_y) * lerp_speed * dt;
+                if (fabsf(target_y - perf_cursor_y) < 0.5f) perf_cursor_y = target_y;
+            }
             for (int i = 0; i < 3; i++) {
                 float iy = perf_y0 + i * perf_item_h;
                 bool sel = (i == perf_selected);
@@ -3416,7 +3429,7 @@ int main(void)
                 float pill_w2 = content_w + 38.0f + 30.0f;
                 if (pill_w2 > perf_w) pill_w2 = perf_w;
                 if (sel) {
-                    draw_rounded_rect_filled(ren, perf_x - 10.0f, iy - 6.0f,
+                    draw_rounded_rect_filled(ren, perf_x - 10.0f, perf_cursor_y - 6.0f,
                                      pill_w2 + 20.0f, pill_h2, pill_h2 / 2.0f, c_menu_selbg);
                 }
                 if (perf_opts[i].icon) {
