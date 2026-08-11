@@ -1943,6 +1943,8 @@ int main(void)
     Uint64 bkl_lerp_last_time = SDL_GetTicksNS();
     float led_cursor_y = -1.0f;
     Uint64 led_lerp_last_time = SDL_GetTicksNS();
+    float tz_cursor_y = -1.0f;
+    Uint64 tz_lerp_last_time = SDL_GetTicksNS();
     int dev_selected = 0;
     int confirm_target = DEV_ACTION_REBOOT; /* cual de los dos confirm. */
     AppState confirm_return_state = STATE_DEVMODE;
@@ -3573,6 +3575,18 @@ int main(void)
                 tz_scroll = TIMEZONE_LIST_COUNT - tz_visible;
             if (tz_scroll < 0) tz_scroll = 0;
 
+            {
+                float target_y = tz_y0 + (timezone_selected - tz_scroll) * tz_item_h;
+                if (tz_cursor_y < 0.0f) tz_cursor_y = target_y;
+                Uint64 now_ns = SDL_GetTicksNS();
+                float dt = (float)(now_ns - tz_lerp_last_time) / 1000000000.0f;
+                tz_lerp_last_time = now_ns;
+                if (dt > 0.1f) dt = 0.1f;
+                float lerp_speed = 15.0f;
+                tz_cursor_y += (target_y - tz_cursor_y) * lerp_speed * dt;
+                if (fabsf(target_y - tz_cursor_y) < 0.5f) tz_cursor_y = target_y;
+            }
+
             for (int row = 0; row < tz_visible && (row + tz_scroll) < TIMEZONE_LIST_COUNT; row++) {
                 int i = row + tz_scroll;
                 float iy = tz_y0 + row * tz_item_h;
@@ -3583,7 +3597,7 @@ int main(void)
                 if (sel) {
                     float sel_w = (float)text_w + 42.0f;
                     float pill_h = tz_item_h + 2.0f;
-                    draw_rounded_rect_filled(ren, mx - 10.0f, iy - 3.0f,
+                    draw_rounded_rect_filled(ren, mx - 10.0f, tz_cursor_y - 3.0f,
                                      sel_w, pill_h, pill_h / 2.0f, c_menu_selbg);
                 }
                 SDL_Color labelc = sel ? c_menu_gold : c_menu_beige;
