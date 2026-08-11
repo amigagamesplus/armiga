@@ -1941,6 +1941,8 @@ int main(void)
     Uint64 bkm_lerp_last_time = SDL_GetTicksNS();
     float bkl_cursor_y = -1.0f;
     Uint64 bkl_lerp_last_time = SDL_GetTicksNS();
+    float led_cursor_y = -1.0f;
+    Uint64 led_lerp_last_time = SDL_GetTicksNS();
     int dev_selected = 0;
     int confirm_target = DEV_ACTION_REBOOT; /* cual de los dos confirm. */
     AppState confirm_return_state = STATE_DEVMODE;
@@ -3860,6 +3862,18 @@ int main(void)
             float led_bar_w = 220.0f;
             float led_bar_h = 10.0f;
 
+            {
+                float target_y = led_y0 + led_selected * led_item_h;
+                if (led_cursor_y < 0.0f) led_cursor_y = target_y;
+                Uint64 now_ns = SDL_GetTicksNS();
+                float dt = (float)(now_ns - led_lerp_last_time) / 1000000000.0f;
+                led_lerp_last_time = now_ns;
+                if (dt > 0.1f) dt = 0.1f;
+                float lerp_speed = 15.0f;
+                led_cursor_y += (target_y - led_cursor_y) * lerp_speed * dt;
+                if (fabsf(target_y - led_cursor_y) < 0.5f) led_cursor_y = target_y;
+            }
+
             for (int i = 0; i < LED_SLIDER_COUNT; i++) {
                 float iy = led_y0 + i * led_item_h;
                 bool sel = (led_selected == i);
@@ -3872,7 +3886,7 @@ int main(void)
                 if (sel) {
                     float pill_h = led_item_h - 6.0f;
                     float pill_w = (bar_x - (mx - 10.0f)) + led_bar_w + 10.0f + (float)valw + 20.0f;
-                    draw_rounded_rect_filled(ren, mx - 10.0f, iy - 5.0f,
+                    draw_rounded_rect_filled(ren, mx - 10.0f, led_cursor_y - 5.0f,
                                      pill_w, pill_h, pill_h / 2.0f, c_menu_selbg);
                 }
                 draw_text(ren, f_sm, LED_SLIDER_LABELS[i][current_lang], labelc, mx + 8.0f, iy);
