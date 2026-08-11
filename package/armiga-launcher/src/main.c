@@ -1356,6 +1356,47 @@ static void draw_text(SDL_Renderer *r, TTF_Font *f, const char *t,
 
 /* Envuelve texto en varias lineas segun max_w, sin truncar nunca.
  * Devuelve el numero de lineas dibujadas (para calcular el Y siguiente). */
+/* Mide el wrap de draw_text_wrapped sin dibujar: devuelve numero de lineas
+ * y el ancho maximo real entre todas ellas (para ajustar pildoras al
+ * contenido real, en vez de al ancho de la cadena completa sin envolver). */
+static int measure_text_wrapped(TTF_Font *f, const char *text, float max_w, float *out_max_line_w)
+{
+    char buf[256];
+    strncpy(buf, text, sizeof(buf) - 1);
+    buf[sizeof(buf) - 1] = 0;
+    int line_count = 0;
+    float max_line_w = 0.0f;
+    char *saveptr = NULL;
+    char *word = strtok_r(buf, " ", &saveptr);
+    char line[256] = {0};
+    while (word) {
+        char candidate[256];
+        if (line[0])
+            snprintf(candidate, sizeof(candidate), "%s %s", line, word);
+        else
+            snprintf(candidate, sizeof(candidate), "%s", word);
+        int w = 0, h = 0;
+        TTF_GetStringSize(f, candidate, 0, &w, &h);
+        if ((float)w > max_w && line[0]) {
+            int lw = 0, lh = 0;
+            TTF_GetStringSize(f, line, 0, &lw, &lh);
+            if ((float)lw > max_line_w) max_line_w = (float)lw;
+            line_count++;
+            snprintf(line, sizeof(line), "%s", word);
+        } else {
+            snprintf(line, sizeof(line), "%s", candidate);
+        }
+        word = strtok_r(NULL, " ", &saveptr);
+    }
+    if (line[0]) {
+        int lw = 0, lh = 0;
+        TTF_GetStringSize(f, line, 0, &lw, &lh);
+        if ((float)lw > max_line_w) max_line_w = (float)lw;
+        line_count++;
+    }
+    if (out_max_line_w) *out_max_line_w = max_line_w;
+    return line_count;
+}
 static int draw_text_wrapped(SDL_Renderer *r, TTF_Font *f, const char *text,
                               SDL_Color c, float x, float y, float max_w, float line_h)
 {
@@ -3424,15 +3465,23 @@ int main(void)
                 char desc_flat[128];
                 snprintf(desc_flat, sizeof(desc_flat), "%s", perf_opts[i].desc[current_lang]);
                 for (char *p = desc_flat; *p; p++) if (*p == '\n') *p = ' ';
-                int tw = 0, th = 0, dw = 0, dh = 0;
+                int tw = 0, th = 0;
                 TTF_GetStringSize(f_med, perf_opts[i].title[current_lang], 0, &tw, &th);
-                TTF_GetStringSize(f_sm, desc_flat, 0, &dw, &dh);
-                float content_w = (float)(tw > dw ? tw : dw);
-                float pill_w2 = content_w + 38.0f + 30.0f;
-                if (pill_w2 > perf_w) pill_w2 = perf_w;
+                float desc_max_line_w = 0.0f;
+                int desc_line_count = measure_text_wrapped(f_sm, desc_flat, perf_w - 30.0f, &desc_max_line_w);
+                float content_w = (tw > desc_max_line_w) ? (float)tw : desc_max_line_w;
+                /* Geometria real: texto arranca en perf_x+38, pill arranca en perf_x-10 */
+                float text_left_pad = 38.0f - (-10.0f); /* = 48: desde el borde del pill hasta el texto */
+                float pill_w2 = text_left_pad + content_w + 14.0f; /* margen derecho */
+                if (pill_w2 > perf_w + 10.0f) pill_w2 = perf_w + 10.0f;
+                /* Alto real: icono ocupa iy..iy+24, texto ocupa iy..iy+20+desc_line_count*15 */
+                float icon_bottom = 24.0f;
+                float text_bottom = 20.0f + (float)desc_line_count * 15.0f;
+                float content_bottom = (icon_bottom > text_bottom) ? icon_bottom : text_bottom;
+                float pill_h3 = content_bottom + 16.0f;
                 if (sel) {
-                    draw_rounded_rect_filled(ren, perf_x - 10.0f, perf_cursor_y - 6.0f,
-                                     pill_w2 + 20.0f, pill_h2, pill_h2 / 2.0f, c_menu_selbg);
+                    draw_rounded_rect_filled(ren, perf_x - 10.0f, perf_cursor_y - 8.0f,
+                                     pill_w2, pill_h3, pill_h3 / 2.0f, c_menu_selbg);
                 }
                 if (perf_opts[i].icon) {
                     SDL_SetTextureColorMod(perf_opts[i].icon, titlec.r, titlec.g, titlec.b);
