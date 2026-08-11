@@ -1945,6 +1945,8 @@ int main(void)
     Uint64 led_lerp_last_time = SDL_GetTicksNS();
     float tz_cursor_y = -1.0f;
     Uint64 tz_lerp_last_time = SDL_GetTicksNS();
+    float dim_cursor_y = -1.0f;
+    Uint64 dim_lerp_last_time = SDL_GetTicksNS();
     int dev_selected = 0;
     int confirm_target = DEV_ACTION_REBOOT; /* cual de los dos confirm. */
     AppState confirm_return_state = STATE_DEVMODE;
@@ -3633,6 +3635,18 @@ int main(void)
             float dim_bar_h = 10.0f;
 
             {
+                float target_y = dim_y0 + dim_field_selected * dim_item_h;
+                if (dim_cursor_y < 0.0f) dim_cursor_y = target_y;
+                Uint64 now_ns = SDL_GetTicksNS();
+                float dt = (float)(now_ns - dim_lerp_last_time) / 1000000000.0f;
+                dim_lerp_last_time = now_ns;
+                if (dt > 0.1f) dt = 0.1f;
+                float lerp_speed = 15.0f;
+                dim_cursor_y += (target_y - dim_cursor_y) * lerp_speed * dt;
+                if (fabsf(target_y - dim_cursor_y) < 0.5f) dim_cursor_y = target_y;
+            }
+
+            {
                 float iy = dim_y0;
                 bool sel = (dim_field_selected == 0);
                 SDL_Color labelc = sel ? c_menu_gold : c_menu_beige;
@@ -3643,7 +3657,7 @@ int main(void)
                     TTF_GetStringSize(f_med, dim_val_disp, 0, &vw, &vh);
                     float sel_w = (float)(lw > vw ? lw : vw) + 40.0f;
                     float pill_h = dim_item_h - 2.0f;
-                    draw_rounded_rect_filled(ren, mx - 14.0f, iy - 4.0f,
+                    draw_rounded_rect_filled(ren, mx - 14.0f, dim_cursor_y - 4.0f,
                                      sel_w, pill_h, pill_h / 2.0f, c_menu_selbg);
                 }
                 draw_text(ren, f_sm, tr("Atenuar tras", "Dim after"), labelc, mx + 8.0f, iy);
@@ -3660,7 +3674,7 @@ int main(void)
                     float bar_total_w = dim_bar_w + 10.0f + 40.0f; /* barra + gap + "100%" aprox */
                     float sel_w = ((float)lw > bar_total_w ? (float)lw : bar_total_w) + 40.0f;
                     float pill_h = dim_item_h + 2.0f;
-                    draw_rounded_rect_filled(ren, mx - 14.0f, iy - 8.0f,
+                    draw_rounded_rect_filled(ren, mx - 14.0f, dim_cursor_y - 8.0f,
                                      sel_w, pill_h, pill_h / 2.0f, c_menu_selbg);
                 }
                 draw_text(ren, f_sm, tr("Brillo al atenuar", "Brightness when dimmed"),
