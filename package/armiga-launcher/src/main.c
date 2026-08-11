@@ -1782,12 +1782,12 @@ static void draw_statusbar(SDL_Renderer *ren, TTF_Font *f, TTF_Font *f_ampm,
                             SDL_Texture *wifi_icon_tex, SDL_Texture *battery_icon_tex,
                             SDL_Texture *bt_icon_tex)
 {
-    SDL_Color c_cream    = {240, 230, 200, 255};
+    SDL_Color c_cream    = {231, 239, 231, 255};
     SDL_Color c_gold     = {27, 39, 8, 255};
     SDL_Color c_red      = COL_RED;
     SDL_Color c_pill_on  = {183, 221, 91, 255};
-    SDL_Color c_pill_off = {33, 31, 22, 255};
-    SDL_Color c_dim_fg   = {90, 84, 66, 255};
+    SDL_Color c_pill_off = {28, 52, 40, 255};
+    SDL_Color c_dim_fg   = {70, 90, 80, 255};
     float right = SCREEN_W - 20.0f;
     float y     = 25.0f;
     float gap   = 9.0f;
