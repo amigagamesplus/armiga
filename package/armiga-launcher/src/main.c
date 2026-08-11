@@ -47,12 +47,12 @@ static void safe_copy(char *dst, const char *src, size_t sz) {
 #define FONT_XS      9
 #define FONT_LG      28
 
-#define COL_BG       { 16,  16,  16, 255}
-#define COL_GREEN    {224, 176,  96, 255}
-#define COL_DKGREEN  {168, 157, 124, 255}
+#define COL_BG       {15, 31, 24, 255}
+#define COL_GREEN    {231, 239, 231, 255}
+#define COL_DKGREEN  {231, 239, 231, 255}
 #define COL_WHITE    {220, 220, 220, 255}
-#define COL_GRAY     {168, 157, 124, 255}
-#define COL_SEL_BG   { 42,  42,  42, 255}
+#define COL_GRAY     {231, 239, 231, 255}
+#define COL_SEL_BG   {183, 221, 91, 255}
 #define COL_RED      {200,  40,  40, 255}
 #define COL_KEY_BG   { 22,  22,  22, 255}
 
@@ -1551,7 +1551,7 @@ static void draw_footer(SDL_Renderer *ren, TTF_Font *f,
 {
     SDL_Color c_gray    = COL_GRAY;
     SDL_Color c_dkgreen = COL_DKGREEN;
-    SDL_Color c_gold    = {224, 176, 96, 255};
+    SDL_Color c_gold    = {27, 39, 8, 255};
     draw_text(ren, f, legend, c_gray, 20.0f, 448.0f);
     draw_text_right(ren, f, version, c_dkgreen, SCREEN_W - 20.0f, 448.0f);
 
@@ -1783,9 +1783,9 @@ static void draw_statusbar(SDL_Renderer *ren, TTF_Font *f, TTF_Font *f_ampm,
                             SDL_Texture *bt_icon_tex)
 {
     SDL_Color c_cream    = {240, 230, 200, 255};
-    SDL_Color c_gold     = {224, 176, 96, 255};
+    SDL_Color c_gold     = {27, 39, 8, 255};
     SDL_Color c_red      = COL_RED;
-    SDL_Color c_pill_on  = {58, 51, 36, 255};
+    SDL_Color c_pill_on  = {183, 221, 91, 255};
     SDL_Color c_pill_off = {33, 31, 22, 255};
     SDL_Color c_dim_fg   = {90, 84, 66, 255};
     float right = SCREEN_W - 20.0f;
@@ -3249,9 +3249,9 @@ int main(void)
 
 
         /* Menú */
-        SDL_Color c_menu_gold  = {224, 176, 96, 255};
-        SDL_Color c_menu_beige = {168, 157, 124, 255};
-        SDL_Color c_menu_selbg = {58, 51, 36, 255};
+        SDL_Color c_menu_gold  = {27, 39, 8, 255};
+        SDL_Color c_menu_beige = {231, 239, 231, 255};
+        SDL_Color c_menu_selbg = {183, 221, 91, 255};
         {
             float target_y = menu_y0 + selected * item_h;
             if (menu_cursor_y < 0.0f) menu_cursor_y = target_y;
@@ -3353,9 +3353,9 @@ int main(void)
         }
 
         } else if (state == STATE_SETTINGS) {
-            SDL_Color c_menu_gold  = {224, 176, 96, 255};
-            SDL_Color c_menu_beige = {168, 157, 124, 255};
-            SDL_Color c_menu_selbg = {58, 51, 36, 255};
+            SDL_Color c_menu_gold  = {27, 39, 8, 255};
+            SDL_Color c_menu_beige = {231, 239, 231, 255};
+            SDL_Color c_menu_selbg = {183, 221, 91, 255};
             draw_text_truncated(ren, f_sm, tr("Menú > Configuración", "Menu > Settings"), c_green, mx, 20.0f, SCREEN_W - 190.0f);
             draw_statusbar(ren, f_sm, f_xs, status_time, status_wifi_up, status_battery, status_bt_up, wifi_icon_tex, battery_icon_tex, bt_icon_tex);
 
@@ -3423,9 +3423,9 @@ int main(void)
                 tr("[<>] Ajustar  [B] Aplicar  [A] Volver", "[<>] Adjust  [B] Apply  [A] Back"), s_version);
 
         } else if (state == STATE_PERF_CONFIG) {
-            SDL_Color c_menu_gold  = {224, 176, 96, 255};
-            SDL_Color c_menu_beige = {168, 157, 124, 255};
-            SDL_Color c_menu_selbg = {58, 51, 36, 255};
+            SDL_Color c_menu_gold  = {27, 39, 8, 255};
+            SDL_Color c_menu_beige = {231, 239, 231, 255};
+            SDL_Color c_menu_selbg = {183, 221, 91, 255};
             draw_text_truncated(ren, f_sm, tr("Menú > Configuración > Rendimiento", "Menu > Settings > Performance"), c_green, mx, 20.0f, SCREEN_W - 190.0f);
             draw_statusbar(ren, f_sm, f_xs, status_time, status_wifi_up, status_battery, status_bt_up, wifi_icon_tex, battery_icon_tex, bt_icon_tex);
             struct { const char *title[2]; const char *desc[2]; SDL_Texture *icon; } perf_opts[3] = {
@@ -3496,10 +3496,10 @@ int main(void)
                 tr("[DPAD] Elegir  [B] Aplicar  [A] Volver", "[DPAD] Choose  [B] Apply  [A] Back"), s_version);
 
         } else if (state == STATE_BLUETOOTH_CONFIG) {
-            SDL_Color c_menu_gold  = {224, 176, 96, 255};
-            SDL_Color c_menu_beige = {168, 157, 124, 255};
-            SDL_Color c_menu_selbg = {58, 51, 36, 255};
-            SDL_Color c_bt_card    = {58, 51, 36, 255};
+            SDL_Color c_menu_gold  = {27, 39, 8, 255};
+            SDL_Color c_menu_beige = {231, 239, 231, 255};
+            SDL_Color c_menu_selbg = {183, 221, 91, 255};
+            SDL_Color c_bt_card    = {183, 221, 91, 255};
             SDL_Color c_bt_dim     = {90, 84, 66, 255};
             draw_text_truncated(ren, f_sm, tr("Menú > Configuración > Bluetooth", "Menu > Settings > Bluetooth"), c_green, mx, 20.0f, SCREEN_W - 190.0f);
             draw_statusbar(ren, f_sm, f_xs, status_time, status_wifi_up, status_battery, status_bt_up, wifi_icon_tex, battery_icon_tex, bt_icon_tex);
@@ -3636,9 +3636,9 @@ int main(void)
             draw_footer(ren, f_sm,
                 tr("[DPAD] Elegir  [B] Conectar  [SELECT] Activar  [A] Volver", "[DPAD] Choose  [B] Connect  [SELECT] Toggle  [A] Back"), s_version);
         } else if (state == STATE_TIMEZONE_CONFIG) {
-            SDL_Color c_menu_gold  = {224, 176, 96, 255};
-            SDL_Color c_menu_beige = {168, 157, 124, 255};
-            SDL_Color c_menu_selbg = {58, 51, 36, 255};
+            SDL_Color c_menu_gold  = {27, 39, 8, 255};
+            SDL_Color c_menu_beige = {231, 239, 231, 255};
+            SDL_Color c_menu_selbg = {183, 221, 91, 255};
             draw_text_truncated(ren, f_sm, tr("Menú > Configuración > Zona horaria", "Menu > Settings > Time Zone"), c_green, mx, 20.0f, SCREEN_W - 190.0f);
             draw_statusbar(ren, f_sm, f_xs, status_time, status_wifi_up, status_battery, status_bt_up, wifi_icon_tex, battery_icon_tex, bt_icon_tex);
 
@@ -3698,9 +3698,9 @@ int main(void)
                 tr("[B] Aplicar  [A] Volver", "[B] Apply  [A] Back"), s_version);
 
         } else if (state == STATE_SCREENDIM_CONFIG) {
-            SDL_Color c_menu_gold  = {224, 176, 96, 255};
-            SDL_Color c_menu_beige = {168, 157, 124, 255};
-            SDL_Color c_menu_selbg = {58, 51, 36, 255};
+            SDL_Color c_menu_gold  = {27, 39, 8, 255};
+            SDL_Color c_menu_beige = {231, 239, 231, 255};
+            SDL_Color c_menu_selbg = {183, 221, 91, 255};
             draw_text_truncated(ren, f_sm, tr("Menú > Configuración > Ahorro de pantalla", "Menu > Settings > Screen Dimming"), c_green, mx, 20.0f, SCREEN_W - 190.0f);
             draw_statusbar(ren, f_sm, f_xs, status_time, status_wifi_up, status_battery, status_bt_up, wifi_icon_tex, battery_icon_tex, bt_icon_tex);
 
@@ -3769,9 +3769,9 @@ int main(void)
                 tr("[B] Guardar  [A] Volver", "[B] Save  [A] Back"), s_version);
 
         } else if (state == STATE_BACKUP_MENU) {
-            SDL_Color c_menu_gold  = {224, 176, 96, 255};
-            SDL_Color c_menu_beige = {168, 157, 124, 255};
-            SDL_Color c_menu_selbg = {58, 51, 36, 255};
+            SDL_Color c_menu_gold  = {27, 39, 8, 255};
+            SDL_Color c_menu_beige = {231, 239, 231, 255};
+            SDL_Color c_menu_selbg = {183, 221, 91, 255};
             draw_text_truncated(ren, f_sm, tr("Menú > Configuración > Copia de seguridad", "Menu > Settings > Backup"), c_green, mx, 20.0f, SCREEN_W - 190.0f);
             draw_statusbar(ren, f_sm, f_xs, status_time, status_wifi_up, status_battery, status_bt_up, wifi_icon_tex, battery_icon_tex, bt_icon_tex);
             float bkm_y0 = 64.0f;
@@ -3862,9 +3862,9 @@ int main(void)
             draw_footer(ren, f_sm, tr("[B] Restaurar  [X] Eliminar  [A] Volver", "[B] Restore  [X] Delete  [A] Back"), s_version);
 
         } else if (state == STATE_WIFI_CONFIG) {
-            SDL_Color c_menu_gold  = {224, 176, 96, 255};
-            SDL_Color c_menu_beige = {168, 157, 124, 255};
-            SDL_Color c_menu_selbg = {58, 51, 36, 255};
+            SDL_Color c_menu_gold  = {27, 39, 8, 255};
+            SDL_Color c_menu_beige = {231, 239, 231, 255};
+            SDL_Color c_menu_selbg = {183, 221, 91, 255};
             draw_text_truncated(ren, f_sm, tr("Menú > Configuración > Red inalámbrica", "Menu > Settings > Wireless Network"), c_green, mx, 20.0f, SCREEN_W - 190.0f);
             draw_statusbar(ren, f_sm, f_xs, status_time, status_wifi_up, status_battery, status_bt_up, wifi_icon_tex, battery_icon_tex, bt_icon_tex);
 
@@ -3934,9 +3934,9 @@ int main(void)
                 s_version);
 
         } else if (state == STATE_LED_CONFIG) {
-            SDL_Color c_menu_gold  = {224, 176, 96, 255};
-            SDL_Color c_menu_beige = {168, 157, 124, 255};
-            SDL_Color c_menu_selbg = {58, 51, 36, 255};
+            SDL_Color c_menu_gold  = {27, 39, 8, 255};
+            SDL_Color c_menu_beige = {231, 239, 231, 255};
+            SDL_Color c_menu_selbg = {183, 221, 91, 255};
             draw_text_truncated(ren, f_sm, tr("Menú > Configuración > LED RGB analógicos", "Menu > Settings > Analog Stick LEDs"), c_green, mx, 20.0f, SCREEN_W - 190.0f);
             draw_statusbar(ren, f_sm, f_xs, status_time, status_wifi_up, status_battery, status_bt_up, wifi_icon_tex, battery_icon_tex, bt_icon_tex);
 
@@ -4074,9 +4074,9 @@ int main(void)
                 s_version);
 
         } else if (state == STATE_DEVMODE) {
-            SDL_Color c_menu_gold  = {224, 176, 96, 255};
-            SDL_Color c_menu_beige = {168, 157, 124, 255};
-            SDL_Color c_menu_selbg = {58, 51, 36, 255};
+            SDL_Color c_menu_gold  = {27, 39, 8, 255};
+            SDL_Color c_menu_beige = {231, 239, 231, 255};
+            SDL_Color c_menu_selbg = {183, 221, 91, 255};
             /* Titulo pequeño arriba a la izquierda */
             draw_text_truncated(ren, f_sm, tr("Menú > Modo desarrollador", "Menu > Developer Mode"), c_green, mx, 20.0f, SCREEN_W - 190.0f);
             draw_statusbar(ren, f_sm, f_xs, status_time, status_wifi_up, status_battery, status_bt_up, wifi_icon_tex, battery_icon_tex, bt_icon_tex);
