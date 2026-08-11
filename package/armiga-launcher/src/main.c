@@ -4195,7 +4195,8 @@ int main(void)
              *  Cada bloque: título(14) + guiones(10) + N filas×(label+valor, 18px)
              */
             SDL_Color c_red = COL_RED;
-            SDL_Color c_row_bg = {26, 24, 18, 255};
+            SDL_Color c_row_bg = {28, 52, 40, 255};
+            SDL_Color c_si_title = {183, 221, 91, 255};
             int si_row_idx = 0;
 
             /* Constantes de layout sysinfo: 1 columna ancha, 3 bloques por pagina */
@@ -4222,7 +4223,7 @@ int main(void)
 
 /* Macro auxiliar: título de bloque */
 #define SI_BLOCK_TITLE(xpos, ypos, title) do { \
-    draw_text(ren, f_sm, title, c_green, (xpos), (ypos)); \
+    draw_text(ren, f_sm, title, c_si_title, (xpos), (ypos)); \
 } while(0)
 
 /* Macro fila: fondo alterno (zebra) + etiqueta + valor alineado a col_right */
@@ -4372,7 +4373,7 @@ int main(void)
 #undef SI_ROW_BAR
 
             /* Barra inferior */
-            draw_line(ren, SI_MX, 438.0f, SCREEN_W - 20.0f, 438.0f, c_green);
+            draw_line(ren, mx, 438.0f, SCREEN_W - 20.0f, 438.0f, c_green);
             draw_footer(ren, f_sm, tr("[A] Volver  [L1/R1] Pagina", "[A] Back  [L1/R1] Page"), s_version);
         } else if (state == STATE_UPDATE) {
             const float UX = 20.0f;
