@@ -1937,6 +1937,10 @@ int main(void)
     Uint64 settings_lerp_last_time = SDL_GetTicksNS();
     float wifi_cursor_y = -1.0f;
     Uint64 wifi_lerp_last_time = SDL_GetTicksNS();
+    float bkm_cursor_y = -1.0f;
+    Uint64 bkm_lerp_last_time = SDL_GetTicksNS();
+    float bkl_cursor_y = -1.0f;
+    Uint64 bkl_lerp_last_time = SDL_GetTicksNS();
     int dev_selected = 0;
     int confirm_target = DEV_ACTION_REBOOT; /* cual de los dos confirm. */
     AppState confirm_return_state = STATE_DEVMODE;
@@ -3667,6 +3671,17 @@ int main(void)
             draw_statusbar(ren, f_sm, f_xs, status_time, status_wifi_up, status_battery, status_bt_up, wifi_icon_tex, battery_icon_tex, bt_icon_tex);
             float bkm_y0 = 64.0f;
             float bkm_item_h = 34.0f;
+            {
+                float target_y = bkm_y0 + backup_selected * bkm_item_h;
+                if (bkm_cursor_y < 0.0f) bkm_cursor_y = target_y;
+                Uint64 now_ns = SDL_GetTicksNS();
+                float dt = (float)(now_ns - bkm_lerp_last_time) / 1000000000.0f;
+                bkm_lerp_last_time = now_ns;
+                if (dt > 0.1f) dt = 0.1f;
+                float lerp_speed = 15.0f;
+                bkm_cursor_y += (target_y - bkm_cursor_y) * lerp_speed * dt;
+                if (fabsf(target_y - bkm_cursor_y) < 0.5f) bkm_cursor_y = target_y;
+            }
             for (int i = 0; i < BACKUP_MENU_COUNT; i++) {
                 float iy = bkm_y0 + i * bkm_item_h;
                 if (i == backup_selected) {
@@ -3674,7 +3689,7 @@ int main(void)
                     TTF_GetStringSize(f_med, BACKUP_MENU_ITEMS[i][current_lang], 0, &text_w, &text_h);
                     float sel_w = (float)text_w + 32.0f;
                     float pill_h = bkm_item_h - 4.0f;
-                    draw_rounded_rect_filled(ren, mx - 10.0f, iy - 5.0f,
+                    draw_rounded_rect_filled(ren, mx - 10.0f, bkm_cursor_y - 5.0f,
                                      sel_w, pill_h, pill_h / 2.0f, c_menu_selbg);
                     draw_text(ren, f_med, BACKUP_MENU_ITEMS[i][current_lang], c_menu_gold, mx + 8.0f, iy);
                 } else {
@@ -3711,15 +3726,26 @@ int main(void)
             if (backup_count == 0) {
                 draw_text(ren, f_sm, tr("No hay copias disponibles", "No backups available"), c_gray, mx, bkl_y0);
             } else {
+                {
+                    float target_y = bkl_y0 + backup_list_selected * bkl_item_h;
+                    if (bkl_cursor_y < 0.0f) bkl_cursor_y = target_y;
+                    Uint64 now_ns = SDL_GetTicksNS();
+                    float dt = (float)(now_ns - bkl_lerp_last_time) / 1000000000.0f;
+                    bkl_lerp_last_time = now_ns;
+                    if (dt > 0.1f) dt = 0.1f;
+                    float lerp_speed = 15.0f;
+                    bkl_cursor_y += (target_y - bkl_cursor_y) * lerp_speed * dt;
+                    if (fabsf(target_y - bkl_cursor_y) < 0.5f) bkl_cursor_y = target_y;
+                }
                 for (int i = 0; i < backup_count; i++) {
                     float iy = bkl_y0 + i * bkl_item_h;
                     if (i == backup_list_selected) {
                         int text_w = 0, text_h = 0;
                         TTF_GetStringSize(f_sm, backup_list[i], 0, &text_w, &text_h);
                         float sel_w = (float)text_w + 24.0f;
-                        draw_rounded_rect_filled(ren, mx - 4.0f, iy - 4.0f,
+                        draw_rounded_rect_filled(ren, mx - 4.0f, bkl_cursor_y - 4.0f,
                                          sel_w, bkl_item_h - 2.0f, 8.0f, c_selbg);
-                        draw_rect_filled(ren, mx - 4.0f, iy - 4.0f,
+                        draw_rect_filled(ren, mx - 4.0f, bkl_cursor_y - 4.0f,
                                          4.0f, bkl_item_h - 2.0f, c_green);
                         draw_text(ren, f_sm, backup_list[i], c_green, mx + 8.0f, iy);
                     } else {
