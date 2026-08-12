@@ -1722,6 +1722,37 @@ static void draw_rect_filled(SDL_Renderer *r, float x, float y,
  * en las franjas superior/inferior de altura 'radius', cada fila recorta
  * su ancho segun la ecuacion del circulo (esquina), el resto de filas se
  * dibujan a ancho completo. SDL3 no tiene primitiva nativa para esto. */
+/* Signed distance de un punto (relativo al centro del rect w x h) a una
+ * capsula: rectangulo interior (w-2r) x (h-2r) centrado en el origen,
+ * expandido por radius en todas direcciones. Negativo = dentro, positivo =
+ * fuera, 0 = justo en el borde. Esto define la capsula como una unica
+ * forma continua (sin costura entre rectangulo y semicirculos). */
+static float capsule_sdf(float px, float py, float half_w, float half_h, float radius)
+{
+    float qx = SDL_fabsf(px) - (half_w - radius);
+    float qy = SDL_fabsf(py) - (half_h - radius);
+    float ax = qx > 0.0f ? qx : 0.0f;
+    float ay = qy > 0.0f ? qy : 0.0f;
+    float outside = SDL_sqrtf(ax * ax + ay * ay);
+    float inside = (qx > qy ? qx : qy);
+    if (inside > 0.0f) inside = 0.0f;
+    return outside + inside - radius;
+}
+/* Cobertura de un pixel de 1x1 centrado en (px,py) respecto a la capsula,
+ * via supersampling 4x4 (16 submuestras) sobre el SDF. */
+static float capsule_coverage(float px, float py, float half_w, float half_h, float radius)
+{
+    const int SS = 4;
+    int inside = 0;
+    for (int sy = 0; sy < SS; sy++) {
+        float oy = py - 0.5f + ((float)sy + 0.5f) / (float)SS;
+        for (int sx = 0; sx < SS; sx++) {
+            float ox = px - 0.5f + ((float)sx + 0.5f) / (float)SS;
+            if (capsule_sdf(ox, oy, half_w, half_h, radius) <= 0.0f) inside++;
+        }
+    }
+    return (float)inside / (float)(SS * SS);
+}
 static void draw_rounded_rect_filled(SDL_Renderer *r, float x, float y,
                                       float w, float h, float radius,
                                       SDL_Color c)
@@ -1733,36 +1764,46 @@ static void draw_rounded_rect_filled(SDL_Renderer *r, float x, float y,
     SDL_BlendMode prev_blend;
     SDL_GetRenderDrawBlendMode(r, &prev_blend);
     SDL_SetRenderDrawBlendMode(r, SDL_BLENDMODE_BLEND);
+    float half_w = w / 2.0f;
+    float half_h = h / 2.0f;
     int rows = (int)h;
+    int cols = (int)w;
+    int rad_i = (int)SDL_ceilf(radius) + 1;
     for (int row = 0; row < rows; row++) {
-        float dy = (float)row;
-        float inset = 0.0f;
-        /* Distancia vertical al centro de la esquina mas cercana
-         * (arriba o abajo), solo relevante dentro de la franja radius. */
-        float corner_dy = -1.0f;
-        if (dy < radius) {
-            corner_dy = radius - dy - 0.5f;
-        } else if (dy > h - radius - 1.0f) {
-            corner_dy = dy - (h - radius) + 0.5f;
+        float py = (float)row - half_h + 0.5f;
+        bool in_corner_band = (row < rad_i) || (row >= rows - rad_i);
+        if (!in_corner_band) {
+            /* Fila plana central: rectangulo solido a todo lo ancho */
+            SDL_SetRenderDrawColor(r, c.r, c.g, c.b, c.a);
+            SDL_FRect line_rect = {x, y + (float)row, w, 1.0f};
+            SDL_RenderFillRect(r, &line_rect);
+            continue;
         }
-        if (corner_dy >= 0.0f && corner_dy <= radius) {
-            float dx2 = radius * radius - corner_dy * corner_dy;
-            inset = radius - (dx2 > 0.0f ? SDL_sqrtf(dx2) : 0.0f);
-        }
-        /* Cuerpo solido de la fila, a color completo */
-        float inset_floor = SDL_floorf(inset);
-        float edge_frac = inset - inset_floor; /* cobertura fraccional del pixel de borde, 0..1 */
+        /* Tramo central plano de la fila (fuera de la zona de esquinas en X) */
         SDL_SetRenderDrawColor(r, c.r, c.g, c.b, c.a);
-        SDL_FRect line_rect = {x + inset_floor + 1.0f, y + dy, w - (inset_floor + 1.0f) * 2.0f, 1.0f};
-        if (line_rect.w > 0.0f) SDL_RenderFillRect(r, &line_rect);
-        /* Pixel de borde con alpha parcial (antialiasing), a ambos lados */
-        if (edge_frac > 0.001f && inset_floor >= 0.0f) {
-            Uint8 edge_alpha = (Uint8)((1.0f - edge_frac) * (float)c.a);
-            SDL_SetRenderDrawColor(r, c.r, c.g, c.b, edge_alpha);
-            SDL_FRect left_edge = {x + inset_floor, y + dy, 1.0f, 1.0f};
-            SDL_FRect right_edge = {x + w - inset_floor - 1.0f, y + dy, 1.0f, 1.0f};
-            SDL_RenderFillRect(r, &left_edge);
-            SDL_RenderFillRect(r, &right_edge);
+        SDL_FRect mid_rect = {x + radius, y + (float)row, w - radius * 2.0f, 1.0f};
+        if (mid_rect.w > 0.0f) SDL_RenderFillRect(r, &mid_rect);
+        /* Zona de esquina izquierda y derecha: pixel a pixel via SDF+supersampling */
+        for (int col = 0; col < rad_i && col < cols; col++) {
+            float px_l = (float)col - half_w + 0.5f;
+            float cov = capsule_coverage(px_l, py, half_w, half_h, radius);
+            if (cov > 0.001f) {
+                Uint8 a = (Uint8)(cov * (float)c.a);
+                SDL_SetRenderDrawColor(r, c.r, c.g, c.b, a);
+                SDL_FRect left_px = {x + (float)col, y + (float)row, 1.0f, 1.0f};
+                SDL_RenderFillRect(r, &left_px);
+            }
+            int rcol = cols - 1 - col;
+            if (rcol > col) {
+                float px_r = (float)rcol - half_w + 0.5f;
+                float cov_r = capsule_coverage(px_r, py, half_w, half_h, radius);
+                if (cov_r > 0.001f) {
+                    Uint8 a2 = (Uint8)(cov_r * (float)c.a);
+                    SDL_SetRenderDrawColor(r, c.r, c.g, c.b, a2);
+                    SDL_FRect right_px = {x + (float)rcol, y + (float)row, 1.0f, 1.0f};
+                    SDL_RenderFillRect(r, &right_px);
+                }
+            }
         }
     }
     SDL_SetRenderDrawBlendMode(r, prev_blend);
