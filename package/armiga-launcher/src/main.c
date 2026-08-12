@@ -3794,7 +3794,7 @@ int main(void)
                                      sel_w, pill_h, pill_h / 2.0f, c_menu_selbg);
                 }
                 draw_text(ren, f_sm, tr("Atenuar tras", "Dim after"), labelc, mx + 8.0f, iy);
-                draw_text(ren, f_med, dim_val_disp, c_white, mx + 8.0f, iy + 16.0f);
+                draw_text(ren, f_med, dim_val_disp, labelc, mx + 8.0f, iy + 16.0f);
             }
 
             {
@@ -3816,10 +3816,10 @@ int main(void)
                 float bar_y = iy + 20.0f;
                 draw_rect_filled(ren, bar_x, bar_y, dim_bar_w, dim_bar_h, c_selbg);
                 float frac = dim_percent / 100.0f;
-                draw_rect_filled(ren, bar_x, bar_y, dim_bar_w * frac, dim_bar_h, c_green);
+                draw_rect_filled(ren, bar_x, bar_y, dim_bar_w * frac, dim_bar_h, labelc);
                 char valbuf[8];
                 snprintf(valbuf, sizeof(valbuf), "%d%%", dim_percent);
-                draw_text(ren, f_sm, valbuf, c_white, bar_x + dim_bar_w + 10.0f, iy + 16.0f);
+                draw_text(ren, f_sm, valbuf, labelc, bar_x + dim_bar_w + 10.0f, iy + 16.0f);
             }
 
             draw_line(ren, mx, 438.0f, SCREEN_W - 20.0f, 438.0f, c_green);
