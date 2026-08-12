@@ -3472,8 +3472,9 @@ int main(void)
                 draw_text(ren, f_sm, tr("Brillo", "Brightness"), c_green, mx + 8.0f, iy);
                 draw_text(ren, f_med, valbuf, c_white, mx + 8.0f, iy + 16.0f);
                 float frac = brightness_pct / 100.0f;
-                draw_rect_filled(ren, mx + 8.0f, iy + 44.0f, bar_w, bar_h, c_gray);
-                draw_rect_filled(ren, mx + 8.0f, iy + 44.0f, bar_w * frac, bar_h, c_green);
+                SDL_Color c_bar_lime = {183, 221, 91, 255};
+                draw_rect_filled(ren, mx + 8.0f, iy + 44.0f, bar_w, bar_h, c_bar_lime);
+                draw_rect_filled(ren, mx + 8.0f, iy + 44.0f, bar_w * frac, bar_h, c_white);
             }
 
             draw_line(ren, mx, 438.0f, SCREEN_W - 20.0f, 438.0f, c_green);
