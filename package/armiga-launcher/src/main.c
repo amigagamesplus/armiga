@@ -3547,7 +3547,7 @@ int main(void)
                     SDL_RenderTexture(ren, perf_opts[i].icon, NULL, &icon_dst);
                 }
                 draw_text(ren, f_med, perf_opts[i].title[current_lang], titlec, perf_x + 38.0f, iy);
-                draw_text_wrapped(ren, f_sm, desc_flat, c_menu_beige, perf_x + 38.0f, iy + 20.0f, perf_w - 30.0f, 15.0f);
+                draw_text_wrapped(ren, f_sm, desc_flat, titlec, perf_x + 38.0f, iy + 20.0f, perf_w - 30.0f, 15.0f);
             }
             draw_line(ren, mx, 438.0f, SCREEN_W - 20.0f, 438.0f, c_green);
             draw_footer(ren, f_sm,
