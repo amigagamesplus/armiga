@@ -4058,13 +4058,13 @@ int main(void)
                 float frac = led_vals_r[i] / 255.0f;
                 draw_rect_filled(ren, bar_x, bar_y, led_bar_w * frac, led_bar_h, led_bar_colors[i]);
 
-                draw_text(ren, f_sm, valbuf, c_white, bar_x + led_bar_w + 10.0f, iy);
+                draw_text(ren, f_sm, valbuf, labelc, bar_x + led_bar_w + 10.0f, iy);
             }
 
             SDL_Color preview_right = {(Uint8)led_r_right, (Uint8)led_g_right, (Uint8)led_b_right, 255};
             SDL_Color preview_left  = {(Uint8)led_r_left,  (Uint8)led_g_left,  (Uint8)led_b_left,  255};
             float preview_y = led_y0 + LED_SLIDER_COUNT * led_item_h + 16.0f;
-            draw_text(ren, f_sm, tr("Vista previa", "Preview"), c_menu_gold, mx, preview_y);
+            draw_text(ren, f_sm, tr("Vista previa", "Preview"), c_menu_beige, mx, preview_y);
             float sw_size = 60.0f;
             float sw_gap = 24.0f;
             float sw_y = preview_y + 22.0f;
