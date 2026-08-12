@@ -3956,7 +3956,7 @@ int main(void)
                                      sel_w, pill_h, pill_h / 2.0f, c_menu_selbg);
                 }
                 draw_text(ren, f_sm, "SSID", labelc, mx + 8.0f, iy);
-                draw_text(ren, f_med, ssid_disp, c_white, mx + 8.0f, iy + 16.0f);
+                draw_text(ren, f_med, ssid_disp, labelc, mx + 8.0f, iy + 16.0f);
             }
 
             {
@@ -3983,7 +3983,7 @@ int main(void)
                                      sel_w, pill_h, pill_h / 2.0f, c_menu_selbg);
                 }
                 draw_text(ren, f_sm, tr("CONTRASEÑA", "PASSWORD"), labelc, mx + 8.0f, iy);
-                draw_text(ren, f_med, masked, c_white, mx + 8.0f, iy + 16.0f);
+                draw_text(ren, f_med, masked, labelc, mx + 8.0f, iy + 16.0f);
             }
 
             draw_line(ren, mx, 438.0f, SCREEN_W - 20.0f, 438.0f, c_green);
@@ -4093,7 +4093,8 @@ int main(void)
             draw_statusbar(ren, f_sm, f_xs, status_time, status_wifi_up, status_battery, status_bt_up, wifi_icon_tex, battery_icon_tex, bt_icon_tex);
 
             draw_rect_filled(ren, mx, 56.0f, SCREEN_W - 40.0f, 30.0f, c_selbg);
-            draw_text(ren, f_med, kb_buffer[0] ? kb_buffer : "", c_white, mx + 8.0f, 62.0f);
+            SDL_Color c_kb_val = {27, 39, 8, 255};
+            draw_text(ren, f_med, kb_buffer[0] ? kb_buffer : "", c_kb_val, mx + 8.0f, 62.0f);
 
             SDL_Color c_keybg = COL_KEY_BG;
             float kb_y0 = 130.0f;
@@ -4117,8 +4118,9 @@ int main(void)
                     bool sel = (r == kb_row && c == kb_col);
                     const char *label = is_space_row ? tr("ESPACIO", "SPACE") : k;
                     if (sel) {
+                        SDL_Color c_kb_sel_text = {27, 39, 8, 255};
                         draw_rounded_rect_filled(ren, kx, ky, kw, key_h, 4.0f, c_selbg);
-                        draw_text_centered(ren, f_sm, label, c_green, kx + kw/2.0f, ky + key_h/2.0f - 6.0f);
+                        draw_text_centered(ren, f_sm, label, c_kb_sel_text, kx + kw/2.0f, ky + key_h/2.0f - 6.0f);
                     } else {
                         draw_rounded_rect_filled(ren, kx, ky, kw, key_h, 4.0f, c_keybg);
                         draw_text_centered(ren, f_sm, label, c_gray, kx + kw/2.0f, ky + key_h/2.0f - 6.0f);
