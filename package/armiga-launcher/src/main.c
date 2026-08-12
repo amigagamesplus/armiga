@@ -3580,7 +3580,7 @@ int main(void)
                 draw_text(ren, f_med, "Bluetooth", c_menu_gold, mx + label_pad, toggle_y + 8.0f);
                 float badge_x = mx + toggle_w - 12.0f - badge_w;
                 float badge_y = toggle_y + (toggle_h - badge_h) / 2.0f;
-                SDL_Color badge_bg = {24, 22, 16, 255};
+                SDL_Color badge_bg = bt_enabled ? (SDL_Color){15, 31, 24, 255} : (SDL_Color){28, 52, 40, 255};
                 draw_rounded_rect_filled(ren, badge_x, badge_y, badge_w, badge_h, badge_h / 2.0f, badge_bg);
                 SDL_Color bt_status_c = bt_enabled ? c_green : c_white;
                 draw_text(ren, f_sm, bt_status, bt_status_c, badge_x + badge_pad, badge_y + 3.0f);
