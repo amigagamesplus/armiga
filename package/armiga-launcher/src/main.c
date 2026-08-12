@@ -3746,7 +3746,7 @@ int main(void)
                 char tz_time_buf[8];
                 get_time_in_tz(TIMEZONE_LIST[timezone_selected].tz_name, tz_time_buf, sizeof(tz_time_buf));
                 draw_text(ren, f_sm, tr("Hora actual", "Current time"), c_menu_beige, tzp_x, tz_y0);
-                draw_text(ren, f_lg, tz_time_buf, c_menu_gold, tzp_x, tz_y0 + 22.0f);
+                draw_text(ren, f_lg, tz_time_buf, c_menu_selbg, tzp_x, tz_y0 + 22.0f);
                 draw_text(ren, f_sm, TIMEZONE_LIST[timezone_selected].label[current_lang], c_menu_beige, tzp_x, tz_y0 + 66.0f);
             }
 
