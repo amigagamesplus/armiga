@@ -1552,8 +1552,9 @@ static void draw_footer(SDL_Renderer *ren, TTF_Font *f,
     SDL_Color c_gray    = COL_GRAY;
     SDL_Color c_dkgreen = COL_DKGREEN;
     SDL_Color c_gold    = {27, 39, 8, 255};
+    SDL_Color c_lime    = {183, 221, 91, 255};
     draw_text(ren, f, legend, c_gray, 20.0f, 448.0f);
-    draw_text_right(ren, f, version, c_dkgreen, SCREEN_W - 20.0f, 448.0f);
+    draw_text_right(ren, f, version, c_lime, SCREEN_W - 20.0f, 448.0f);
 
     int active_profile = read_perf_profile();
     SDL_Texture *active_icon = (active_profile >= 0 && active_profile < 3) ? g_perf_icons[active_profile] : NULL;
