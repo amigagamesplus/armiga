@@ -1,0 +1,71 @@
+// SPDX-License-Identifier: (GPL-2.0-only OR BSD-2-Clause)
+/*
+ * Copyright (C) 2024 Ryan Walklin <ryan@testtoast.com>.
+ * Copyright (C) 2024 Chris Morgan <macroalpha82@gmail.com>.
+ */
+
+#include "sun50i-h700-anbernic-rg35xx-plus.dts"
+
+/ {
+	model = "Anbernic RG35XX H";
+	compatible = "anbernic,rg35xx-h", "allwinner,sun50i-h700";
+	rocknix-dt-id = "sun50i-h700-anbernic-rg35xx-h";
+
+	reg_vcc3v8_usb: regulator-vcc3v8-usb {
+		compatible = "regulator-fixed";
+		enable-active-high;
+		gpio = <&pio 4 5 GPIO_ACTIVE_HIGH>; /* PE5 */
+		regulator-min-microvolt = <3800000>;
+		regulator-max-microvolt = <3800000>;
+		regulator-name = "vcc3v8-usb";
+	};
+
+	reg_vcc5v0_usb: regulator-vcc5v0-usb {
+		compatible = "regulator-fixed";
+		enable-active-high;
+		gpio = <&pio 8 7 GPIO_ACTIVE_HIGH>; /* PI7 */
+		regulator-min-microvolt = <5000000>;
+		regulator-max-microvolt = <5000000>;
+		regulator-name = "vcc5v0-usb";
+		vin-supply = <&reg_vcc3v8_usb>;
+	};
+
+	reg_vcc3v8_usb: regulator-vcc3v8-usb {
+		compatible = "regulator-fixed";
+		enable-active-high;
+		gpio = <&pio 4 5 GPIO_ACTIVE_HIGH>; /* PE5 */
+		regulator-min-microvolt = <3800000>;
+		regulator-max-microvolt = <3800000>;
+		regulator-name = "vcc3v8-usb";
+	};
+
+	reg_usb1_vbus: regulator-usb1-vbus {
+		compatible = "regulator-fixed";
+		enable-active-high;
+		gpio = <&pio 8 7 GPIO_ACTIVE_HIGH>; /* PI7 */
+		regulator-min-microvolt = <5000000>;
+		regulator-max-microvolt = <5000000>;
+		regulator-name = "usb1-vbus";
+		vin-supply = <&reg_vcc3v8_usb>;
+	};
+};
+
+&joypad {
+	amux-count = <4>;
+};
+
+&ehci1 {
+	status = "okay";
+};
+
+&ohci1 {
+	status = "okay";
+};
+
+&usbphy {
+	usb1_vbus-supply = <&reg_vcc5v0_usb>;
+};
+
+&usbphy {
+	usb1_vbus-supply = <&reg_usb1_vbus>;
+};
