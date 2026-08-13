@@ -95,9 +95,19 @@ jobs:
 
       - name: Collect artifacts
         run: |
+          KV="${{ github.event.inputs.kernel_version }}"
           mkdir -p joypad-artifacts
           cp board/armiga/linux/rocknix-joypad/rocknix-singleadc-joypad.ko joypad-artifacts/
-          echo "kernel_version=${{ github.event.inputs.kernel_version }}" > joypad-artifacts/BUILD_INFO.txt
+          cp linux-${KV}/arch/arm64/boot/Image joypad-artifacts/KERNEL
+          DTB_FILE="linux-${KV}/arch/arm64/boot/dts/allwinner/sun50i-h700-anbernic-rg40xx-h.dtb"
+          if [ -f "$DTB_FILE" ]; then
+            cp "$DTB_FILE" joypad-artifacts/dtb.img
+          fi
+          DTB_RG35XX="linux-${KV}/arch/arm64/boot/dts/allwinner/sun50i-h700-anbernic-rg35xx-h.dtb"
+          if [ -f "$DTB_RG35XX" ]; then
+            cp "$DTB_RG35XX" joypad-artifacts/dtb-rg35xx-h.img
+          fi
+          echo "kernel_version=${KV}" > joypad-artifacts/BUILD_INFO.txt
           ls -la joypad-artifacts/
 
       - name: Upload artifacts
