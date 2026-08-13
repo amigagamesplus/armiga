@@ -3406,8 +3406,9 @@ int main(void)
             float bar_w = 200.0f;
             float bar_x = (SCREEN_W - bar_w) / 2.0f;
             float bar_y = SCREEN_H - 64.0f;
-            draw_rect_filled(ren, bar_x, bar_y, bar_w, 4.0f, c_gray);
-            draw_rect_filled(ren, bar_x, bar_y, bar_w * frac, 4.0f, c_green);
+            SDL_Color c_devbar_lime = {183, 221, 91, 255};
+            draw_rect_filled(ren, bar_x, bar_y, bar_w, 4.0f, c_devbar_lime);
+            draw_rect_filled(ren, bar_x, bar_y, bar_w * frac, 4.0f, c_white);
         }
 
         } else if (state == STATE_SETTINGS) {
@@ -4192,9 +4193,9 @@ int main(void)
                 for (int i = 0; i < 4; i++) {
                     float ry = ry0 + i * row_h;
                     draw_text(ren, f_sm, left_col[i].label, c_menu_beige, dm_rx, ry);
-                    draw_text(ren, f_med, left_col[i].val, c_menu_gold, dm_rx, ry + 16.0f);
+                    draw_text(ren, f_med, left_col[i].val, c_menu_selbg, dm_rx, ry + 16.0f);
                     draw_text(ren, f_sm, right_col[i].label, c_menu_beige, col2_x, ry);
-                    draw_text(ren, f_med, right_col[i].val, c_menu_gold, col2_x, ry + 16.0f);
+                    draw_text(ren, f_med, right_col[i].val, c_menu_selbg, col2_x, ry + 16.0f);
                 }
                 float dm_rx2 = rx - 140.0f;
                 float g_x0 = dm_rx2;
@@ -4211,13 +4212,13 @@ int main(void)
                     : throttling
                     ? tr("THROTTLING ACTIVO", "THROTTLING ACTIVE")
                     : tr("Normal", "Normal");
-                SDL_Color throttle_c = !throttle_applicable ? c_menu_beige : (throttling ? c_red : c_menu_gold);
+                SDL_Color throttle_c = !throttle_applicable ? c_menu_beige : (throttling ? c_red : c_menu_selbg);
                 draw_text(ren, f_sm, tr("TEMPERATURA CPU", "CPU TEMPERATURE"), c_menu_beige, g_x0, g_y0 - 18.0f);
                 draw_text_right(ren, f_sm, throttle_label, throttle_c, g_x0 + g_w, g_y0 - 18.0f);
                 draw_rect_filled(ren, g_x0, g_y0, g_w, g_h, (SDL_Color){26, 24, 18, 255});
                 {
                     int tmin = 30, tmax = 90;
-                    SDL_SetRenderDrawColor(ren, c_menu_gold.r, c_menu_gold.g, c_menu_gold.b, 255);
+                    SDL_SetRenderDrawColor(ren, c_menu_selbg.r, c_menu_selbg.g, c_menu_selbg.b, 255);
                     for (int i = 0; i < g_devmode_temp_history_count - 1; i++) {
                         int va = g_devmode_temp_history[i];
                         int vb = g_devmode_temp_history[i + 1];
@@ -4234,7 +4235,7 @@ int main(void)
                     if (g_devmode_temp_history_count > 0) {
                         char tbuf[16];
                         snprintf(tbuf, sizeof(tbuf), "%d C", g_devmode_temp_history[g_devmode_temp_history_count - 1]);
-                        draw_text(ren, f_med, tbuf, c_menu_gold, g_x0 + 4.0f, g_y0 + 4.0f);
+                        draw_text(ren, f_med, tbuf, c_menu_selbg, g_x0 + 4.0f, g_y0 + 4.0f);
                     }
                 }
             }
