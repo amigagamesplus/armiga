@@ -225,7 +225,10 @@ jobs:
 
             ---
 
-            💬 [Join the Telegram group](https://t.me/amigagames)
+            💬 [Telegram](https://t.me/amigagames)
+            [Discord](https://discord.gg/cB6maf97Tz)
+
+            Made with ❤️ for the Commodore Amiga community.
           files: |
             output/images/armiga.img.gz
             output/images/armiga.img.gz.sha256
