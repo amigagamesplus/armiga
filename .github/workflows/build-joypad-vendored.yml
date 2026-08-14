@@ -1,0 +1,120 @@
+name: Build vendored joypad driver against kernel version
+
+on:
+  workflow_dispatch:
+    inputs:
+      kernel_version:
+        description: 'Kernel version to build against (e.g. 7.1.8)'
+        required: true
+        default: '7.1.8'
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            gcc-aarch64-linux-gnu \
+            build-essential bc bison flex \
+            libssl-dev libelf-dev
+
+      - name: Download kernel source
+        run: |
+          KV="${{ github.event.inputs.kernel_version }}"
+          wget -q https://cdn.kernel.org/pub/linux/kernel/v7.x/linux-${KV}.tar.xz
+          tar xf linux-${KV}.tar.xz
+
+      - name: Apply Armiga kernel patches
+        run: |
+          KV="${{ github.event.inputs.kernel_version }}"
+          cd linux-${KV}
+          for patch in "${GITHUB_WORKSPACE}"/board/armiga/linux/patches/*.patch; do
+            if [ -f "$patch" ]; then
+              echo "Applying $(basename "$patch")..."
+              patch -p1 < "$patch"
+            fi
+          done
+
+      - name: Copy custom DTS
+        run: |
+          KV="${{ github.event.inputs.kernel_version }}"
+          cd linux-${KV}
+          for dts in "${GITHUB_WORKSPACE}"/board/armiga/linux/dts/*.dts; do
+            if [ -f "$dts" ]; then
+              cp "$dts" arch/arm64/boot/dts/allwinner/
+              filename=$(basename -- "$dts")
+              dtb_name="${filename%.dts}.dtb"
+              if ! grep -q "$dtb_name" arch/arm64/boot/dts/allwinner/Makefile; then
+                echo "dtb-\$(CONFIG_ARCH_SUNXI) += $dtb_name" >> arch/arm64/boot/dts/allwinner/Makefile
+              fi
+            fi
+          done
+
+      - name: Adapt kernel config
+        run: |
+          KV="${{ github.event.inputs.kernel_version }}"
+          cp "${GITHUB_WORKSPACE}/board/armiga/linux/linux.aarch64.conf" linux-${KV}/.config
+          cd "${GITHUB_WORKSPACE}/board/armiga/linux"
+          bash adapt_config.sh
+          cp linux.aarch64.conf "${GITHUB_WORKSPACE}/linux-${KV}/.config"
+
+      - name: Build kernel (Image, dtbs, modules)
+        run: |
+          KV="${{ github.event.inputs.kernel_version }}"
+          cd linux-${KV}
+          make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- olddefconfig
+          make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- -j$(nproc) Image dtbs modules
+
+      - name: Build vendored joypad module (rocknix-singleadc-joypad.c, DEVICE=H700)
+        id: build_joypad
+        continue-on-error: true
+        run: |
+          set -o pipefail
+          KV="${{ github.event.inputs.kernel_version }}"
+          KERNEL_SRC="${GITHUB_WORKSPACE}/linux-${KV}"
+          cd "${GITHUB_WORKSPACE}/board/armiga/linux/rocknix-joypad"
+          make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- \
+               DEVICE=H700 \
+               KERNEL_SRC="${KERNEL_SRC}" \
+               -C "${KERNEL_SRC}" \
+               M="$(pwd)" modules 2>&1 | tee "${GITHUB_WORKSPACE}/joypad_${KV}.log"
+
+      - name: Report build result
+        run: |
+          KV="${{ github.event.inputs.kernel_version }}"
+          if [ "${{ steps.build_joypad.outcome }}" = "success" ]; then
+            echo "RESULT=SUCCESS" >> "${GITHUB_WORKSPACE}/joypad_${KV}.log"
+            echo "Vendored joypad driver built OK against kernel ${KV}"
+          else
+            echo "RESULT=FAILED" >> "${GITHUB_WORKSPACE}/joypad_${KV}.log"
+            echo "Vendored joypad driver FAILED against kernel ${KV} -- see log"
+          fi
+
+      - name: Collect artifacts
+        if: always()
+        run: |
+          KV="${{ github.event.inputs.kernel_version }}"
+          mkdir -p joypad-artifacts
+          cp "${GITHUB_WORKSPACE}/joypad_${KV}.log" joypad-artifacts/ || true
+          KO="${GITHUB_WORKSPACE}/board/armiga/linux/rocknix-joypad/rocknix-singleadc-joypad.ko"
+          if [ -f "$KO" ]; then
+            cp "$KO" joypad-artifacts/
+          fi
+          echo "kernel_version=${KV}" > joypad-artifacts/BUILD_INFO.txt
+          echo "driver=vendored (board/armiga/linux/rocknix-joypad/rocknix-singleadc-joypad.c)" >> joypad-artifacts/BUILD_INFO.txt
+          ls -la joypad-artifacts/
+
+      - name: Upload artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: joypad-vendored-${{ github.event.inputs.kernel_version }}
+          path: joypad-artifacts/
+          retention-days: 30
