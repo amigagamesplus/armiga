@@ -7,12 +7,13 @@
 
 /*----------------------------------------------------------------------------*/
 #include <linux/module.h>
-#include <linux/input.h>
+#include <linux/input-polldev.h>
 #include <linux/platform_device.h>
 #include <linux/iio/consumer.h>
 #include <linux/version.h>
-#include <linux/of_gpio.h>
+#include <linux/gpio/consumer.h>
 #include <linux/delay.h>
+#include <linux/of.h>
 #include <linux/pwm.h>
 #include "rocknix-joypad.h"
 
@@ -60,26 +61,22 @@ struct analog_mux {
 	/* IIO ADC Channel : amux connect channel */
 	struct iio_channel *iio_ch;
 	/* analog mux select(a,b) gpio */
-	int sel_a_gpio, sel_b_gpio;
+	struct gpio_desc *sel_a_gpio, *sel_b_gpio;
 	/* analog mux enable gpio */
-	int en_gpio;
+	struct gpio_desc *en_gpio;
 };
 
 struct bt_gpio {
 	/* GPIO Request label */
 	const char *label;
-	/* GPIO Number */
-	int num;
+	/* GPIO descriptor */
+	struct gpio_desc *desc;
 	/* report type */
 	int report_type;
 	/* report linux code */
 	int linux_code;
 	/* prev button value */
 	bool old_value;
-	/* button press level */
-	bool active_level;
-	/* rocknix,dpad-hat: 0=normal, 1=UP, 2=DOWN, 3=LEFT, 4=RIGHT */
-	u32 dpad_hat;
 };
 
 /* Replicate the calibration and constants from the userland code. */
@@ -201,7 +198,6 @@ struct joypad {
 	struct input_dev *input;
 	struct pwm_device *pwm;
 	struct work_struct play_work;
-	struct delayed_work poll_work;
 	u16 level;
 	u16 boost_weak;
 	u16 boost_strong;
@@ -233,8 +229,7 @@ struct joypad {
 
 };
 
-struct input_dev *joypad_input_g;
-EXPORT_SYMBOL(joypad_input_g);
+extern struct input_dev * joypad_input_g;
 
 static int pwm_vibrator_start(struct joypad *joypad)
 {
@@ -286,58 +281,47 @@ static void pwm_vibrator_play_work(struct work_struct *work)
 static int joypad_amux_select(struct analog_mux *amux, int channel)
 {
 	/* select mux channel */
-	gpio_set_value_cansleep(amux->en_gpio, 0);
+	if (amux->en_gpio != NULL)
+		gpiod_set_value_cansleep(amux->en_gpio, 1);
 
-	/* Set B first, then A - avoids transient channel 0 (RY) when
-	 * switching between channels that differ in both A and B bits.
-	 * e.g. RX(A=0,B=1)->Y(A=1,B=0): setting A first gives A=1,B=1=ch3,
-	 * setting B first gives A=0,B=0=ch0. Neither is ideal but ch0=RY
-	 * is more likely to cause crosstalk than ch3=X which is at rest. */
 	switch(channel) {
-		case 0:	/* EVENT (ABS_RY): A=0, B=0 */
-			gpio_set_value_cansleep(amux->sel_b_gpio, 0);
-			gpio_set_value_cansleep(amux->sel_a_gpio, 0);
+		case 0:	/* EVENT (ABS_RY) */
+			gpiod_set_value_cansleep(amux->sel_a_gpio, 1);
+			gpiod_set_value_cansleep(amux->sel_b_gpio, 1);
 			break;
-		case 1:	/* EVENT (ABS_RX): A=0, B=1 */
-			gpio_set_value_cansleep(amux->sel_a_gpio, 0);
-			gpio_set_value_cansleep(amux->sel_b_gpio, 1);
+		case 1:	/* EVENT (ABS_RX) */
+			gpiod_set_value_cansleep(amux->sel_a_gpio, 1);
+			gpiod_set_value_cansleep(amux->sel_b_gpio, 0);
 			break;
-		case 2:	/* EVENT (ABS_Y): A=1, B=0 */
-			gpio_set_value_cansleep(amux->sel_b_gpio, 0);
-			gpio_set_value_cansleep(amux->sel_a_gpio, 1);
+		case 2:	/* EVENT (ABS_Y) */
+			gpiod_set_value_cansleep(amux->sel_a_gpio, 0);
+			gpiod_set_value_cansleep(amux->sel_b_gpio, 1);
 			break;
-		case 3:	/* EVENT (ABS_X): A=1, B=1 */
-			gpio_set_value_cansleep(amux->sel_a_gpio, 1);
-			gpio_set_value_cansleep(amux->sel_b_gpio, 1);
+		case 3:	/* EVENT (ABS_X) */
+			gpiod_set_value_cansleep(amux->sel_a_gpio, 0);
+			gpiod_set_value_cansleep(amux->sel_b_gpio, 0);
 			break;
 		default:
 			/* amux disable */
-			gpio_set_value_cansleep(amux->en_gpio, 1);
+			if (amux->en_gpio != NULL)
+				gpiod_set_value_cansleep(amux->en_gpio, 0);
 			return -1;
 	}
-	/* mux switching speed : 35ns(on) / 9ns(off) */
-	usleep_range(5000, 5100);
+	/* mux swtiching speed : 35ns(on) / 9ns(off) */
+	usleep_range(10, 20);
 	return 0;
 }
 
 /*----------------------------------------------------------------------------*/
 static int joypad_adc_read(struct analog_mux *amux, struct bt_adc *adc)
 {
-	int value, i, sum = 0;
+	int value;
+
 
 	if (joypad_amux_select(amux, adc->amux_ch))
 		return 0;
 
-	/* Discard first read - mux capacitance may hold previous channel voltage */
 	iio_read_channel_raw(amux->iio_ch, &value);
-	usleep_range(1000, 1100);
-
-	/* Average 4 reads for stability */
-	for (i = 0; i < 4; i++) {
-		iio_read_channel_raw(amux->iio_ch, &value);
-		sum += value;
-	}
-	value = sum / 4;
 
 	value *= adc->scale;
 
@@ -399,77 +383,30 @@ static struct attribute_group joypad_rumble_attr_group = {
 };
 
 /*----------------------------------------------------------------------------*/
-static void joypad_gpio_check(struct joypad *joypad)
+static void joypad_gpio_check(struct input_polled_dev *poll_dev)
 {
+	struct joypad *joypad = poll_dev->private;
 	int nbtn, value;
-	bool hat_changed = false;
-	int hat_x = 0, hat_y = 0;
 
 	for (nbtn = 0; nbtn < joypad->bt_gpio_count; nbtn++) {
 		struct bt_gpio *gpio = &joypad->gpios[nbtn];
 
-		if (gpio_get_value_cansleep(gpio->num) < 0) {
-			dev_err(joypad->dev, "failed to get gpio state\n");
-			continue;
-		}
-		value = gpio_get_value_cansleep(gpio->num);
-
-		if (gpio->dpad_hat == 0) {
-			if (value != gpio->old_value) {
-				input_event(joypad->input,
-					gpio->report_type,
-					gpio->linux_code,
-					(value == gpio->active_level) ? 1 : 0);
-				gpio->old_value = value;
-			}
-			continue;
-		}
-
-		/* DPAD-hat: reconstruido del binario de produccion via
-		 * decompilacion (Ghidra), ya que la logica original no
-		 * estaba presente en el .c fuente versionado. La asimetria
-		 * entre UP/LEFT (marcan cambio siempre) y DOWN/RIGHT (solo
-		 * si pressed) es fiel al binario que ya funciona en
-		 * produccion, no se ha "corregido" para no introducir
-		 * regresiones no probadas. */
-		{
-			bool pressed = (gpio->active_level == value);
-
-			switch (gpio->dpad_hat) {
-			case 1: /* UP */
-				if (pressed)
-					hat_y = -1;
-				hat_changed = true;
-				break;
-			case 2: /* DOWN */
-				if (pressed)
-					hat_y = 1;
-				hat_changed = true;
-				break;
-			case 3: /* LEFT */
-				if (pressed)
-					hat_x = -1;
-				hat_changed = true;
-				break;
-			case 4: /* RIGHT */
-				if (pressed)
-					hat_x = 1;
-				hat_changed = true;
-				break;
-			}
+		value = gpiod_get_value_cansleep(gpio->desc);
+		if (value != gpio->old_value) {
+			input_event(poll_dev->input,
+				gpio->report_type,
+				gpio->linux_code,
+				value == 1);
+			gpio->old_value = value;
 		}
 	}
-
-	if (hat_changed) {
-		input_event(joypad->input, EV_ABS, ABS_HAT0X, hat_x);
-		input_event(joypad->input, EV_ABS, ABS_HAT0Y, hat_y);
-	}
-	input_sync(joypad->input);
+	input_sync(poll_dev->input);
 }
 
 /*----------------------------------------------------------------------------*/
-static void joypad_adc_check(struct joypad *joypad)
+static void joypad_adc_check(struct input_polled_dev *poll_dev)
 {
+	struct joypad *joypad = poll_dev->private;
 	int nbtn;
 	int mag;
 
@@ -481,10 +418,18 @@ static void joypad_adc_check(struct joypad *joypad)
 
 		/* Read first joystick axis */
 		adcx->value = joypad_adc_read(joypad->amux, adcx);
+		if (!adcx->value) {
+			//dev_err(joypad->dev, "saradc channels[%d]! adc->value : %d\n", nbtn, adc->value);
+			continue;
+		}
 		adcx->value = adcx->value - adcx->cal;
 
 		/* Read second joystick axis */
 		adcy->value = joypad_adc_read(joypad->amux, adcy);
+		if (!adcy->value) {
+			//dev_err(joypad->dev, "saradc channels[%d]! adc->value : %d\n", nbtn, adc->value);
+			continue;
+		}
 		adcy->value = adcy->value - adcy->cal;
 
 		/* Scaled Radial Deadzone */
@@ -519,21 +464,20 @@ static void joypad_adc_check(struct joypad *joypad)
 		adcy->value = adcy->value > adcy->max ? adcy->max : adcy->value;
 		adcy->value = adcy->value < adcy->min ? adcy->min : adcy->value;
 
-		input_report_abs(joypad->input,
+		input_report_abs(poll_dev->input,
 			adcx->report_type,
 			adcx->invert ? adcx->value * (-1) : adcx->value);
-		input_report_abs(joypad->input,
+		input_report_abs(poll_dev->input,
 			adcy->report_type,
 			adcy->invert ? adcy->value * (-1) : adcy->value);
 	}
-	input_sync(joypad->input);
+	input_sync(poll_dev->input);
 }
 
 /*----------------------------------------------------------------------------*/
-static void joypad_poll_work(struct work_struct *work)
+static void joypad_poll(struct input_polled_dev *poll_dev)
 {
-	struct joypad *joypad = container_of(to_delayed_work(work),
-					      struct joypad, poll_work);
+	struct joypad *joypad = poll_dev->private;
 
 	if (joypad->enable) {
 		if (joypad->use_miyoo_serial) {
@@ -542,77 +486,69 @@ static void joypad_poll_work(struct work_struct *work)
 			 * our miyoo_serial_threadfn(). We'll just do
 			 * input_report_abs here from the stored values.
 			 */
-			input_report_abs(joypad->input, ABS_X,  joypad->miyoo.left_x);
-			input_report_abs(joypad->input, ABS_Y,  joypad->miyoo.left_y);
-			input_report_abs(joypad->input, ABS_RX, joypad->miyoo.right_x);
-			input_report_abs(joypad->input, ABS_RY, joypad->miyoo.right_y);
-			input_sync(joypad->input);
+			input_report_abs(poll_dev->input, ABS_X,  joypad->miyoo.left_x);
+			input_report_abs(poll_dev->input, ABS_Y,  joypad->miyoo.left_y);
+			input_report_abs(poll_dev->input, ABS_RX, joypad->miyoo.right_x);
+			input_report_abs(poll_dev->input, ABS_RY, joypad->miyoo.right_y);
+			input_sync(poll_dev->input);
 
-			joypad_gpio_check(joypad);
+			joypad_gpio_check(poll_dev);
 		} else {
-			joypad_adc_check(joypad);
-			joypad_gpio_check(joypad);
+			joypad_adc_check(poll_dev);
+			joypad_gpio_check(poll_dev);
 		}
 	}
-	schedule_delayed_work(&joypad->poll_work,
-			       msecs_to_jiffies(joypad->poll_interval));
+	if (poll_dev->poll_interval != joypad->poll_interval) {
+		mutex_lock(&joypad->lock);
+		poll_dev->poll_interval = joypad->poll_interval;
+		mutex_unlock(&joypad->lock);
+	}
 }
 
 /*----------------------------------------------------------------------------*/
-static int joypad_open(struct input_dev *input)
+static void joypad_open(struct input_polled_dev *poll_dev)
 {
-	struct joypad *joypad = input_get_drvdata(input);
+	struct joypad *joypad = poll_dev->private;
 	int nbtn;
 
 	for (nbtn = 0; nbtn < joypad->bt_gpio_count; nbtn++) {
 		struct bt_gpio *gpio = &joypad->gpios[nbtn];
-		int val = gpio_get_value_cansleep(gpio->num);
+		int val = gpiod_get_value_cansleep(gpio->desc);
 		if (val < 0)
-			val = gpio->active_level ? 0 : 1;
+			val = 0;
 		gpio->old_value = val;
 
-		/* Skip DPAD hat GPIOs - handled by joypad_gpio_check */
-		if (gpio->dpad_hat != 0)
-			continue;
-
-		input_event(joypad->input, gpio->report_type,
+		// Immediately report the current state
+		input_event(poll_dev->input, gpio->report_type,
 					gpio->linux_code,
-					(val == gpio->active_level) ? 1 : 0);
+					val == 1);
 	}
-	input_sync(joypad->input);
+	input_sync(poll_dev->input);
 
 	for (nbtn = 0; nbtn < joypad->amux_count; nbtn++) {
 		struct bt_adc *adc = &joypad->adcs[nbtn];
 
 		adc->value = joypad_adc_read(joypad->amux, adc);
 		if (!adc->value) {
-			dev_err(joypad->dev, "%s : saradc channels[%d]!\n",
-				__func__, nbtn);
+			dev_err(joypad->dev, "saradc channels[%d]!\n", nbtn);
 			continue;
 		}
 		adc->cal = adc->value;
 	}
 	/* buttons status sync */
-	joypad_adc_check(joypad);
-	joypad_gpio_check(joypad);
+	joypad_adc_check(poll_dev);
+	joypad_gpio_check(poll_dev);
 
 	/* button report enable */
 	mutex_lock(&joypad->lock);
 	joypad->enable = true;
 	mutex_unlock(&joypad->lock);
-
-	schedule_delayed_work(&joypad->poll_work,
-			       msecs_to_jiffies(joypad->poll_interval));
-
-	return 0;
 }
 
 /*----------------------------------------------------------------------------*/
-static void joypad_close(struct input_dev *input)
+static void joypad_close(struct input_polled_dev *poll_dev)
 {
-	struct joypad *joypad = input_get_drvdata(input);
-
-	cancel_delayed_work_sync(&joypad->poll_work);
+	struct joypad *joypad = poll_dev->private;
 
 	if (joypad->has_rumble) {
 		cancel_work_sync(&joypad->play_work);
@@ -630,13 +566,13 @@ static int joypad_amux_setup(struct device *dev, struct joypad *joypad)
 {
 	struct analog_mux *amux;
 	enum iio_chan_type type;
-	int ret;
+	int error;
 
 	/* analog mux control struct init */
 	joypad->amux = devm_kzalloc(dev, sizeof(struct analog_mux),
 					GFP_KERNEL);
 	if (!joypad->amux) {
-		dev_err(dev, "%s amux devm_kzmalloc error!", __func__);
+		dev_err(dev, "amux devm_kzmalloc error!");
 		return -ENOMEM;
 	}
 	amux = joypad->amux;
@@ -658,50 +594,28 @@ static int joypad_amux_setup(struct device *dev, struct joypad *joypad)
 		return -EINVAL;
 	}
 
-	amux->sel_a_gpio = of_get_named_gpio(dev->of_node,
-				"amux-a-gpios", 0);
-	if (gpio_is_valid(amux->sel_a_gpio)) {
-		ret = devm_gpio_request_one(dev, amux->sel_a_gpio, GPIOF_IN, "amux-sel-a");
-		if (ret < 0) {
-			dev_err(dev, "%s : failed to request amux-sel-a %d\n",
-				__func__, amux->sel_a_gpio);
-			goto err_out;
-		}
-		ret = gpio_direction_output(amux->sel_a_gpio, 0);
-		if (ret < 0)
-			goto err_out;
+	amux->sel_a_gpio = devm_gpiod_get(dev, "amux-a", GPIOD_OUT_LOW);
+	if (IS_ERR(amux->sel_a_gpio)) {
+		error = PTR_ERR(amux->sel_a_gpio);
+		dev_err(dev, "failed to request amux-a, error: %d\n", error);
+		return error;
 	}
 
-	amux->sel_b_gpio = of_get_named_gpio(dev->of_node,
-				"amux-b-gpios", 0);
-	if (gpio_is_valid(amux->sel_b_gpio)) {
-		ret = devm_gpio_request_one(dev, amux->sel_b_gpio, GPIOF_IN, "amux-sel-b");
-		if (ret < 0) {
-			dev_err(dev, "%s : failed to request amux-sel-b %d\n",
-				__func__, amux->sel_b_gpio);
-			goto err_out;
-		}
-		ret = gpio_direction_output(amux->sel_b_gpio, 0);
-		if (ret < 0)
-			goto err_out;
+	amux->sel_b_gpio = devm_gpiod_get(dev, "amux-b", GPIOD_OUT_LOW);
+	if (IS_ERR(amux->sel_b_gpio)) {
+		error = PTR_ERR(amux->sel_b_gpio);
+		dev_err(dev, "failed to request amux-b, error: %d\n", error);
+		return error;
 	}
 
-	amux->en_gpio = of_get_named_gpio(dev->of_node,
-				"amux-en-gpios", 0);
-	if (gpio_is_valid(amux->en_gpio)) {
-		ret = devm_gpio_request_one(dev, amux->en_gpio, GPIOF_IN, "amux-en");
-		if (ret < 0) {
-			dev_err(dev, "%s : failed to request amux-en %d\n",
-				__func__, amux->en_gpio);
-			goto err_out;
-		}
-		ret = gpio_direction_output(amux->en_gpio, 0);
-		if (ret < 0)
-			goto err_out;
+	amux->en_gpio = devm_gpiod_get_optional(dev, "amux-en", GPIOD_OUT_LOW);
+	if (IS_ERR(amux->en_gpio)) {
+		error = PTR_ERR(amux->en_gpio);
+		dev_err(dev, "failed to request amux-en, error: %d\n", error);
+		return error;
 	}
+
 	return	0;
-err_out:
-	return ret;
 }
 
 /*----------------------------------------------------------------------------*/
@@ -724,7 +638,7 @@ static int joypad_adc_setup(struct device *dev, struct joypad *joypad)
 	joypad->adcs = devm_kzalloc(dev, joypad->amux_count *
 				sizeof(struct bt_adc), GFP_KERNEL);
 	if (!joypad->adcs) {
-		dev_err(dev, "%s devm_kzmalloc error!", __func__);
+		dev_err(dev, "devm_kzmalloc error!");
 		return -ENOMEM;
 	}
 
@@ -795,8 +709,7 @@ static int joypad_adc_setup(struct device *dev, struct joypad *joypad)
 					adc->tuning_n = ADC_TUNING_DEFAULT;
 				break;
 			default :
-				dev_err(dev, "%s amux count(%d) error!",
-					__func__, nbtn);
+				dev_err(dev, "amux count(%d) error!", nbtn);
 				return -EINVAL;
 		}
 		adc->amux_ch = channel_mapping[nbtn];
@@ -818,53 +731,36 @@ static int joypad_gpio_setup(struct device *dev, struct joypad *joypad)
 				sizeof(struct bt_gpio), GFP_KERNEL);
 
 	if (!joypad->gpios) {
-		dev_err(dev, "%s devm_kzmalloc error!", __func__);
+		dev_err(dev, "devm_kzmalloc error!");
 		return -ENOMEM;
 	}
 
 	nbtn = 0;
+	// TODO: once we no longer support versions < 6.11,
+	// use for_each_child_of_node_scoped.
 	for_each_child_of_node(node, pp) {
 		struct bt_gpio *gpio = &joypad->gpios[nbtn++];
-		int error;
-
-		gpio->num = of_get_named_gpio(pp, "gpios", 0);
-		if (gpio->num < 0) {
-			error = gpio->num;
-			dev_err(dev, "Failed to get gpio, error: %d\n",
-				error);
-			return error;
-		}
-
-		/* gpio active level: el cuarto elemento del descriptor gpios
-		 * en el DTS es el flag de polaridad: 0=ACTIVE_HIGH, 1=ACTIVE_LOW.
-		 * Lo leemos directamente de la propiedad "gpios" del nodo. */
-		{
-			u32 gpio_flags = 0;
-			of_property_read_u32_index(pp, "gpios", 3, &gpio_flags);
-			gpio->active_level = (gpio_flags & 1) ? 0 : 1;
-		}
 
 		gpio->label = of_get_property(pp, "label", NULL);
-
-		if (gpio_is_valid(gpio->num)) {
-			error = devm_gpio_request_one(dev, gpio->num,
-						      GPIOF_IN, gpio->label);
-			if (error < 0) {
-				dev_err(dev,
-					"Failed to request GPIO %d, error %d\n",
-					gpio->num, error);
-				return error;
-			}
+		gpio->desc = devm_fwnode_gpiod_get(dev, of_fwnode_handle(pp),
+			NULL, GPIOD_IN, gpio->label);
+		if (IS_ERR(gpio->desc)) {
+			int error = PTR_ERR(gpio->desc);
+			dev_err(dev,
+				"new Failed to request GPIO %s, error %d\n",
+				gpio->label, error);
+			of_node_put(pp);
+			return error;
 		}
 		if (of_property_read_u32(pp, "linux,code", &gpio->linux_code)) {
-			dev_err(dev, "Button without keycode: 0x%x\n",
-				gpio->num);
+			dev_err(dev, "Button without keycode: %s\n",
+				gpio->label);
+			of_node_put(pp);
 			return -EINVAL;
 		}
 		if (of_property_read_u32(pp, "linux,input-type",
 				&gpio->report_type))
 			gpio->report_type = EV_KEY;
-		of_property_read_u32(pp, "rocknix,dpad-hat", &gpio->dpad_hat);
 	}
 	if (nbtn == 0)
 		return -EINVAL;
@@ -935,6 +831,7 @@ static int joypad_rumble_setup(struct device *dev, struct joypad *joypad)
 /*----------------------------------------------------------------------------*/
 static int joypad_input_setup(struct device *dev, struct joypad *joypad)
 {
+	struct input_polled_dev *poll_dev;
 	struct input_dev *input;
 	int nbtn, error;
 	u32 joypad_bustype = BUS_HOST;
@@ -942,17 +839,19 @@ static int joypad_input_setup(struct device *dev, struct joypad *joypad)
 	u32 joypad_revision = 0;
 	u32 joypad_product = 0;
 
-	input = devm_input_allocate_device(dev);
-	if (!input) {
-		dev_err(dev, "no memory for input device\n");
+	poll_dev = devm_input_allocate_polled_device(dev);
+	if (!poll_dev) {
+		dev_err(dev, "no memory for polled device\n");
 		return -ENOMEM;
 	}
 
-	joypad->input = input;
-	INIT_DELAYED_WORK(&joypad->poll_work, joypad_poll_work);
-	input_set_drvdata(input, joypad);
-	input->open  = joypad_open;
-	input->close = joypad_close;
+	poll_dev->private	= joypad;
+	poll_dev->poll		= joypad_poll;
+	poll_dev->poll_interval	= joypad->poll_interval;
+	poll_dev->open		= joypad_open;
+	poll_dev->close		= joypad_close;
+
+	input = poll_dev->input;
 
 	input->name = DRV_NAME;
 
@@ -987,14 +886,14 @@ static int joypad_input_setup(struct device *dev, struct joypad *joypad)
 				joypad->bt_adc_fuzz,
 				joypad->bt_adc_flat);
 		dev_info(dev,
-			"%s : SCALE = %d, ABS min = %d, max = %d,"
+			"SCALE = %d, ABS min = %d, max = %d,"
 			" fuzz = %d, flat = %d, deadzone = %d\n",
-			__func__, adc->scale, adc->min, adc->max,
+			adc->scale, adc->min, adc->max,
 			joypad->bt_adc_fuzz, joypad->bt_adc_flat,
 			joypad->bt_adc_deadzone);
 		dev_info(dev,
-			"%s : adc tuning_p = %d, adc_tuning_n = %d\n\n",
-			__func__, adc->tuning_p, adc->tuning_n);
+			"adc tuning_p = %d, adc_tuning_n = %d\n\n",
+			adc->tuning_p, adc->tuning_n);
 	}
 
 	/*
@@ -1038,26 +937,14 @@ static int joypad_input_setup(struct device *dev, struct joypad *joypad)
 				gpio->linux_code);
 	}
 
-	/* DPAD-hat: si algun boton tiene rocknix,dpad-hat, declarar
-	 * ABS_HAT0X/Y como capacidad del dispositivo (reconstruido del
-	 * binario de produccion via decompilacion) */
-	for (nbtn = 0; nbtn < joypad->bt_gpio_count; nbtn++) {
-		if (joypad->gpios[nbtn].dpad_hat != 0) {
-			__set_bit(EV_ABS, input->evbit);
-			input_set_abs_params(input, ABS_HAT0X, -1, 1, 0, 0);
-			input_set_abs_params(input, ABS_HAT0Y, -1, 1, 0, 0);
-			break;
-		}
-	}
-
 	if (joypad->auto_repeat)
 		__set_bit(EV_REP, input->evbit);
 
 	joypad->dev = dev;
 
-	error = input_register_device(input);
+	error = input_register_polled_device(poll_dev);
 	if (error) {
-		dev_err(dev, "unable to register input device, err=%d\n",
+		dev_err(dev, "unable to register polled device, err=%d\n",
 			error);
 		return error;
 	}
@@ -1375,8 +1262,8 @@ static int joypad_dt_parse(struct device *dev, struct joypad *joypad)
 	joypad->invert_absy = device_property_present(dev, "invert-absy");
 	joypad->invert_absrx = device_property_present(dev, "invert-absrx");
 	joypad->invert_absry = device_property_present(dev, "invert-absry");
-	dev_info(dev, "%s : invert-absx = %d, inveret-absy = %d, invert-absrx = %d, invert-absry = %d\n",
-		__func__, joypad->invert_absx, joypad->invert_absy, joypad->invert_absrx, joypad->invert_absry);
+	dev_info(dev, "invert-absx = %d, inveret-absy = %d, invert-absrx = %d, invert-absry = %d\n",
+		joypad->invert_absx, joypad->invert_absy, joypad->invert_absrx, joypad->invert_absry);
 
 	joypad->bt_gpio_count = device_get_child_node_count(dev);
 
@@ -1402,18 +1289,18 @@ static int joypad_dt_parse(struct device *dev, struct joypad *joypad)
 	if (error)
 		return error;
 
-	dev_info(dev, "%s : adc key cnt = %d, gpio key cnt = %d\n",
-			__func__, joypad->amux_count, joypad->bt_gpio_count);
+	dev_info(dev, "adc key cnt = %d, gpio key cnt = %d\n",
+			joypad->amux_count, joypad->bt_gpio_count);
 
 	joypad->has_rumble =
 		device_property_present(dev, "pwm-names");
 	if (joypad->has_rumble)
-		dev_info(dev, "%s : has rumble\n", __func__);
+		dev_info(dev, "has rumble\n");
 
 	joypad->use_miyoo_serial =
 		device_property_present(dev, "rocknix,use-miyoo-serial-joypad");
 	if (joypad->use_miyoo_serial) {
-		dev_info(dev, "%s : using Miyoo Serial Joypad logic\n", __func__);
+		dev_info(dev, "using Miyoo Serial Joypad logic\n");
 		/*
 		 * We'll define some default calibrations for raw [85..200]
 		 * from your original userland code, so that x_zero=130, etc.
@@ -1523,24 +1410,8 @@ static int joypad_probe(struct platform_device *pdev)
 		schedule_delayed_work(&joypad->miyoo_init_work, 10 * HZ);
 	}
 
-	dev_info(dev, "%s : probe success\n", __func__);
+	dev_info(dev, "probe success\n");
 	return 0;
-}
-
-/*----------------------------------------------------------------------------*/
-static void joypad_remove(struct platform_device *pdev)
-{
-	struct joypad *joypad = platform_get_drvdata(pdev);
-
-	if (joypad->use_miyoo_serial)
-		cancel_delayed_work_sync(&joypad->miyoo_init_work);
-
-	cancel_delayed_work_sync(&joypad->poll_work);
-
-	if (joypad->has_rumble) {
-		cancel_work_sync(&joypad->play_work);
-		sysfs_remove_group(&pdev->dev.kobj, &joypad_rumble_attr_group);
-	}
 }
 
 /*----------------------------------------------------------------------------*/
@@ -1554,7 +1425,6 @@ MODULE_DEVICE_TABLE(of, joypad_of_match);
 /*----------------------------------------------------------------------------*/
 static struct platform_driver joypad_driver = {
 	.probe = joypad_probe,
-	.remove = joypad_remove,
 	.driver = {
 		.name = DRV_NAME,
 		.pm = &joypad_pm_ops,
