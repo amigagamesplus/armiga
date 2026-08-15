@@ -81,12 +81,12 @@ echo ">>> armiga post-build.sh: done"
 
 # --- OS name -----------------------------------------------------------------
 mkdir -p "$TARGET_DIR/usr/lib"
-cat > "$TARGET_DIR/usr/lib/os-release" << 'OS_EOF'
+cat > "$TARGET_DIR/usr/lib/os-release" << OS_EOF
 NAME="armiga"
-VERSION="1.0"
+VERSION="$ARMIGA_VERSION"
 ID=armiga
-VERSION_ID=1.0
-PRETTY_NAME="armiga 1.0"
+VERSION_ID=$ARMIGA_VERSION
+PRETTY_NAME="armiga $ARMIGA_VERSION"
 OS_EOF
 
 # --- SSH authorized keys -----------------------------------------------------
