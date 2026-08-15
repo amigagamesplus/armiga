@@ -77,6 +77,8 @@ struct bt_gpio {
 	int linux_code;
 	/* prev button value */
 	bool old_value;
+	/* rocknix,dpad-hat: 0=normal, 1=UP, 2=DOWN, 3=LEFT, 4=RIGHT */
+	u32 dpad_hat;
 };
 
 /* Replicate the calibration and constants from the userland code. */
@@ -387,18 +389,60 @@ static void joypad_gpio_check(struct input_polled_dev *poll_dev)
 {
 	struct joypad *joypad = poll_dev->private;
 	int nbtn, value;
+	bool hat_changed = false;
+	int hat_x = 0, hat_y = 0;
 
 	for (nbtn = 0; nbtn < joypad->bt_gpio_count; nbtn++) {
 		struct bt_gpio *gpio = &joypad->gpios[nbtn];
 
 		value = gpiod_get_value_cansleep(gpio->desc);
-		if (value != gpio->old_value) {
-			input_event(poll_dev->input,
-				gpio->report_type,
-				gpio->linux_code,
-				value == 1);
-			gpio->old_value = value;
+		if (gpio->dpad_hat == 0) {
+			if (value != gpio->old_value) {
+				input_event(poll_dev->input,
+					gpio->report_type,
+					gpio->linux_code,
+					value == 1);
+				gpio->old_value = value;
+			}
+			continue;
 		}
+		/* DPAD-hat: reconstruido del binario de produccion via
+		 * decompilacion (Ghidra), ya que la logica original no
+		 * estaba presente en el .c fuente versionado. La asimetria
+		 * entre UP/LEFT (marcan cambio siempre) y DOWN/RIGHT (solo
+		 * si pressed) es fiel al binario que ya funciona en
+		 * produccion, no se ha "corregido" para no introducir
+		 * regresiones no probadas. gpiod ya normaliza polaridad,
+		 * value == 1 equivale al "pressed" del driver of_gpio. */
+		{
+			bool pressed = (value == 1);
+			switch (gpio->dpad_hat) {
+			case 1: /* UP */
+				if (pressed)
+					hat_y = -1;
+				hat_changed = true;
+				break;
+			case 2: /* DOWN */
+				if (pressed)
+					hat_y = 1;
+				hat_changed = true;
+				break;
+			case 3: /* LEFT */
+				if (pressed)
+					hat_x = -1;
+				hat_changed = true;
+				break;
+			case 4: /* RIGHT */
+				if (pressed)
+					hat_x = 1;
+				hat_changed = true;
+				break;
+			}
+		}
+	}
+	if (hat_changed) {
+		input_event(poll_dev->input, EV_ABS, ABS_HAT0X, hat_x);
+		input_event(poll_dev->input, EV_ABS, ABS_HAT0Y, hat_y);
 	}
 	input_sync(poll_dev->input);
 }
@@ -517,6 +561,10 @@ static void joypad_open(struct input_polled_dev *poll_dev)
 		if (val < 0)
 			val = 0;
 		gpio->old_value = val;
+
+		/* Skip DPAD hat GPIOs - handled by joypad_gpio_check */
+		if (gpio->dpad_hat != 0)
+			continue;
 
 		// Immediately report the current state
 		input_event(poll_dev->input, gpio->report_type,
@@ -761,6 +809,7 @@ static int joypad_gpio_setup(struct device *dev, struct joypad *joypad)
 		if (of_property_read_u32(pp, "linux,input-type",
 				&gpio->report_type))
 			gpio->report_type = EV_KEY;
+		of_property_read_u32(pp, "rocknix,dpad-hat", &gpio->dpad_hat);
 	}
 	if (nbtn == 0)
 		return -EINVAL;
@@ -935,6 +984,18 @@ static int joypad_input_setup(struct device *dev, struct joypad *joypad)
 		struct bt_gpio *gpio = &joypad->gpios[nbtn];
 		input_set_capability(input, gpio->report_type,
 				gpio->linux_code);
+	}
+
+	/* DPAD-hat: si algun boton tiene rocknix,dpad-hat, declarar
+	 * ABS_HAT0X/Y como capacidad del dispositivo (reconstruido del
+	 * binario de produccion via decompilacion) */
+	for (nbtn = 0; nbtn < joypad->bt_gpio_count; nbtn++) {
+		if (joypad->gpios[nbtn].dpad_hat != 0) {
+			__set_bit(EV_ABS, input->evbit);
+			input_set_abs_params(input, ABS_HAT0X, -1, 1, 0, 0);
+			input_set_abs_params(input, ABS_HAT0Y, -1, 1, 0, 0);
+			break;
+		}
 	}
 
 	if (joypad->auto_repeat)
