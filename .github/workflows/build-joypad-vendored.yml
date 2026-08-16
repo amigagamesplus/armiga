@@ -72,6 +72,14 @@ jobs:
           make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- olddefconfig
           make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- -j$(nproc) Image dtbs modules
 
+      - name: Install in-tree kernel modules
+        run: |
+          KV="${{ github.event.inputs.kernel_version }}"
+          cd linux-${KV}
+          make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- INSTALL_MOD_PATH="${GITHUB_WORKSPACE}/modules_out" modules_install
+          echo "=== Installed modules ==="
+          find "${GITHUB_WORKSPACE}/modules_out/lib/modules" -name "*.ko" | wc -l
+
       - name: Build vendored joypad module (rocknix-singleadc-joypad.c, DEVICE=H700)
         id: build_joypad
         continue-on-error: true
@@ -106,6 +114,14 @@ jobs:
           KO="${GITHUB_WORKSPACE}/board/armiga/linux/rocknix-joypad/rocknix-singleadc-joypad.ko"
           if [ -f "$KO" ]; then
             cp "$KO" joypad-artifacts/
+          fi
+          MODULES_LIB="${GITHUB_WORKSPACE}/modules_out/lib/modules"
+          if [ -d "$MODULES_LIB" ]; then
+            tar czf joypad-artifacts/modules-${KV}.tar.gz -C "${GITHUB_WORKSPACE}/modules_out/lib" modules
+            echo "=== In-tree modules packaged ==="
+            find "$MODULES_LIB" -name "*.ko" | wc -l
+          else
+            echo "WARNING: modules_out/lib/modules not found, in-tree modules not packaged"
           fi
           echo "kernel_version=${KV}" > joypad-artifacts/BUILD_INFO.txt
           echo "driver=vendored (board/armiga/linux/rocknix-joypad/rocknix-singleadc-joypad.c)" >> joypad-artifacts/BUILD_INFO.txt
