@@ -42,7 +42,11 @@ esac
 UDHCPC_EOF
     chmod +x "$TARGET_DIR/usr/share/udhcpc/default.script"
 fi
-KVER="7.0.14-armiga"
+KVER=$(basename "$(find "$TARGET_DIR/lib/modules" -maxdepth 1 -mindepth 1 -type d | head -1)")
+if [ -z "$KVER" ]; then
+    echo "ERROR: no kernel module directory found under $TARGET_DIR/lib/modules"
+    exit 1
+fi
 depmod -a -b "$TARGET_DIR" "$KVER" || true
 # --- armiga-release ----------------------------------------------------------
 BUILD_DATE=$(TZ=Europe/Madrid date +"%d/%m/%Y %H:%M")
@@ -51,7 +55,7 @@ BUILD_NUMBER="${GITHUB_RUN_NUMBER:-local}"
 cat > "$TARGET_DIR/etc/armiga-release" << RELEASE_EOF
 ARMIGA_VERSION=$ARMIGA_VERSION
 BUILD_NUMBER=$BUILD_NUMBER
-KERNEL_VERSION=7.0.14-armiga
+KERNEL_VERSION=$KVER
 MESA_VERSION=26.2.0
 RETROARCH_VERSION=1.22.2
 SDL3_VERSION=3.4.14
@@ -81,12 +85,12 @@ echo ">>> armiga post-build.sh: done"
 
 # --- OS name -----------------------------------------------------------------
 mkdir -p "$TARGET_DIR/usr/lib"
-cat > "$TARGET_DIR/usr/lib/os-release" << 'OS_EOF'
+cat > "$TARGET_DIR/usr/lib/os-release" << OS_EOF
 NAME="armiga"
-VERSION="1.0"
+VERSION="$ARMIGA_VERSION"
 ID=armiga
-VERSION_ID=1.0
-PRETTY_NAME="armiga 1.0"
+VERSION_ID=$ARMIGA_VERSION
+PRETTY_NAME="armiga $ARMIGA_VERSION"
 OS_EOF
 
 # --- SSH authorized keys -----------------------------------------------------
