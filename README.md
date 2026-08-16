@@ -9,6 +9,12 @@
 
 Minimal Linux distribution based on **Buildroot** for the **Anbernic RG40XX H** console (Allwinner H700), focused on Commodore Amiga emulation via **RetroArch + PUAE core**.
 
+<p align="center">
+  <img src="docs/assets/screenshot-main-menu.png" width="270">
+  <img src="docs/assets/screenshot-diagnostics.png" width="270">
+  <img src="docs/assets/screenshot-performance.png" width="270">
+</p>
+
 ## Hardware
 
 | Component      | Detail                                          |
