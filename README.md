@@ -22,11 +22,11 @@ Minimal Linux distribution based on **Buildroot** for the **Anbernic RG40XX H** 
 
 ## Current status
 
-**Version:** 1.0.6
+**Version:** v1.0.7
 
 ### Working components
 
-- ✅ Boot (U-Boot + kernel 7.0.14-armiga + DTB)
+- ✅ Boot (U-Boot + kernel 7.1.8-armiga + DTB)
 - ✅ **A/B** partition scheme with automatic rollback (see below)
 - ✅ Rootfs on **SquashFS + zstd** (system/system_b, 300MB per slot, ro)
 - ✅ RTL8821CS WiFi (`wpa_supplicant` + `udhcpc`, config generated in `/tmp` — `/etc` is ro)
@@ -35,7 +35,7 @@ Minimal Linux distribution based on **Buildroot** for the **Anbernic RG40XX H** 
 - ✅ GPU governor forced to `performance` (fixed 648MHz — `simple_ondemand` didn't scale well under real load)
 - ✅ ZRAM swap (512MB, LZ4, `swappiness=100`)
 - ✅ `amiga_data` partition (exFAT, auto-expands to 100% of the SD card on first boot)
-- ✅ Graphics stack: SDL3 3.4.12 (kmsdrm) + Mesa 26.1.6 (GBM + Panfrost, stripped `.so` in overlay)
+- ✅ Graphics stack: SDL3 3.4.14 (kmsdrm) + Mesa 26.2.0 (GBM + Panfrost, stripped `.so` in overlay)
 - ✅ Custom C/SDL3 launcher (`armiga-launcher`), bilingual **Spanish/English** interface (toggle `L1`, persistent)
 - ✅ RetroArch 1.22.2 + PUAE 2021 core (`puae2021_libretro.so`, build 6636d5f)
 - ✅ OTA update system (GitHub Releases → download → SHA256 verification → flash inactive slot, all async without blocking the UI)
@@ -63,8 +63,8 @@ On boot, `S02bootcheck` compares the active slot (read from `/proc/cmdline`) aga
 
 ```
 armiga-launcher / RetroArch (PUAE)
-    └── SDL3 3.4.12 (backend: kmsdrm)
-        ├── libgbm.so.1.0.0 (Mesa 26.1.6)
+    └── SDL3 3.4.14 (backend: kmsdrm)
+        ├── libgbm.so.1.0.0 (Mesa 26.2.0)
         │   └── dri_gbm.so → libgallium-26.1.6.so (Panfrost)
         ├── libEGL.so.1.0.0
         ├── libGLESv2.so.2.0.0
@@ -79,8 +79,8 @@ armiga-launcher / RetroArch (PUAE)
 armiga/
 ├── .github/workflows/
 │   ├── build.yml                      # Main CI — full Buildroot image (manual, points to tag for release)
+│   ├── build-kernel.yml               # Kernel CI — Image, dtbs, modules, joypad driver (manual, kernel_version input)
 │   ├── build-mesa.yml                 # Mesa CI (cross-compile GBM+Panfrost, committed .so files, manual)
-│   ├── build-mangohud.yml             # MangoHud ARM64 CI (manual)
 │   ├── build-retroarch.yml            # Stable RetroArch CI (manual)
 │   └── build-retroarch-nightly.yml    # Nightly RetroArch CI (manual)
 ├── board/armiga/
