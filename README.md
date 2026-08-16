@@ -28,8 +28,6 @@ Minimal Linux distribution based on **Buildroot** for the **Anbernic RG40XX H** 
 
 ## Current status
 
-**Version:** v1.0.7
-
 ### Working components
 
 - ✅ Boot (U-Boot + kernel 7.1.8-armiga + DTB)
