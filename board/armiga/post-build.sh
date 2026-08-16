@@ -54,6 +54,12 @@ ARMIGA_VERSION=$(git -C "${1:-$(pwd)}" describe --tags --abbrev=0 2>/dev/null ||
 BUILD_NUMBER="${GITHUB_RUN_NUMBER:-local}"
 SDL3_VER=$(grep "^SDL3_VERSION" "${1:-$(pwd)}/package/sdl3/sdl3.mk" | cut -d= -f2 | tr -d ' ')
 SDL3_TTF_VER=$(grep "^SDL3_TTF_VERSION" "${1:-$(pwd)}/package/sdl3_ttf/sdl3_ttf.mk" | cut -d= -f2 | tr -d ' ')
+PUAE_SO="$TARGET_DIR/usr/lib/libretro/puae2021_libretro.so"
+PUAE_VER=$(strings "$PUAE_SO" 2>/dev/null | grep -E "^2\.[0-9]+\.[0-9]+ [0-9a-f]{7}$" | head -1 | awk '{print $2}')
+if [ -z "$PUAE_VER" ]; then
+    echo "WARNING: could not extract PUAE2021 core version from $PUAE_SO, falling back to 6636d5f"
+    PUAE_VER="6636d5f"
+fi
 cat > "$TARGET_DIR/etc/armiga-release" << RELEASE_EOF
 ARMIGA_VERSION=$ARMIGA_VERSION
 BUILD_NUMBER=$BUILD_NUMBER
@@ -61,7 +67,7 @@ KERNEL_VERSION=$KVER
 MESA_VERSION=26.2.0
 RETROARCH_VERSION=1.22.2
 SDL3_VERSION=$SDL3_VER
-PUAE2021_CORE_VERSION=6636d5f
+PUAE2021_CORE_VERSION=$PUAE_VER
 SDL3_TTF_VERSION=$SDL3_TTF_VER
 BUILD_DATE=$BUILD_DATE
 RELEASE_EOF
