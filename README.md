@@ -1,5 +1,12 @@
 <img src="docs/assets/logo-armiga.png" alt="armiga" width="550">
 
+<p align="center">
+  <a href="https://github.com/amigagamesplus/armiga/releases"><img alt="release" src="https://img.shields.io/github/v/release/amigagamesplus/armiga?color=B7DD5B&labelColor=0F1F18&cacheSeconds=3600"></a>
+  <a href="https://github.com/amigagamesplus/armiga/releases"><img alt="downloads" src="https://img.shields.io/github/downloads/amigagamesplus/armiga/total?color=B7DD5B&labelColor=0F1F18&cacheSeconds=3600"></a>
+  <a href="LICENSE"><img alt="license" src="https://img.shields.io/github/license/amigagamesplus/armiga?color=B7DD5B&labelColor=0F1F18&cacheSeconds=3600"></a>
+  <img alt="last commit" src="https://img.shields.io/github/last-commit/amigagamesplus/armiga?color=B7DD5B&labelColor=0F1F18&cacheSeconds=3600">
+</p>
+
 Minimal Linux distribution based on **Buildroot** for the **Anbernic RG40XX H** console (Allwinner H700), focused on Commodore Amiga emulation via **RetroArch + PUAE core**.
 
 ## Hardware
