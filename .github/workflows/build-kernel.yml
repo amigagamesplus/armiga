@@ -107,6 +107,10 @@ jobs:
           KO="${GITHUB_WORKSPACE}/board/armiga/linux/rocknix-joypad/rocknix-singleadc-joypad.ko"
           cp "$KO" kernel-artifacts/
           MODULES_LIB="${GITHUB_WORKSPACE}/modules_out/lib/modules"
+          cp "$KO" "${MODULES_LIB}/${KV}-armiga/rocknix-singleadc-joypad.ko"
+          depmod -a -b "${GITHUB_WORKSPACE}/modules_out" "${KV}-armiga"
+          echo "=== modules.dep entries for joypad ==="
+          grep -i joypad "${MODULES_LIB}/${KV}-armiga/modules.dep" || echo "WARNING: joypad not found in modules.dep"
           tar czf kernel-artifacts/modules-${KV}.tar.gz -C "${GITHUB_WORKSPACE}/modules_out/lib" modules
           echo "=== In-tree modules packaged ==="
           find "$MODULES_LIB" -name "*.ko" | wc -l
