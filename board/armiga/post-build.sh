@@ -52,15 +52,17 @@ depmod -a -b "$TARGET_DIR" "$KVER" || true
 BUILD_DATE=$(TZ=Europe/Madrid date +"%d/%m/%Y %H:%M")
 ARMIGA_VERSION=$(git -C "${1:-$(pwd)}" describe --tags --abbrev=0 2>/dev/null || echo "1.0")
 BUILD_NUMBER="${GITHUB_RUN_NUMBER:-local}"
+SDL3_VER=$(grep "^SDL3_VERSION" "${1:-$(pwd)}/package/sdl3/sdl3.mk" | cut -d= -f2 | tr -d ' ')
+SDL3_TTF_VER=$(grep "^SDL3_TTF_VERSION" "${1:-$(pwd)}/package/sdl3_ttf/sdl3_ttf.mk" | cut -d= -f2 | tr -d ' ')
 cat > "$TARGET_DIR/etc/armiga-release" << RELEASE_EOF
 ARMIGA_VERSION=$ARMIGA_VERSION
 BUILD_NUMBER=$BUILD_NUMBER
 KERNEL_VERSION=$KVER
 MESA_VERSION=26.2.0
 RETROARCH_VERSION=1.22.2
-SDL3_VERSION=3.4.14
+SDL3_VERSION=$SDL3_VER
 PUAE2021_CORE_VERSION=6636d5f
-SDL3_TTF_VERSION=3.2.2
+SDL3_TTF_VERSION=$SDL3_TTF_VER
 BUILD_DATE=$BUILD_DATE
 RELEASE_EOF
 
