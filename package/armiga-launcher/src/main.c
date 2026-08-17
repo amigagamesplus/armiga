@@ -3942,7 +3942,7 @@ int main(void)
             draw_footer(ren, f_sm, tr("[B] Seleccionar  [A] Volver", "[B] Select  [A] Back"), s_version);
 
         } else if (state == STATE_BACKUP_LIST) {
-            draw_text_truncated(ren, f_sm, tr("Menú > Configuración > Copia de seguridad > Restaurar copia", "Menu > Settings > Backup > Restore Backup"), c_green, mx, 20.0f, SCREEN_W - 190.0f);
+            draw_text_truncated(ren, f_sm, tr("Menú > Configuración > Copia de seguridad > Restaurar copia", "Menu > Settings > Backup > Restore Backup"), c_green, mx, 20.0f, 270.0f);
             draw_statusbar(ren, f_sm, f_xs, status_time, status_wifi_up, status_battery, status_bt_up, wifi_icon_tex, battery_icon_tex, bt_icon_tex);
             float bkl_y0 = 64.0f;
             float bkl_item_h = 26.0f;
@@ -3960,17 +3960,20 @@ int main(void)
                     bkl_cursor_y += (target_y - bkl_cursor_y) * lerp_speed * dt;
                     if (fabsf(target_y - bkl_cursor_y) < 0.5f) bkl_cursor_y = target_y;
                 }
+                SDL_Color c_menu_gold = {27, 39, 8, 255};
+                SDL_Color c_menu_selbg = {183, 221, 91, 255};
                 for (int i = 0; i < backup_count; i++) {
                     float iy = bkl_y0 + i * bkl_item_h;
                     if (i == backup_list_selected) {
                         int text_w = 0, text_h = 0;
                         TTF_GetStringSize(f_sm, backup_list[i], 0, &text_w, &text_h);
-                        float sel_w = (float)text_w + 24.0f;
-                        draw_rounded_rect_filled(ren, mx - 4.0f, bkl_cursor_y - 4.0f,
-                                         sel_w, bkl_item_h - 2.0f, 8.0f, c_selbg);
-                        draw_rect_filled(ren, mx - 4.0f, bkl_cursor_y - 4.0f,
-                                         4.0f, bkl_item_h - 2.0f, c_green);
-                        draw_text(ren, f_sm, backup_list[i], c_green, mx + 8.0f, iy);
+                        float sel_w = (float)text_w + 32.0f;
+                        float pill_h = 32.0f;
+                        float pill_y = bkl_cursor_y - (pill_h - bkl_item_h) / 2.0f - 5.0f;
+                        float text_y = pill_y + (pill_h - (float)text_h) / 2.0f;
+                        draw_rounded_rect_filled(ren, mx - 10.0f, pill_y,
+                                         sel_w, pill_h, pill_h / 2.0f, c_menu_selbg);
+                        draw_text(ren, f_sm, backup_list[i], c_menu_gold, mx + 8.0f, text_y);
                     } else {
                         draw_text(ren, f_sm, backup_list[i], c_gray, mx + 8.0f, iy);
                     }
