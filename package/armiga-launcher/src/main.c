@@ -1754,6 +1754,59 @@ static float capsule_coverage(float px, float py, float half_w, float half_h, fl
     }
     return (float)inside / (float)(SS * SS);
 }
+/* Cobertura de un pixel de 1x1 centrado en (px,py) respecto al exterior de
+ * un cuarto de circulo de radio 'radius' centrado en (cx,cy), via
+ * supersampling 4x4. Devuelve 1.0 si el pixel esta totalmente fuera del
+ * circulo (debe pintarse), 0.0 si esta totalmente dentro (no pintar). */
+static float corner_mask_coverage(float px, float py, float cx, float cy, float radius)
+{
+    const int SS = 4;
+    int outside = 0;
+    for (int sy = 0; sy < SS; sy++) {
+        float oy = py - 0.5f + ((float)sy + 0.5f) / (float)SS;
+        for (int sx = 0; sx < SS; sx++) {
+            float ox = px - 0.5f + ((float)sx + 0.5f) / (float)SS;
+            float dx = ox - cx;
+            float dy = oy - cy;
+            if ((dx * dx + dy * dy) > (radius * radius)) outside++;
+        }
+    }
+    return (float)outside / (float)(SS * SS);
+}
+/* Dibuja mascaras negras en las 4 esquinas de la pantalla, simulando
+ * esquinas redondeadas fisicas del panel. Se llama al final de cada frame,
+ * justo antes de SDL_RenderPresent, para que quede por encima de todo. */
+static void draw_screen_corners(SDL_Renderer *r, int screen_w, int screen_h, float radius)
+{
+    SDL_BlendMode prev_blend;
+    SDL_GetRenderDrawBlendMode(r, &prev_blend);
+    SDL_SetRenderDrawBlendMode(r, SDL_BLENDMODE_BLEND);
+    int rad_i = (int)SDL_ceilf(radius) + 1;
+    struct { float cx, cy; } corners[4] = {
+        { radius, radius },                                   /* top-left */
+        { (float)screen_w - radius, radius },                 /* top-right */
+        { radius, (float)screen_h - radius },                 /* bottom-left */
+        { (float)screen_w - radius, (float)screen_h - radius } /* bottom-right */
+    };
+    for (int c = 0; c < 4; c++) {
+        int x0 = (c == 1 || c == 3) ? screen_w - rad_i : 0;
+        int y0 = (c == 2 || c == 3) ? screen_h - rad_i : 0;
+        for (int row = 0; row < rad_i; row++) {
+            float py = (float)(y0 + row) + 0.5f;
+            for (int col = 0; col < rad_i; col++) {
+                float px = (float)(x0 + col) + 0.5f;
+                float cov = corner_mask_coverage(px, py, corners[c].cx, corners[c].cy, radius);
+                if (cov > 0.001f) {
+                    Uint8 a = (Uint8)(cov * 255.0f);
+                    SDL_SetRenderDrawColor(r, 0, 0, 0, a);
+                    SDL_FRect px_rect = {(float)(x0 + col), (float)(y0 + row), 1.0f, 1.0f};
+                    SDL_RenderFillRect(r, &px_rect);
+                }
+            }
+        }
+    }
+    SDL_SetRenderDrawBlendMode(r, prev_blend);
+}
 static void draw_rounded_rect_filled(SDL_Renderer *r, float x, float y,
                                       float w, float h, float radius,
                                       SDL_Color c)
@@ -4511,6 +4564,7 @@ int main(void)
         } else {
             screenshot_flash_until = 0;
         }
+        draw_screen_corners(ren, SCREEN_W, SCREEN_H, 22.0f);
         SDL_RenderPresent(ren);
         /* VSync activo (SDL_SetRenderVSync) sustituye al SDL_Delay(16):
          * RenderPresent bloquea hasta el siguiente VBlank, 0% CPU en espera. */
