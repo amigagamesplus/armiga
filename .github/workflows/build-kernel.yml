@@ -37,18 +37,23 @@ jobs:
           cd linux-${KV}
           for patch in "${GITHUB_WORKSPACE}"/board/armiga/linux/patches/*.patch; do
             if [ -f "$patch" ]; then
-              echo "Applying $(basename "$patch")..."
-              patch -p1 < "$patch" || true
+              name="$(basename "$patch")"
+              case "$name" in
+                0005-h616-sram-c-de3-alias-legacy.patch|0006-h616-sram-c-de3-alias-new.patch)
+                  if patch -p1 -N --dry-run < "$patch" > /dev/null 2>&1; then
+                    echo "Applying $name..."
+                    patch -p1 < "$patch"
+                  else
+                    echo "Skipping $name (not applicable to this kernel version)"
+                  fi
+                  ;;
+                *)
+                  echo "Applying $name..."
+                  patch -p1 < "$patch"
+                  ;;
+              esac
             fi
           done
-          echo "=== DIAGNOSTIC: reject files ==="
-          find . -name "*.rej" -exec echo "--- {} ---" \; -exec cat {} \;
-          echo "=== DIAGNOSTIC: real sram_c context ==="
-          grep -n "sram_c\|de3_sram\|sram-section" arch/arm64/boot/dts/allwinner/sun50i-h616.dtsi || true
-          if find . -name "*.rej" | grep -q .; then
-            echo "Patch rejects found, failing build"
-            exit 1
-          fi
 
       - name: Copy custom DTS
         run: |
