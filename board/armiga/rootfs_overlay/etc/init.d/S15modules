@@ -1,6 +1,6 @@
 #!/bin/sh
 # S15modules — Carga de módulos del kernel
-MODDIR="/lib/modules/7.1.8-armiga/kernel/drivers/net/wireless/realtek/rtw88"
+MODDIR="/lib/modules/7.2.0-armiga/kernel/drivers/net/wireless/realtek/rtw88"
 
 case "$1" in
     start)
@@ -11,7 +11,7 @@ case "$1" in
         for mod in bluetooth btrtl hci_uart; do
             modprobe "$mod" 2>/dev/null && echo -n "$mod "
         done
-        insmod /lib/modules/7.1.8-armiga/rocknix-singleadc-joypad.ko && echo -n "rocknix-joypad "
+        insmod /lib/modules/7.2.0-armiga/rocknix-singleadc-joypad.ko && echo -n "rocknix-joypad "
         echo "OK"
         ;;
     stop)
