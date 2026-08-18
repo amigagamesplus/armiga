@@ -30,7 +30,7 @@ ARMIGA is a minimal Linux distribution based on **Buildroot** for the **Anbernic
 
 ### Working components
 
-- ✅ Boot (U-Boot + kernel 7.1.8-armiga + DTB)
+- ✅ Boot (U-Boot + kernel 7.2.0-armiga + DTB)
 - ✅ **A/B** partition scheme with automatic rollback (see below)
 - ✅ Rootfs on **SquashFS + zstd** (system/system_b, 300MB per slot, ro)
 - ✅ RTL8821CS WiFi (`wpa_supplicant` + `udhcpc`, config generated in `/tmp` — `/etc` is ro)
