@@ -25,8 +25,6 @@ board/armiga/linux/*.tar.gz
 board/armiga/linux/build_kernel.log
 board/armiga/linux/linux-*.tar.xz
 board/armiga/linux/linux-*.tar.gz
-board/armiga/linux/linux-*.tar.xz
-board/armiga/linux/linux-*.tar.gz
 sdcard.img
 flash.sh
 buildroot-2026.02.2/
@@ -35,7 +33,6 @@ SDL3-3.2.14.tar.gz
 SDL3-3.2.14/
 board/armiga/linux/linux-7.0.2.tar.xz.1
 buildroot-2026.02.2.tar.gz
-CLAUDE.md
 CLAUDE.md
 armiga.img
 linux-*.tar.xz*
