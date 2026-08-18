@@ -38,9 +38,17 @@ jobs:
           for patch in "${GITHUB_WORKSPACE}"/board/armiga/linux/patches/*.patch; do
             if [ -f "$patch" ]; then
               echo "Applying $(basename "$patch")..."
-              patch -p1 < "$patch"
+              patch -p1 < "$patch" || true
             fi
           done
+          echo "=== DIAGNOSTIC: reject files ==="
+          find . -name "*.rej" -exec echo "--- {} ---" \; -exec cat {} \;
+          echo "=== DIAGNOSTIC: real sram_c context ==="
+          grep -n "sram_c\|de3_sram\|sram-section" arch/arm64/boot/dts/allwinner/sun50i-h616.dtsi || true
+          if find . -name "*.rej" | grep -q .; then
+            echo "Patch rejects found, failing build"
+            exit 1
+          fi
 
       - name: Copy custom DTS
         run: |
