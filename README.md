@@ -7,7 +7,7 @@
   <img alt="last commit" src="https://img.shields.io/github/last-commit/amigagamesplus/armiga?color=B7DD5B&labelColor=0F1F18&cacheSeconds=3600">
 </p>
 
-Minimal Linux distribution based on **Buildroot** for the **Anbernic RG40XX H** console (Allwinner H700), focused on Commodore Amiga emulation via **RetroArch + PUAE core**.
+ARMIGA is a minimal Linux distribution based on **Buildroot** for the **Anbernic RG40XX H**, developed by retro-gaming enthusiasts. Our goal is to craft a highly focused operating system dedicated to Commodore Amiga emulation via **RetroArch** and the **PUAE core**, creating exactly the retro experience we want while having fun developing it.
 
 <p align="center">
   <img src="docs/assets/screenshot-main-menu.png" width="270">
