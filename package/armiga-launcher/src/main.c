@@ -1246,12 +1246,24 @@ static void start_backup_async(char *out_name, size_t out_name_sz)
         chdir("/media/amiga_data");
         int fd = open("/dev/null", O_WRONLY);
         if (fd >= 0) { dup2(fd, STDERR_FILENO); close(fd); }
-        execlp("tar", "tar", "caf", backup_path,
-               "armiga.cfg", "wifi.conf",
-               "retroarch/retroarch.cfg", "retroarch/config",
-               "retroarch/saves", "retroarch/states",
-               "retroarch/playlists", "retroarch/thumbnails",
-               (char *)NULL);
+        {
+            char cmd[512];
+            char extra[256] = "";
+            struct stat st;
+            if (stat("/media/amiga_data/led.conf", &st) == 0)
+                strcat(extra, " led.conf");
+            if (stat("/media/amiga_data/shaders", &st) == 0)
+                strcat(extra, " shaders");
+            if (stat("/media/amiga_data/kickstarts", &st) == 0)
+                strcat(extra, " kickstarts");
+            snprintf(cmd, sizeof(cmd),
+                "tar -caf '%s' armiga.cfg wifi.conf "
+                "retroarch/retroarch.cfg retroarch/config "
+                "retroarch/saves retroarch/states "
+                "retroarch/playlists retroarch/thumbnails%s",
+                backup_path, extra);
+            execlp("sh", "sh", "-c", cmd, (char *)NULL);
+        }
         _exit(127); /* solo si execlp falla */
     }
     s_backup_pid = pid;
