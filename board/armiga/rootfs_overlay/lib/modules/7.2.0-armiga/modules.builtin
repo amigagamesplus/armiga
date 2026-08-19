@@ -275,6 +275,7 @@ kernel/drivers/gpu/drm/sun4i/sun8i_tcon_top.ko
 kernel/drivers/gpu/drm/sun4i/sun50i_planes.ko
 kernel/drivers/gpu/drm/panel/panel-simple.ko
 kernel/drivers/gpu/drm/panel/panel-mipi.ko
+kernel/drivers/gpu/drm/panel/panel-newvision-nv3052c.ko
 kernel/drivers/gpu/drm/bridge/display-connector.ko
 kernel/drivers/gpu/drm/bridge/ite-it6263.ko
 kernel/drivers/gpu/drm/bridge/simple-bridge.ko
