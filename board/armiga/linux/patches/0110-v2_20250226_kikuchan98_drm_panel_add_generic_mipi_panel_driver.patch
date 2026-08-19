@@ -95,6 +95,9 @@ index 00000000000..d70cf0063fa
 +              # Unknown 3.95" 720x720 24-bit IPS LCD panel (YLM-LBN0395004H-V1)
 +              # used in Anbernic RG CubeXX
 +              - anbernic,rgcubexx-panel
++              # 3.45" 640x480 24-bit IPS LCD panel (YLM-LBV0345001H-V2, Rev6)
++              # used in Anbernic RG35XX Plus/H (newer PCB revision)
++              - anbernic,rg35xx-plus-rev6-panel
 +          - const: panel-mipi-dpi-spi
 +      - items:
 +          - enum:

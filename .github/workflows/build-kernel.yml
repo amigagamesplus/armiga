@@ -113,6 +113,10 @@ jobs:
           if [ -f "$DTB_FILE" ]; then
             cp "$DTB_FILE" kernel-artifacts/dtb.img
           fi
+          DTB_RG35XX_H_REV6="${GITHUB_WORKSPACE}/linux-${KV}/arch/arm64/boot/dts/allwinner/sun50i-h700-anbernic-rg35xx-h-rev6-panel.dtb"
+          if [ -f "$DTB_RG35XX_H_REV6" ]; then
+            cp "$DTB_RG35XX_H_REV6" kernel-artifacts/dtb-rg35xx-h-rev6.img
+          fi
           DTB_RG35XX="${GITHUB_WORKSPACE}/linux-${KV}/arch/arm64/boot/dts/allwinner/sun50i-h700-anbernic-rg35xx-h.dtb"
           if [ -f "$DTB_RG35XX" ]; then
             cp "$DTB_RG35XX" kernel-artifacts/dtb-rg35xx-h.img
