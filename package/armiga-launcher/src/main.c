@@ -391,7 +391,8 @@ static void read_cpu_temp(char *buf, size_t bufsize)
 
 /* Guarda un BMP de la pantalla actual en /media/amiga_data/screenshots/.
  * Devuelve 0 en éxito, -1 en error. */
-static int take_screenshot(SDL_Renderer *ren, int screen_w, int screen_h)
+static int take_screenshot(SDL_Renderer *ren, int screen_w, int screen_h,
+                            SDL_Surface *clean_frame)
 {
     mkdir("/media/amiga_data/screenshots", 0755);
 
@@ -406,11 +407,19 @@ static int take_screenshot(SDL_Renderer *ren, int screen_w, int screen_h)
         snprintf(path, sizeof(path),
                  "/media/amiga_data/screenshots/armiga_%lu.bmp", (unsigned long)t);
 
-    SDL_Surface *surf = SDL_RenderReadPixels(ren, NULL);
-    if (!surf) return -1;
+    /* Usa el frame limpio (sin esquinas redondeadas) guardado justo antes
+     * de dibujar draw_screen_corners en la ultima iteracion del bucle,
+     * en vez de leer el backbuffer actual (que ya incluye las esquinas). */
+    SDL_Surface *surf = clean_frame;
+    bool owned = false;
+    if (!surf) {
+        surf = SDL_RenderReadPixels(ren, NULL);
+        owned = true;
+        if (!surf) return -1;
+    }
 
     int ret = SDL_SaveBMP(surf, path) ? 0 : -1;
-    SDL_DestroySurface(surf);
+    if (owned) SDL_DestroySurface(surf);
     return ret;
 }
 
@@ -2271,6 +2280,7 @@ int main(void)
     float rx_max_w = SCREEN_W - rx - 15.0f;
     float menu_y0 = 130.0f;
     float item_h  = 34.0f;
+    SDL_Surface *clean_frame_for_screenshot = NULL;
 
     while (running) {
         while (SDL_PollEvent(&ev)) {
@@ -3032,7 +3042,7 @@ int main(void)
                 SDL_SetRenderDrawBlendMode(ren, SDL_BLENDMODE_NONE);
                 SDL_RenderPresent(ren);
                 SDL_Delay(80); /* visible al menos 2 frames */
-                take_screenshot(ren, SCREEN_W, SCREEN_H);
+                take_screenshot(ren, SCREEN_W, SCREEN_H, clean_frame_for_screenshot);
                 screenshot_flash_until = SDL_GetTicks() + 500;
                 SDL_PumpEvents();
                 /* Esperar a que suelten los botones para evitar disparos multiples */
@@ -4579,6 +4589,11 @@ int main(void)
         } else {
             screenshot_flash_until = 0;
         }
+        if (clean_frame_for_screenshot) {
+            SDL_DestroySurface(clean_frame_for_screenshot);
+            clean_frame_for_screenshot = NULL;
+        }
+        clean_frame_for_screenshot = SDL_RenderReadPixels(ren, NULL);
         draw_screen_corners(ren, SCREEN_W, SCREEN_H, 22.0f);
         SDL_RenderPresent(ren);
         /* VSync activo (SDL_SetRenderVSync) sustituye al SDL_Delay(16):
@@ -4594,6 +4609,7 @@ int main(void)
         }
     }
 
+    if (clean_frame_for_screenshot) SDL_DestroySurface(clean_frame_for_screenshot);
     if (logo_tex) SDL_DestroyTexture(logo_tex);
     for (int mi = 0; mi < MENU_ICON_COUNT; mi++)
         if (menu_icon_tex[mi]) SDL_DestroyTexture(menu_icon_tex[mi]);
