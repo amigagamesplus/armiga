@@ -35,7 +35,7 @@ cleanup_fail() {
 }
 
 printf "\033[2J\033[H\033[32m" > /dev/tty0
-fb "  ARMIGA OS"
+fb "  ARMIGA"
 fb "  Actualizacion del sistema (A/B)"
 fb ""
 fb "  No apagues el dispositivo durante este proceso."
