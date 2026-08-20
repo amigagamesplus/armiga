@@ -25,6 +25,7 @@ DEV="/dev/mmcblk0"
 [ -f "$UPDATE_IMG_GZ" ] || { rm -f "$UPDATE_FLAG"; exit 0; }
 
 fb() { echo "$1" > /dev/tty0; echo "$(date): $1" >> "$LOG"; }
+t() { [ "$IS_EN" = "1" ] && echo "$2" || echo "$1"; }
 
 cleanup_fail() {
     fb "  $1"
@@ -34,11 +35,14 @@ cleanup_fail() {
     exit 1
 }
 
+UI_LANG=$(grep '^LANG=' /media/amiga_data/armiga.cfg 2>/dev/null | cut -d= -f2)
+[ "$UI_LANG" = "EN" ] && IS_EN=1 || IS_EN=0
+
 printf "\033[2J\033[H\033[32m" > /dev/tty0
 fb "  ARMIGA"
-fb "  Actualizacion del sistema (A/B)"
+if [ "$IS_EN" = "1" ]; then fb "  System update (A/B)"; else fb "  Actualizacion del sistema (A/B)"; fi
 fb ""
-fb "  No apagues el dispositivo durante este proceso."
+if [ "$IS_EN" = "1" ]; then fb "  Do not power off the device during this process."; else fb "  No apagues el dispositivo durante este proceso."; fi
 fb ""
 
 # --- Determinar slot activo actual vía /proc/cmdline ------------------------
@@ -55,20 +59,20 @@ case "$CURRENT_ROOT" in
         TARGET_LABEL="armiga-a"
         ;;
     *)
-        cleanup_fail "ERROR: no se pudo determinar el slot activo ($CURRENT_ROOT)."
+        cleanup_fail "$(t "ERROR: no se pudo determinar el slot activo ($CURRENT_ROOT)." "ERROR: could not determine active slot ($CURRENT_ROOT).")"
         ;;
 esac
-fb "  Slot activo: $ACTIVE_LABEL  ->  Flasheando: $TARGET_LABEL"
+fb "  $(t "Slot activo" "Active slot"): $ACTIVE_LABEL  ->  $(t "Flasheando" "Flashing"): $TARGET_LABEL"
 
 # --- Descomprimir imagen -----------------------------------------------------
-fb "  [1/4] Descomprimiendo imagen..."
+fb "  [1/4] $(t "Descomprimiendo imagen..." "Decompressing image...")"
 gunzip -c "$UPDATE_IMG_GZ" > "$UPDATE_IMG" 2>> "$LOG"
 if [ $? -ne 0 ]; then
-    cleanup_fail "ERROR al descomprimir. Abortando."
+    cleanup_fail "$(t "ERROR al descomprimir. Abortando." "ERROR while decompressing. Aborting.")"
 fi
 
 if [ ! -b "$DEV" ]; then
-    cleanup_fail "ERROR: dispositivo no encontrado."
+    cleanup_fail "$(t "ERROR: dispositivo no encontrado." "ERROR: device not found.")"
 fi
 
 # --- Leer offsets de la particion SYSTEM (p2) dentro de la imagen -----------
@@ -81,11 +85,11 @@ fi
 # directamente de sysfs, que son valores numericos puros sin parsing.
 LOOP_DEV=$(losetup -f)
 if [ -z "$LOOP_DEV" ]; then
-    cleanup_fail "ERROR: no se pudo obtener un loop device libre."
+    cleanup_fail "$(t "ERROR: no se pudo obtener un loop device libre." "ERROR: could not get a free loop device.")"
 fi
 losetup -P "$LOOP_DEV" "$UPDATE_IMG" 2>> "$LOG"
 if [ $? -ne 0 ]; then
-    cleanup_fail "ERROR: no se pudo asociar la imagen a $LOOP_DEV."
+    cleanup_fail "$(t "ERROR: no se pudo asociar la imagen a $LOOP_DEV." "ERROR: could not attach image to $LOOP_DEV.")"
 fi
 LOOP_NAME=$(basename "$LOOP_DEV")
 
@@ -94,7 +98,7 @@ IMG_P2_SIZE=$(cat "/sys/class/block/${LOOP_NAME}p2/size" 2>/dev/null)
 
 if [ -z "$IMG_P2_START" ] || [ -z "$IMG_P2_SIZE" ]; then
     losetup -d "$LOOP_DEV" 2>/dev/null
-    cleanup_fail "ERROR: no se pudieron leer offsets de la imagen origen (sysfs)."
+    cleanup_fail "$(t "ERROR: no se pudieron leer offsets de la imagen origen (sysfs)." "ERROR: could not read source image offsets (sysfs).")"
 fi
 
 IMG_P2_SKIP_BYTES=$(( IMG_P2_START * 512 ))
@@ -107,7 +111,7 @@ DEV_START=$(cat "/sys/class/block/${TARGET_PNAME}/start" 2>/dev/null)
 
 if [ -z "$DEV_START" ]; then
     losetup -d "$LOOP_DEV" 2>/dev/null
-    cleanup_fail "ERROR: no se pudo leer el offset del slot inactivo ($TARGET_PART, sysfs)."
+    cleanup_fail "$(t "ERROR: no se pudo leer el offset del slot inactivo ($TARGET_PART, sysfs)." "ERROR: could not read inactive slot offset ($TARGET_PART, sysfs).")"
 fi
 
 DEV_SEEK_BYTES=$(( DEV_START * 512 ))
@@ -116,7 +120,7 @@ DEV_SEEK_BYTES=$(( DEV_START * 512 ))
 # IMPORTANTE: $TARGET_PART nunca esta montada en este momento (es el
 # slot inactivo), por lo que este dd es seguro sin necesidad de
 # desmontar nada ni salir del rootfs activo.
-fb "  [2/4] Flasheando slot inactivo ($TARGET_LABEL, ~3 min)..."
+fb "  [2/4] $(t "Flasheando slot inactivo ($TARGET_LABEL, ~3 min)..." "Flashing inactive slot ($TARGET_LABEL, ~3 min)...")"
 dd if="$UPDATE_IMG" of="$DEV" bs=4M \
    iflag=skip_bytes,count_bytes oflag=seek_bytes \
    skip=$IMG_P2_SKIP_BYTES count=$IMG_P2_COUNT_BYTES seek=$DEV_SEEK_BYTES \
@@ -124,20 +128,20 @@ dd if="$UPDATE_IMG" of="$DEV" bs=4M \
 DD_RESULT=$?
 losetup -d "$LOOP_DEV" 2>/dev/null
 if [ "$DD_RESULT" -ne 0 ]; then
-    cleanup_fail "ERROR al flashear el slot inactivo."
+    cleanup_fail "$(t "ERROR al flashear el slot inactivo." "ERROR while flashing inactive slot.")"
 fi
 
 # --- Actualizar DEFAULT en extlinux.conf (p1) --------------------------------
-fb "  [3/4] Actualizando configuracion de arranque..."
+fb "  [3/4] $(t "Actualizando configuracion de arranque..." "Updating boot configuration...")"
 mkdir -p "$BOOT_MNT"
 mount "$BOOT_DEV" "$BOOT_MNT" 2>> "$LOG"
 if [ $? -ne 0 ]; then
-    cleanup_fail "ERROR: no se pudo montar la particion de arranque."
+    cleanup_fail "$(t "ERROR: no se pudo montar la particion de arranque." "ERROR: could not mount boot partition.")"
 fi
 
 EXTLINUX_CONF="$BOOT_MNT/extlinux/extlinux.conf"
 if [ ! -f "$EXTLINUX_CONF" ]; then
-    cleanup_fail "ERROR: extlinux.conf no encontrado en boot."
+    cleanup_fail "$(t "ERROR: extlinux.conf no encontrado en boot." "ERROR: extlinux.conf not found in boot.")"
 fi
 
 sed -i "s/^DEFAULT .*/DEFAULT $TARGET_LABEL/" "$EXTLINUX_CONF"
@@ -145,7 +149,7 @@ sync
 umount "$BOOT_MNT"
 
 # --- Limpieza y reinicio ------------------------------------------------------
-fb "  [4/4] Actualizacion completada. Reiniciando a $TARGET_LABEL..."
+fb "  [4/4] $(t "Actualizacion completada. Reiniciando a $TARGET_LABEL..." "Update complete. Rebooting to $TARGET_LABEL...")"
 rm -f "$UPDATE_FLAG" "$UPDATE_IMG_GZ" "$UPDATE_IMG" "/media/amiga_data/update/armiga.img.gz.sha256"
 sync
 reboot
