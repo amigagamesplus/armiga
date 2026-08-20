@@ -2,6 +2,18 @@
 
 Welcome to armiga, your Commodore Amiga emulation console.
 
+## Supported devices
+
+armiga ships configured for the **Anbernic RG40XX H** by default. It also supports the **Anbernic RG35XX H**, but you must manually swap one file after flashing:
+
+1. Flash armiga normally (Rufus/balenaEtcher) to your SD card.
+2. Open the `boot` partition on the SD card from a computer.
+3. Delete (or rename) `dtb.img`.
+4. Rename `dtb-rg35xx-h.img` to `dtb.img`.
+5. Eject the SD card and boot your RG35XX H.
+
+> If you skip this step on an RG35XX H, the device may not boot or some hardware (display, buttons) may not work correctly.
+
 ## Controls
 
 | Physical button                       | Function                                   |

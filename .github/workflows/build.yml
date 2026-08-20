@@ -39,6 +39,8 @@ jobs:
           fetch-depth: 0
 
       - name: Install build dependencies
+        env:
+          DEBIAN_FRONTEND: noninteractive
         run: |
           sudo apt-get update
           sudo apt-get install -y \
@@ -195,36 +197,40 @@ jobs:
           body: |
             # armiga ${{ env.ARMIGA_VER }}
 
-            ## Componentes
+            ## Components
 
-            - RetroArch ${{ env.RETROARCH_VER }} + núcleo PUAE
-            - Launcher propio en C/SDL3, interfaz bilingüe Español/English
+            - RetroArch ${{ env.RETROARCH_VER }} + PUAE core
+            - Custom C/SDL3 launcher, bilingual Spanish/English interface
             - Kernel ${{ env.KERNEL_VER }}
             - Mesa ${{ env.MESA_VER }}
 
-            ## Cambios desde el release anterior
+            ## Changes since the last release
 
             ${{ env.CHANGELOG }}
 
-            ## Instalación
+            ## Installation
 
-            Descarga `armiga.img.gz`, descomprímelo y flashea la imagen en una microSD con balenaEtcher o Rufus. Ver [guía de usuario](../../blob/main/GUIA-USUARIO.md) para el manejo del dispositivo.
+            Download `armiga.img.gz`, extract it, and flash the image to a microSD card with balenaEtcher or Rufus. See the [user guide](../../blob/main/USER-GUIDE.md) for how to use the device.
 
-            ## Actualización OTA
+            ## OTA update
 
-            Disponible desde el launcher: Configuración → Actualización de sistema.
+            Available from the launcher: Settings → System update.
 
-            ## Verificación de integridad
+            ## Integrity check
 
-            Ejecuta `sha256sum -c armiga.img.gz.sha256` en la misma carpeta donde descargaste ambos ficheros.
+            Run `sha256sum -c armiga.img.gz.sha256` in the same folder where you downloaded both files.
 
-            ## Hardware compatible
+            ## Supported hardware
 
-            Anbernic RG40XX H (Allwinner H700, Mali-G31 MP2, 1GB LPDDR4)
+            - Anbernic RG40XX H (Allwinner H700, Mali-G31 MP2, 1GB LPDDR4)
+            - Anbernic RG35XX H (Allwinner H700) — requires manually swapping `dtb.img` for `dtb-rg35xx-h.img` on the boot partition. See the [user guide](../../blob/main/USER-GUIDE.md#supported-devices).
 
             ---
 
-            💬 [Únete al grupo de Telegram](https://t.me/amigagames)
+            [Telegram](https://t.me/amigagames)
+            [Discord](https://discord.gg/cB6maf97Tz)
+
+            Made with ❤️ for the Commodore Amiga community.
           files: |
             output/images/armiga.img.gz
             output/images/armiga.img.gz.sha256

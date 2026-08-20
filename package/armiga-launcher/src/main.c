@@ -391,7 +391,8 @@ static void read_cpu_temp(char *buf, size_t bufsize)
 
 /* Guarda un BMP de la pantalla actual en /media/amiga_data/screenshots/.
  * Devuelve 0 en éxito, -1 en error. */
-static int take_screenshot(SDL_Renderer *ren, int screen_w, int screen_h)
+static int take_screenshot(SDL_Renderer *ren, int screen_w, int screen_h,
+                            SDL_Surface *clean_frame)
 {
     mkdir("/media/amiga_data/screenshots", 0755);
 
@@ -406,11 +407,19 @@ static int take_screenshot(SDL_Renderer *ren, int screen_w, int screen_h)
         snprintf(path, sizeof(path),
                  "/media/amiga_data/screenshots/armiga_%lu.bmp", (unsigned long)t);
 
-    SDL_Surface *surf = SDL_RenderReadPixels(ren, NULL);
-    if (!surf) return -1;
+    /* Usa el frame limpio (sin esquinas redondeadas) guardado justo antes
+     * de dibujar draw_screen_corners en la ultima iteracion del bucle,
+     * en vez de leer el backbuffer actual (que ya incluye las esquinas). */
+    SDL_Surface *surf = clean_frame;
+    bool owned = false;
+    if (!surf) {
+        surf = SDL_RenderReadPixels(ren, NULL);
+        owned = true;
+        if (!surf) return -1;
+    }
 
     int ret = SDL_SaveBMP(surf, path) ? 0 : -1;
-    SDL_DestroySurface(surf);
+    if (owned) SDL_DestroySurface(surf);
     return ret;
 }
 
@@ -1246,12 +1255,24 @@ static void start_backup_async(char *out_name, size_t out_name_sz)
         chdir("/media/amiga_data");
         int fd = open("/dev/null", O_WRONLY);
         if (fd >= 0) { dup2(fd, STDERR_FILENO); close(fd); }
-        execlp("tar", "tar", "caf", backup_path,
-               "armiga.cfg", "wifi.conf",
-               "retroarch/retroarch.cfg", "retroarch/config",
-               "retroarch/saves", "retroarch/states",
-               "retroarch/playlists", "retroarch/thumbnails",
-               (char *)NULL);
+        {
+            char cmd[512];
+            char extra[256] = "";
+            struct stat st;
+            if (stat("/media/amiga_data/led.conf", &st) == 0)
+                strcat(extra, " led.conf");
+            if (stat("/media/amiga_data/shaders", &st) == 0)
+                strcat(extra, " shaders");
+            if (stat("/media/amiga_data/kickstarts", &st) == 0)
+                strcat(extra, " kickstarts");
+            snprintf(cmd, sizeof(cmd),
+                "tar -caf '%s' armiga.cfg wifi.conf "
+                "retroarch/retroarch.cfg retroarch/config "
+                "retroarch/saves retroarch/states "
+                "retroarch/playlists retroarch/thumbnails%s",
+                backup_path, extra);
+            execlp("sh", "sh", "-c", cmd, (char *)NULL);
+        }
         _exit(127); /* solo si execlp falla */
     }
     s_backup_pid = pid;
@@ -2259,6 +2280,7 @@ int main(void)
     float rx_max_w = SCREEN_W - rx - 15.0f;
     float menu_y0 = 130.0f;
     float item_h  = 34.0f;
+    SDL_Surface *clean_frame_for_screenshot = NULL;
 
     while (running) {
         while (SDL_PollEvent(&ev)) {
@@ -3020,7 +3042,7 @@ int main(void)
                 SDL_SetRenderDrawBlendMode(ren, SDL_BLENDMODE_NONE);
                 SDL_RenderPresent(ren);
                 SDL_Delay(80); /* visible al menos 2 frames */
-                take_screenshot(ren, SCREEN_W, SCREEN_H);
+                take_screenshot(ren, SCREEN_W, SCREEN_H, clean_frame_for_screenshot);
                 screenshot_flash_until = SDL_GetTicks() + 500;
                 SDL_PumpEvents();
                 /* Esperar a que suelten los botones para evitar disparos multiples */
@@ -3942,7 +3964,7 @@ int main(void)
             draw_footer(ren, f_sm, tr("[B] Seleccionar  [A] Volver", "[B] Select  [A] Back"), s_version);
 
         } else if (state == STATE_BACKUP_LIST) {
-            draw_text_truncated(ren, f_sm, tr("Menú > Configuración > Copia de seguridad > Restaurar copia", "Menu > Settings > Backup > Restore Backup"), c_green, mx, 20.0f, SCREEN_W - 190.0f);
+            draw_text_truncated(ren, f_sm, tr("Menú > Configuración > Copia de seguridad > Restaurar copia", "Menu > Settings > Backup > Restore Backup"), c_green, mx, 20.0f, 270.0f);
             draw_statusbar(ren, f_sm, f_xs, status_time, status_wifi_up, status_battery, status_bt_up, wifi_icon_tex, battery_icon_tex, bt_icon_tex);
             float bkl_y0 = 64.0f;
             float bkl_item_h = 26.0f;
@@ -3960,17 +3982,20 @@ int main(void)
                     bkl_cursor_y += (target_y - bkl_cursor_y) * lerp_speed * dt;
                     if (fabsf(target_y - bkl_cursor_y) < 0.5f) bkl_cursor_y = target_y;
                 }
+                SDL_Color c_menu_gold = {27, 39, 8, 255};
+                SDL_Color c_menu_selbg = {183, 221, 91, 255};
                 for (int i = 0; i < backup_count; i++) {
                     float iy = bkl_y0 + i * bkl_item_h;
                     if (i == backup_list_selected) {
                         int text_w = 0, text_h = 0;
                         TTF_GetStringSize(f_sm, backup_list[i], 0, &text_w, &text_h);
-                        float sel_w = (float)text_w + 24.0f;
-                        draw_rounded_rect_filled(ren, mx - 4.0f, bkl_cursor_y - 4.0f,
-                                         sel_w, bkl_item_h - 2.0f, 8.0f, c_selbg);
-                        draw_rect_filled(ren, mx - 4.0f, bkl_cursor_y - 4.0f,
-                                         4.0f, bkl_item_h - 2.0f, c_green);
-                        draw_text(ren, f_sm, backup_list[i], c_green, mx + 8.0f, iy);
+                        float sel_w = (float)text_w + 32.0f;
+                        float pill_h = 32.0f;
+                        float pill_y = bkl_cursor_y - (pill_h - bkl_item_h) / 2.0f - 5.0f;
+                        float text_y = pill_y + (pill_h - (float)text_h) / 2.0f;
+                        draw_rounded_rect_filled(ren, mx - 10.0f, pill_y,
+                                         sel_w, pill_h, pill_h / 2.0f, c_menu_selbg);
+                        draw_text(ren, f_sm, backup_list[i], c_menu_gold, mx + 8.0f, text_y);
                     } else {
                         draw_text(ren, f_sm, backup_list[i], c_gray, mx + 8.0f, iy);
                     }
@@ -4564,6 +4589,11 @@ int main(void)
         } else {
             screenshot_flash_until = 0;
         }
+        if (clean_frame_for_screenshot) {
+            SDL_DestroySurface(clean_frame_for_screenshot);
+            clean_frame_for_screenshot = NULL;
+        }
+        clean_frame_for_screenshot = SDL_RenderReadPixels(ren, NULL);
         draw_screen_corners(ren, SCREEN_W, SCREEN_H, 22.0f);
         SDL_RenderPresent(ren);
         /* VSync activo (SDL_SetRenderVSync) sustituye al SDL_Delay(16):
@@ -4579,6 +4609,7 @@ int main(void)
         }
     }
 
+    if (clean_frame_for_screenshot) SDL_DestroySurface(clean_frame_for_screenshot);
     if (logo_tex) SDL_DestroyTexture(logo_tex);
     for (int mi = 0; mi < MENU_ICON_COUNT; mi++)
         if (menu_icon_tex[mi]) SDL_DestroyTexture(menu_icon_tex[mi]);

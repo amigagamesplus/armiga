@@ -37,8 +37,21 @@ jobs:
           cd linux-${KV}
           for patch in "${GITHUB_WORKSPACE}"/board/armiga/linux/patches/*.patch; do
             if [ -f "$patch" ]; then
-              echo "Applying $(basename "$patch")..."
-              patch -p1 < "$patch"
+              name="$(basename "$patch")"
+              case "$name" in
+                0005-h616-sram-c-de3-alias-legacy.patch|0006-h616-sram-c-de3-alias-new.patch)
+                  if patch -p1 -N --dry-run < "$patch" > /dev/null 2>&1; then
+                    echo "Applying $name..."
+                    patch -p1 < "$patch"
+                  else
+                    echo "Skipping $name (not applicable to this kernel version)"
+                  fi
+                  ;;
+                *)
+                  echo "Applying $name..."
+                  patch -p1 < "$patch"
+                  ;;
+              esac
             fi
           done
 
@@ -100,6 +113,10 @@ jobs:
           if [ -f "$DTB_FILE" ]; then
             cp "$DTB_FILE" kernel-artifacts/dtb.img
           fi
+          DTB_RG35XX_H_REV6="${GITHUB_WORKSPACE}/linux-${KV}/arch/arm64/boot/dts/allwinner/sun50i-h700-anbernic-rg35xx-h-rev6-panel.dtb"
+          if [ -f "$DTB_RG35XX_H_REV6" ]; then
+            cp "$DTB_RG35XX_H_REV6" kernel-artifacts/dtb-rg35xx-h-rev6.img
+          fi
           DTB_RG35XX="${GITHUB_WORKSPACE}/linux-${KV}/arch/arm64/boot/dts/allwinner/sun50i-h700-anbernic-rg35xx-h.dtb"
           if [ -f "$DTB_RG35XX" ]; then
             cp "$DTB_RG35XX" kernel-artifacts/dtb-rg35xx-h.img
@@ -107,10 +124,14 @@ jobs:
           KO="${GITHUB_WORKSPACE}/board/armiga/linux/rocknix-joypad/rocknix-singleadc-joypad.ko"
           cp "$KO" kernel-artifacts/
           MODULES_LIB="${GITHUB_WORKSPACE}/modules_out/lib/modules"
-          cp "$KO" "${MODULES_LIB}/${KV}-armiga/rocknix-singleadc-joypad.ko"
-          depmod -a -b "${GITHUB_WORKSPACE}/modules_out" "${KV}-armiga"
+          echo "=== Real modules dir(s) ==="
+          ls "${MODULES_LIB}"
+          REAL_KVER="$(ls "${MODULES_LIB}" | head -1)"
+          echo "REAL_KVER=${REAL_KVER}"
+          cp "$KO" "${MODULES_LIB}/${REAL_KVER}/rocknix-singleadc-joypad.ko"
+          depmod -a -b "${GITHUB_WORKSPACE}/modules_out" "${REAL_KVER}"
           echo "=== modules.dep entries for joypad ==="
-          grep -i joypad "${MODULES_LIB}/${KV}-armiga/modules.dep" || echo "WARNING: joypad not found in modules.dep"
+          grep -i joypad "${MODULES_LIB}/${REAL_KVER}/modules.dep" || echo "WARNING: joypad not found in modules.dep"
           tar czf kernel-artifacts/modules-${KV}.tar.gz -C "${GITHUB_WORKSPACE}/modules_out/lib" modules
           echo "=== In-tree modules packaged ==="
           find "$MODULES_LIB" -name "*.ko" | wc -l

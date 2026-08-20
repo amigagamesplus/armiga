@@ -21,6 +21,14 @@ cp "$BOARD_DIR/bootloader/KERNEL" "$IMAGES_DIR/KERNEL"
 
 echo ">>> Copiando DTB..."
 cp "$BOARD_DIR/bootloader/dtb.img" "$IMAGES_DIR/dtb.img"
+if [ -f "$BOARD_DIR/bootloader/dtb-rg35xx-h.img" ]; then
+    echo ">>> Copiando DTB adicional (RG35XX H)..."
+    cp "$BOARD_DIR/bootloader/dtb-rg35xx-h.img" "$IMAGES_DIR/dtb-rg35xx-h.img"
+fi
+if [ -f "$BOARD_DIR/bootloader/dtb-rg35xx-h-rev6.img" ]; then
+    echo ">>> Copiando DTB adicional (RG35XX H Rev6)..."
+    cp "$BOARD_DIR/bootloader/dtb-rg35xx-h-rev6.img" "$IMAGES_DIR/dtb-rg35xx-h-rev6.img"
+fi
 
 # --- Crear extlinux.conf -----------------------------------------------------
 echo ">>> Generando extlinux.conf..."

@@ -1,0 +1,10 @@
+--- a/arch/arm64/boot/dts/allwinner/sun50i-h616.dtsi
++++ b/arch/arm64/boot/dts/allwinner/sun50i-h616.dtsi
+@@ -278,7 +278,7 @@ syscon: syscon@3000000 {
+ 				 * However the whole region is toggled together.
+ 				 */
+-				sram_c: sram-section@0 {
++				de3_sram: sram_c: sram-section@0 {
+ 					compatible = "allwinner,sun50i-h616-sram-c",
+ 						     "allwinner,sun50i-a64-sram-c";
+ 					reg = <0x00000 0x30000>;

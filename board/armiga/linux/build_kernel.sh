@@ -9,7 +9,7 @@
 
 set -e
 
-KERNEL_VERSION="7.0.14"
+KERNEL_VERSION="7.1.8"
 LINUX_DIR="linux-${KERNEL_VERSION}"
 BOARD_DIR="$(cd "$(dirname "$0")" && pwd)"
 BOOTLOADER_DIR="$(dirname "$BOARD_DIR")/bootloader"
@@ -84,13 +84,21 @@ echo "=== Copiando binarios al directorio bootloader ==="
 mkdir -p "$BOOTLOADER_DIR"
 cp arch/arm64/boot/Image "$BOOTLOADER_DIR/KERNEL"
 
-# El dtb específico del H700 (RG40XX H)
+# El dtb especifico del H700 (RG40XX H) - modelo por defecto
 DTB_FILE="arch/arm64/boot/dts/allwinner/sun50i-h700-anbernic-rg40xx-h.dtb"
 if [ -f "$DTB_FILE" ]; then
     cp "$DTB_FILE" "$BOOTLOADER_DIR/dtb.img"
-    echo "Kernel e Image DTB compilados y copiados correctamente a $BOOTLOADER_DIR."
+    echo "Kernel e Image DTB (RG40XX H) compilados y copiados correctamente a $BOOTLOADER_DIR."
 else
-    echo "ATENCIÓN: No se encontró el dtb esperado ($DTB_FILE). Asegúrate de tener los parches correctos."
+    echo "ATENCION: No se encontro el dtb esperado ($DTB_FILE). Asegurate de tener los parches correctos."
+fi
+# DTB adicional para RG35XX H (el usuario lo sustituye manualmente sobre dtb.img si su modelo es este)
+DTB_FILE_RG35XX_H="arch/arm64/boot/dts/allwinner/sun50i-h700-anbernic-rg35xx-h.dtb"
+if [ -f "$DTB_FILE_RG35XX_H" ]; then
+    cp "$DTB_FILE_RG35XX_H" "$BOOTLOADER_DIR/dtb-rg35xx-h.img"
+    echo "DTB adicional (RG35XX H) copiado correctamente a $BOOTLOADER_DIR."
+else
+    echo "ATENCION: No se encontro el dtb de RG35XX H ($DTB_FILE_RG35XX_H)."
 fi
 
 echo "¡Hecho!"
