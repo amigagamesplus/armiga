@@ -3379,6 +3379,10 @@ int main(void)
         draw_text(ren, f_sm, "68K SOUL, ARM64 HEART.", c_dkgreen, mx + 2.0f, 94.0f);
 
         draw_statusbar(ren, f_sm, f_xs, status_time, status_wifi_up, status_battery, status_bt_up, wifi_icon_tex, battery_icon_tex, bt_icon_tex);
+        if (bg_update_available) {
+            SDL_Color c_lime = {183, 221, 91, 255};
+            draw_text_right(ren, f_sm, tr("ACTUALIZACIÓN DISPONIBLE", "UPDATE AVAILABLE"), c_lime, SCREEN_W - 20.0f, 50.0f);
+        }
 
 
         /* Menú */
@@ -3412,20 +3416,6 @@ int main(void)
                     SDL_RenderTexture(ren, menu_icon_tex[i], NULL, &icon_dst);
                 }
                 draw_text(ren, f_med, MENU_ITEMS[i][current_lang], c_menu_gold, mx + 46.0f, iy);
-                if (i == 1 && bg_update_available) {
-                    int tw2 = 0, th2 = 0;
-                    TTF_GetStringSize(f_med, MENU_ITEMS[i][current_lang], 0, &tw2, &th2);
-                    float bx = mx + 46.0f + (float)tw2 + 12.0f;
-                    float by = iy + 2.0f;
-                    SDL_Color c_red_badge = {220, 40, 40, 255};
-                    draw_circle_filled(ren, bx + 8.0f, by + 8.0f, 8.0f, c_red_badge);
-                    /* Signo de exclamacion blanco centrado sobre el circulo */
-                    SDL_Color c_white_excl = {255, 255, 255, 255};
-                    int ew = 0, eh = 0;
-                    TTF_GetStringSize(f_sm, "!", 0, &ew, &eh);
-                    draw_text(ren, f_sm, "!", c_white_excl,
-                              bx + 8.0f - (float)ew / 2.0f, by + 8.0f - (float)eh / 2.0f);
-                }
             } else {
                 if (menu_icon_tex[i]) {
                     SDL_SetTextureColorMod(menu_icon_tex[i], c_menu_beige.r, c_menu_beige.g, c_menu_beige.b);
@@ -3433,19 +3423,6 @@ int main(void)
                     SDL_RenderTexture(ren, menu_icon_tex[i], NULL, &icon_dst);
                 }
                 draw_text(ren, f_med, MENU_ITEMS[i][current_lang], c_menu_beige, mx + 46.0f, iy);
-                if (i == 1 && bg_update_available) {
-                    int tw2 = 0, th2 = 0;
-                    TTF_GetStringSize(f_med, MENU_ITEMS[i][current_lang], 0, &tw2, &th2);
-                    float bx = mx + 46.0f + (float)tw2 + 12.0f;
-                    float by = iy + 2.0f;
-                    SDL_Color c_red_badge = {220, 40, 40, 255};
-                    draw_circle_filled(ren, bx + 8.0f, by + 8.0f, 8.0f, c_red_badge);
-                    SDL_Color c_white_excl = {255, 255, 255, 255};
-                    int ew = 0, eh = 0;
-                    TTF_GetStringSize(f_sm, "!", 0, &ew, &eh);
-                    draw_text(ren, f_sm, "!", c_white_excl,
-                              bx + 8.0f - (float)ew / 2.0f, by + 8.0f - (float)eh / 2.0f);
-                }
             }
         }
 
