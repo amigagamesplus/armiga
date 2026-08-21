@@ -236,14 +236,16 @@ static const char *BACKUP_MENU_ITEMS[][2] = {
 #define DEV_ACTION_BTOP     1
 #define DEV_ACTION_REBOOT   2
 #define DEV_ACTION_SHUTDOWN 3
+#define DEV_ACTION_FPS_TOGGLE 4
 
 static const char *DEV_MENU_ITEMS[] = {
     "Terminal",
     "btop",
     "Reboot",
     "Shutdown",
+    "FPS Counter",
 };
-#define DEV_MENU_COUNT 4
+#define DEV_MENU_COUNT 5
 
 /* SDL button indices del H700 (confirmados en hardware, no kernel/evdev) */
 #define BTN_SDL_B      1
@@ -2125,6 +2127,10 @@ int main(void)
     float bt_cursor_y = -1.0f;
     Uint64 bt_lerp_last_time = SDL_GetTicksNS();
     int dev_selected = 0;
+    bool show_fps_counter = false;
+    int fps_frame_count = 0;
+    float fps_display = 0.0f;
+    Uint64 fps_last_update = SDL_GetTicksNS();
     int confirm_target = DEV_ACTION_REBOOT; /* cual de los dos confirm. */
     AppState confirm_return_state = STATE_DEVMODE;
     int settings_selected = 0;
@@ -2280,7 +2286,6 @@ int main(void)
     float rx_max_w = SCREEN_W - rx - 15.0f;
     float menu_y0 = 130.0f;
     float item_h  = 34.0f;
-    SDL_Surface *clean_frame_for_screenshot = NULL;
 
     while (running) {
         while (SDL_PollEvent(&ev)) {
@@ -2368,6 +2373,8 @@ int main(void)
                     } else if (dev_selected == DEV_ACTION_SHUTDOWN) {
                         confirm_target = DEV_ACTION_SHUTDOWN;
                         state = STATE_CONFIRM;
+                    } else if (dev_selected == DEV_ACTION_FPS_TOGGLE) {
+                        show_fps_counter = !show_fps_counter;
                     }
                 }
                 if (ev.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN &&
@@ -3034,6 +3041,11 @@ int main(void)
             bool sel = SDL_GetJoystickButton(joy, BTN_SDL_SELECT);
             bool r1  = SDL_GetJoystickButton(joy, BTN_SDL_R1);
             if (sel && r1) {
+                /* Capturar el frame limpio (ya presentado, previo al flash)
+                 * solo aqui, bajo demanda, en vez de en cada iteracion del
+                 * bucle: RenderReadPixels es costoso y limitaba el framerate
+                 * real a ~17 FPS cuando se hacia incondicionalmente. */
+                SDL_Surface *clean_frame_for_screenshot = SDL_RenderReadPixels(ren, NULL);
                 /* Renderizar flash blanco encima del frame actual y presentarlo */
                 SDL_SetRenderDrawBlendMode(ren, SDL_BLENDMODE_BLEND);
                 SDL_SetRenderDrawColor(ren, 255, 255, 255, 180);
@@ -3043,6 +3055,10 @@ int main(void)
                 SDL_RenderPresent(ren);
                 SDL_Delay(80); /* visible al menos 2 frames */
                 take_screenshot(ren, SCREEN_W, SCREEN_H, clean_frame_for_screenshot);
+                if (clean_frame_for_screenshot) {
+                    SDL_DestroySurface(clean_frame_for_screenshot);
+                    clean_frame_for_screenshot = NULL;
+                }
                 screenshot_flash_until = SDL_GetTicks() + 500;
                 SDL_PumpEvents();
                 /* Esperar a que suelten los botones para evitar disparos multiples */
@@ -4144,16 +4160,23 @@ int main(void)
 
             for (int i = 0; i < DEV_MENU_COUNT; i++) {
                 float iy = dev_y0 + i * dev_item_h;
+                char dev_label_buf[40];
+                const char *dev_label = DEV_MENU_ITEMS[i];
+                if (i == DEV_ACTION_FPS_TOGGLE) {
+                    snprintf(dev_label_buf, sizeof(dev_label_buf), "FPS Counter: %s",
+                             show_fps_counter ? "ON" : "OFF");
+                    dev_label = dev_label_buf;
+                }
                 if (i == dev_selected) {
                     int text_w = 0, text_h = 0;
-                    TTF_GetStringSize(f_sm, DEV_MENU_ITEMS[i], 0, &text_w, &text_h);
+                    TTF_GetStringSize(f_sm, dev_label, 0, &text_w, &text_h);
                     float sel_w = (float)text_w + 32.0f;
                     float pill_h = dev_item_h - 4.0f;
                     draw_rounded_rect_filled(ren, mx - 10.0f, iy - 5.0f,
                                      sel_w, pill_h, pill_h / 2.0f, c_menu_selbg);
-                    draw_text(ren, f_sm, DEV_MENU_ITEMS[i], c_menu_gold, mx + 8.0f, iy);
+                    draw_text(ren, f_sm, dev_label, c_menu_gold, mx + 8.0f, iy);
                 } else {
-                    draw_text(ren, f_sm, DEV_MENU_ITEMS[i], c_menu_beige, mx + 8.0f, iy);
+                    draw_text(ren, f_sm, dev_label, c_menu_beige, mx + 8.0f, iy);
                 }
             }
 
@@ -4501,12 +4524,21 @@ int main(void)
         } else {
             screenshot_flash_until = 0;
         }
-        if (clean_frame_for_screenshot) {
-            SDL_DestroySurface(clean_frame_for_screenshot);
-            clean_frame_for_screenshot = NULL;
-        }
-        clean_frame_for_screenshot = SDL_RenderReadPixels(ren, NULL);
         draw_screen_corners(ren, SCREEN_W, SCREEN_H, 22.0f);
+        if (show_fps_counter) {
+            fps_frame_count++;
+            Uint64 fps_now_ns = SDL_GetTicksNS();
+            float fps_elapsed = (float)(fps_now_ns - fps_last_update) / 1000000000.0f;
+            if (fps_elapsed >= 0.5f) {
+                fps_display = (float)fps_frame_count / fps_elapsed;
+                fps_frame_count = 0;
+                fps_last_update = fps_now_ns;
+            }
+            char fps_buf[16];
+            snprintf(fps_buf, sizeof(fps_buf), "%.0f FPS", fps_display);
+            SDL_Color c_fps_white = COL_WHITE;
+            draw_text_right(ren, f_sm, fps_buf, c_fps_white, SCREEN_W - 20.0f, 70.0f);
+        }
         SDL_RenderPresent(ren);
         /* VSync activo (SDL_SetRenderVSync) sustituye al SDL_Delay(16):
          * RenderPresent bloquea hasta el siguiente VBlank, 0% CPU en espera. */
@@ -4521,7 +4553,6 @@ int main(void)
         }
     }
 
-    if (clean_frame_for_screenshot) SDL_DestroySurface(clean_frame_for_screenshot);
     if (logo_tex) SDL_DestroyTexture(logo_tex);
     for (int mi = 0; mi < MENU_ICON_COUNT; mi++)
         if (menu_icon_tex[mi]) SDL_DestroyTexture(menu_icon_tex[mi]);
