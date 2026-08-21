@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
 
 env:
-  MESA_VERSION: "26.2.0"
+  MESA_VERSION: "26.2.1"
 
 jobs:
   build:
