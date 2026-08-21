@@ -1,21 +1,21 @@
-# Armiga — Sistema de configuración de RetroArch y PUAE2021
+# Armiga — RetroArch and PUAE2021 Configuration System
 
-**Fecha:** 2026-08-21
+**Date:** 2026-08-21
 
-Documenta cómo funcionan realmente los ficheros de configuración de RetroArch/PUAE2021 en Armiga, y el flujo para modificarlos de forma ágil.
+Documents how RetroArch/PUAE2021 config files actually work in Armiga, and the workflow to modify them efficiently.
 
 ---
 
-## 1. Los tres ficheros involucrados
+## 1. The three files involved
 
-| Fichero | Ubicación | Rol |
+| File | Location | Role |
 |---|---|---|
-| `retroarch.cfg.template` | repo: `board/armiga/rootfs_overlay/etc/retroarch/retroarch.cfg.template` | Plantilla maestra versionada. Semilla inicial de `retroarch.cfg` en el dispositivo. |
-| `retroarch.cfg` | dispositivo: `/media/amiga_data/retroarch/retroarch.cfg` | Config **viva**, editable por el usuario y por el propio RetroArch (se reescribe entera al cerrar la app). |
-| `armiga.cfg` | repo: `board/armiga/rootfs_overlay/etc/retroarch/armiga.cfg` | Claves fijas, forzadas siempre vía `--appendconfig` en cada arranque. Inmutable pase lo que pase en `retroarch.cfg`. No tiene versión, va en la imagen del sistema (no en `amiga_data`). |
-| `PUAE 2021.opt` | repo: `board/armiga/rootfs_overlay/etc/retroarch/PUAE 2021.opt` → dispositivo: `/media/amiga_data/retroarch/config/PUAE 2021/PUAE 2021.opt` | Opciones del core PUAE2021. Mismo patrón de versionado que `retroarch.cfg.template` desde 2026-08-21. |
+| `retroarch.cfg.template` | repo: `board/armiga/rootfs_overlay/etc/retroarch/retroarch.cfg.template` | Versioned master template. Initial seed for `retroarch.cfg` on the device. |
+| `retroarch.cfg` | device: `/media/amiga_data/retroarch/retroarch.cfg` | **Live** config, editable by the user and by RetroArch itself (rewritten in full on exit). |
+| `armiga.cfg` | repo: `board/armiga/rootfs_overlay/etc/retroarch/armiga.cfg` | Fixed keys, always forced via `--appendconfig` on every launch. Immutable regardless of `retroarch.cfg`. Not versioned, ships with the system image (not in `amiga_data`). |
+| `PUAE 2021.opt` | repo: `board/armiga/rootfs_overlay/etc/retroarch/PUAE 2021.opt` → device: `/media/amiga_data/retroarch/config/PUAE 2021/PUAE 2021.opt` | PUAE2021 core options. Same versioning pattern as `retroarch.cfg.template` since 2026-08-21. |
 
-### Wrapper de lanzamiento (`/usr/bin/retroarch`)
+### Launch wrapper (`/usr/bin/retroarch`)
 
 ```sh
 /usr/bin/retroarch.real \
@@ -24,88 +24,88 @@ Documenta cómo funcionan realmente los ficheros de configuración de RetroArch/
   "$@"
 ```
 
-`armiga.cfg` se aplica **por encima** de `retroarch.cfg` en cada arranque — cualquier clave definida ahí gana siempre, aunque el usuario la cambie desde el menú de RetroArch.
+`armiga.cfg` is applied **on top of** `retroarch.cfg` on every launch — any key defined there always wins, even if the user changes it from the RetroArch menu.
 
 ---
 
-## 2. Mecanismo de versionado y sincronización a dispositivos existentes
+## 2. Versioning and sync-to-existing-devices mechanism
 
-Tanto `retroarch.cfg.template` como `PUAE 2021.opt` llevan una primera línea:
+Both `retroarch.cfg.template` and `PUAE 2021.opt` carry a first line:
 
 ```
 # ARMIGA_CFG_VERSION=N
 ```
 
-En `S40partitions` (arranque), para cada uno de los dos ficheros:
+In `S40partitions` (boot), for each of the two files:
 
 ```sh
-TEMPLATE_VER=$(grep "^# ARMIGA_CFG_VERSION=" <template_repo> | cut -d= -f2)
-INSTALLED_VER=$(grep "^# ARMIGA_CFG_VERSION=" <fichero_en_amiga_data> 2>/dev/null | cut -d= -f2)
-if [ ! -f <fichero_en_amiga_data> ] || [ "$TEMPLATE_VER" -gt "$INSTALLED_VER" ]; then
-    cp <template_repo> <fichero_en_amiga_data>
+TEMPLATE_VER=$(grep "^# ARMIGA_CFG_VERSION=" <repo_template> | cut -d= -f2)
+INSTALLED_VER=$(grep "^# ARMIGA_CFG_VERSION=" <file_in_amiga_data> 2>/dev/null | cut -d= -f2)
+if [ ! -f <file_in_amiga_data> ] || [ "$TEMPLATE_VER" -gt "$INSTALLED_VER" ]; then
+    cp <repo_template> <file_in_amiga_data>
 fi
 ```
 
-**Importante — esto es destructivo:** si subes la versión del template, el fichero completo del dispositivo se sobrescribe con el del repo en el siguiente arranque. No hay merge de claves individuales; es todo o nada. Por eso el flujo de sincronización (sección 3) va siempre en la dirección dispositivo → repo antes de subir versión, nunca al revés sin pasar por ahí.
+**Important — this is destructive:** if you bump the template version, the entire file on the device gets overwritten with the repo's version on the next boot. There's no per-key merge; it's all-or-nothing. This is why the sync workflow (section 3) always goes device → repo before bumping the version, never the other way around without going through it.
 
-Este mecanismo corre en dos sitios de `S40partitions`:
-- Primer arranque tras expandir la partición `amiga_data` (formateo inicial).
-- Cada arranque normal, como parte de la autorreparación si el fichero falta o su versión quedó atrás.
+This mechanism runs in two places in `S40partitions`:
+- First boot after expanding the `amiga_data` partition (initial format).
+- Every normal boot, as part of self-repair if the file is missing or its version is behind.
 
 ---
 
-## 3. Flujo ágil de trabajo (edición en vivo → repo)
+## 3. Agile workflow (live editing → repo)
 
-### 3.1. Editar en el dispositivo
+### 3.1. Edit on the device
 
-Cambia los parámetros que quieras desde el propio menú de RetroArch (Configuración, Opciones del núcleo de PUAE2021, etc.) y guarda. RetroArch reescribe `retroarch.cfg` completo al salir; `PUAE 2021.opt` se guarda al aplicar opciones del core.
+Change whatever parameters you want from RetroArch's own menu (Settings, PUAE2021 core options, etc.) and save. RetroArch rewrites the entire `retroarch.cfg` on exit; `PUAE 2021.opt` is saved when core options are applied.
 
-### 3.2. Traer los cambios al repo: `tools/retroarch-sync.sh`
+### 3.2. Bring the changes into the repo: `tools/retroarch-sync.sh`
 
 ```bash
-# Solo ver el diff, sin tocar el repo
+# Diff only, doesn't touch the repo
 ./tools/retroarch-sync.sh root@<IP>
 
-# Aplicar: sobrescribe el template completo y sube ARMIGA_CFG_VERSION +1
+# Apply: overwrites the full template and bumps ARMIGA_CFG_VERSION by +1
 ./tools/retroarch-sync.sh root@<IP> --apply
 ```
 
-Qué hace:
-1. Descarga `retroarch.cfg` y `PUAE 2021.opt` del dispositivo por SSH (`cat | ssh` — sin scp, Dropbear no tiene sftp-server).
-2. Compara (ignorando la línea de versión) contra los ficheros del repo y muestra el diff.
-3. Con `--apply`: escribe el fichero completo del dispositivo en el repo, con la cabecera de versión incrementada en +1.
+What it does:
+1. Downloads `retroarch.cfg` and `PUAE 2021.opt` from the device over SSH (`cat | ssh` — no scp, Dropbear has no sftp-server).
+2. Compares them (ignoring the version line) against the repo files and shows the diff.
+3. With `--apply`: writes the full device file into the repo, with the version header incremented by +1.
 
-### 3.3. Ruido esperado en el diff
+### 3.3. Expected noise in the diff
 
-RetroArch reescribe el `.cfg` entero con **todas** las claves de su versión actual, incluidas las que nunca tocaste, con su valor por defecto. Si ha pasado tiempo desde que se generó el template, el diff tendrá muchas líneas nuevas irrelevantes (`input_playerN_hold_*`, `video_hdr_*`, etc.) mezcladas con tus cambios reales. Esto es inofensivo — son defaults legítimos de esa versión de RetroArch, no corrupción. Una vez rebaseado el template con `--apply`, los diffs posteriores vuelven a ser pequeños y legibles mientras no cambie la versión de RetroArch integrada.
+RetroArch rewrites the entire `.cfg` with **every** key from its current version, including ones you never touched, at their default value. If time has passed since the template was generated, the diff will show many irrelevant new lines (`input_playerN_hold_*`, `video_hdr_*`, etc.) mixed in with your real changes. This is harmless — they're legitimate defaults for that RetroArch version, not corruption. Once the template is rebaselined with `--apply`, subsequent diffs go back to being small and readable as long as the bundled RetroArch version doesn't change again.
 
-### 3.4. Después de `--apply`
+### 3.4. After `--apply`
 
 ```bash
 git status --short
 git add -A
 git commit -m "Sync retroarch.cfg / PUAE 2021.opt templates with live device config"
-git push origin <rama>
+git push origin <branch>
 ```
 
-Confirma que las dos cabeceras de versión subieron correctamente:
+Confirm both version headers were bumped correctly:
 
 ```bash
 grep "^# ARMIGA_CFG_VERSION=" board/armiga/rootfs_overlay/etc/retroarch/retroarch.cfg.template
 grep "^# ARMIGA_CFG_VERSION=" "board/armiga/rootfs_overlay/etc/retroarch/PUAE 2021.opt"
 ```
 
-Con esto, cualquier dispositivo existente que arranque con esta build recibirá el fichero actualizado (se sobrescribirá el suyo local, ver advertencia de la sección 2).
+With this, any existing device that boots this build will receive the updated file (its local copy will be overwritten, see the warning in section 2).
 
 ---
 
-## 4. Cuándo usar `armiga.cfg` en vez de `retroarch.cfg.template`
+## 4. When to use `armiga.cfg` instead of `retroarch.cfg.template`
 
-- **`armiga.cfg`** (forzado siempre, no versionado, vive en la imagen): para claves que **nunca** deben poder cambiarse desde el dispositivo — drivers de audio/vídeo, rutas de fuentes del sistema, tema de menú por defecto. Si lo tocas, no hace falta tocar versión ni sincronizar nada: va con cada build.
-- **`retroarch.cfg.template`**: para valores de partida que el usuario sí puede cambiar libremente después (y de hecho ya lo hará usando el propio menú). Requiere bump de versión para llegar a dispositivos existentes.
+- **`armiga.cfg`** (always forced, not versioned, ships with the image): for keys that should **never** be changeable from the device — audio/video drivers, system font paths, default menu theme. Editing it requires no version bump or sync: it ships with every build.
+- **`retroarch.cfg.template`**: for starting values the user is free to change afterward (and will, via the menu itself). Requires a version bump to reach existing devices.
 
 ---
 
-## 5. Limitación conocida
+## 5. Known limitation
 
-El versionado es "todo o nada" por fichero — no hay merge selectivo de claves individuales entre lo que trae el template nuevo y lo que el usuario ya tenía personalizado en su propio dispositivo. Si un usuario cambió manualmente `audio_volume` en su unidad y luego se sube de versión el template por otro motivo, su valor personalizado se pierde. No hay mitigación implementada para esto todavía.
+Versioning is all-or-nothing per file — there's no selective per-key merge between what the new template brings and what the user already personalized on their own device. If a user manually changed `audio_volume` on their unit and the template version is later bumped for an unrelated reason, their custom value is lost. No mitigation is implemented for this yet.
