@@ -3396,14 +3396,7 @@ int main(void)
         SDL_Color c_menu_selbg = {183, 221, 91, 255};
         {
             float target_y = menu_y0 + selected * item_h;
-            if (menu_cursor_y < 0.0f) menu_cursor_y = target_y;
-            Uint64 now_ns = SDL_GetTicksNS();
-            float dt = (float)(now_ns - menu_lerp_last_time) / 1000000000.0f;
-            menu_lerp_last_time = now_ns;
-            if (dt > 0.1f) dt = 0.1f;
-            float lerp_speed = 15.0f;
-            menu_cursor_y += (target_y - menu_cursor_y) * lerp_speed * dt;
-            if (fabsf(target_y - menu_cursor_y) < 0.5f) menu_cursor_y = target_y;
+            menu_cursor_y = target_y;
         }
         for (int i = 0; i < MENU_COUNT; i++) {
             float iy = menu_y0 + i * item_h;
@@ -3479,14 +3472,7 @@ int main(void)
             float settings_item_h = 32.0f;
             {
                 float target_y = settings_y0 + settings_selected * settings_item_h;
-                if (settings_cursor_y < 0.0f) settings_cursor_y = target_y;
-                Uint64 now_ns = SDL_GetTicksNS();
-                float dt = (float)(now_ns - settings_lerp_last_time) / 1000000000.0f;
-                settings_lerp_last_time = now_ns;
-                if (dt > 0.1f) dt = 0.1f;
-                float lerp_speed = 15.0f;
-                settings_cursor_y += (target_y - settings_cursor_y) * lerp_speed * dt;
-                if (fabsf(target_y - settings_cursor_y) < 0.5f) settings_cursor_y = target_y;
+                settings_cursor_y = target_y;
             }
             for (int i = 0; i < SETTINGS_MENU_COUNT; i++) {
                 float iy = settings_y0 + i * settings_item_h;
@@ -3565,14 +3551,7 @@ int main(void)
             float perf_x = (SCREEN_W - perf_w) / 2.0f;
             {
                 float target_y = perf_y0 + perf_selected * perf_item_h;
-                if (perf_cursor_y < 0.0f) perf_cursor_y = target_y;
-                Uint64 now_ns = SDL_GetTicksNS();
-                float dt = (float)(now_ns - perf_lerp_last_time) / 1000000000.0f;
-                perf_lerp_last_time = now_ns;
-                if (dt > 0.1f) dt = 0.1f;
-                float lerp_speed = 15.0f;
-                perf_cursor_y += (target_y - perf_cursor_y) * lerp_speed * dt;
-                if (fabsf(target_y - perf_cursor_y) < 0.5f) perf_cursor_y = target_y;
+                perf_cursor_y = target_y;
             }
             for (int i = 0; i < 3; i++) {
                 float iy = perf_y0 + i * perf_item_h;
@@ -3677,14 +3656,7 @@ int main(void)
                 if (bt_scroll < 0) bt_scroll = 0;
                 {
                     float target_y = bt_y0 + (bt_selected - bt_scroll) * bt_item_h;
-                    if (bt_cursor_y < 0.0f) bt_cursor_y = target_y;
-                    Uint64 now_ns = SDL_GetTicksNS();
-                    float dt = (float)(now_ns - bt_lerp_last_time) / 1000000000.0f;
-                    bt_lerp_last_time = now_ns;
-                    if (dt > 0.1f) dt = 0.1f;
-                    float lerp_speed = 15.0f;
-                    bt_cursor_y += (target_y - bt_cursor_y) * lerp_speed * dt;
-                    if (fabsf(target_y - bt_cursor_y) < 0.5f) bt_cursor_y = target_y;
+                    bt_cursor_y = target_y;
                 }
                 for (int row = 0; row < bt_list_rows && (row + bt_scroll) < bt_device_count; row++) {
                     int i = row + bt_scroll;
@@ -3776,14 +3748,7 @@ int main(void)
 
             {
                 float target_y = tz_y0 + (timezone_selected - tz_scroll) * tz_item_h;
-                if (tz_cursor_y < 0.0f) tz_cursor_y = target_y;
-                Uint64 now_ns = SDL_GetTicksNS();
-                float dt = (float)(now_ns - tz_lerp_last_time) / 1000000000.0f;
-                tz_lerp_last_time = now_ns;
-                if (dt > 0.1f) dt = 0.1f;
-                float lerp_speed = 15.0f;
-                tz_cursor_y += (target_y - tz_cursor_y) * lerp_speed * dt;
-                if (fabsf(target_y - tz_cursor_y) < 0.5f) tz_cursor_y = target_y;
+                tz_cursor_y = target_y;
             }
 
             for (int row = 0; row < tz_visible && (row + tz_scroll) < TIMEZONE_LIST_COUNT; row++) {
@@ -3833,14 +3798,7 @@ int main(void)
 
             {
                 float target_y = dim_y0 + dim_field_selected * dim_item_h;
-                if (dim_cursor_y < 0.0f) dim_cursor_y = target_y;
-                Uint64 now_ns = SDL_GetTicksNS();
-                float dt = (float)(now_ns - dim_lerp_last_time) / 1000000000.0f;
-                dim_lerp_last_time = now_ns;
-                if (dt > 0.1f) dt = 0.1f;
-                float lerp_speed = 15.0f;
-                dim_cursor_y += (target_y - dim_cursor_y) * lerp_speed * dt;
-                if (fabsf(target_y - dim_cursor_y) < 0.5f) dim_cursor_y = target_y;
+                dim_cursor_y = target_y;
             }
 
             {
@@ -3900,14 +3858,7 @@ int main(void)
             float bkm_item_h = 34.0f;
             {
                 float target_y = bkm_y0 + backup_selected * bkm_item_h;
-                if (bkm_cursor_y < 0.0f) bkm_cursor_y = target_y;
-                Uint64 now_ns = SDL_GetTicksNS();
-                float dt = (float)(now_ns - bkm_lerp_last_time) / 1000000000.0f;
-                bkm_lerp_last_time = now_ns;
-                if (dt > 0.1f) dt = 0.1f;
-                float lerp_speed = 15.0f;
-                bkm_cursor_y += (target_y - bkm_cursor_y) * lerp_speed * dt;
-                if (fabsf(target_y - bkm_cursor_y) < 0.5f) bkm_cursor_y = target_y;
+                bkm_cursor_y = target_y;
             }
             for (int i = 0; i < BACKUP_MENU_COUNT; i++) {
                 float iy = bkm_y0 + i * bkm_item_h;
@@ -3955,14 +3906,7 @@ int main(void)
             } else {
                 {
                     float target_y = bkl_y0 + backup_list_selected * bkl_item_h;
-                    if (bkl_cursor_y < 0.0f) bkl_cursor_y = target_y;
-                    Uint64 now_ns = SDL_GetTicksNS();
-                    float dt = (float)(now_ns - bkl_lerp_last_time) / 1000000000.0f;
-                    bkl_lerp_last_time = now_ns;
-                    if (dt > 0.1f) dt = 0.1f;
-                    float lerp_speed = 15.0f;
-                    bkl_cursor_y += (target_y - bkl_cursor_y) * lerp_speed * dt;
-                    if (fabsf(target_y - bkl_cursor_y) < 0.5f) bkl_cursor_y = target_y;
+                    bkl_cursor_y = target_y;
                 }
                 SDL_Color c_menu_gold = {27, 39, 8, 255};
                 SDL_Color c_menu_selbg = {183, 221, 91, 255};
@@ -3998,14 +3942,7 @@ int main(void)
 
             {
                 float target_y = wifi_y0 + wifi_field_selected * wifi_item_h;
-                if (wifi_cursor_y < 0.0f) wifi_cursor_y = target_y;
-                Uint64 now_ns = SDL_GetTicksNS();
-                float dt = (float)(now_ns - wifi_lerp_last_time) / 1000000000.0f;
-                wifi_lerp_last_time = now_ns;
-                if (dt > 0.1f) dt = 0.1f;
-                float lerp_speed = 15.0f;
-                wifi_cursor_y += (target_y - wifi_cursor_y) * lerp_speed * dt;
-                if (fabsf(target_y - wifi_cursor_y) < 0.5f) wifi_cursor_y = target_y;
+                wifi_cursor_y = target_y;
             }
 
             {
@@ -4092,14 +4029,7 @@ int main(void)
 
             {
                 float target_y = led_y0 + led_selected * led_item_h;
-                if (led_cursor_y < 0.0f) led_cursor_y = target_y;
-                Uint64 now_ns = SDL_GetTicksNS();
-                float dt = (float)(now_ns - led_lerp_last_time) / 1000000000.0f;
-                led_lerp_last_time = now_ns;
-                if (dt > 0.1f) dt = 0.1f;
-                float lerp_speed = 15.0f;
-                led_cursor_y += (target_y - led_cursor_y) * lerp_speed * dt;
-                if (fabsf(target_y - led_cursor_y) < 0.5f) led_cursor_y = target_y;
+                led_cursor_y = target_y;
             }
 
             for (int i = 0; i < LED_SLIDER_COUNT; i++) {
