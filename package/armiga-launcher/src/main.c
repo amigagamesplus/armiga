@@ -3135,19 +3135,24 @@ int main(void)
          * sin bloquear la UI ni interferir con STATE_UPDATE. */
         if (!bg_update_checked) {
             if (bg_check_start_delay == 0) bg_check_start_delay = now_ticks;
-            if (s_bgcheck_pid == -1 && now_ticks - bg_check_start_delay >= 2000) {
+            if (s_bgcheck_pid == -1 && status_wifi_up &&
+                now_ticks - bg_check_start_delay >= 2000) {
                 unlink(BG_CHECK_JSON_TMP);
                 s_bgcheck_pid = spawn_curl_to_file(GITHUB_API_URL, BG_CHECK_JSON_TMP, "10");
             } else if (s_bgcheck_pid != -1) {
                 int r = poll_curl_pid(&s_bgcheck_pid, BG_CHECK_JSON_TMP, 1);
                 if (r != 0) {
-                    bg_update_checked = true;
                     if (r > 0) {
+                        bg_update_checked = true;
                         int res = finish_check_update(BG_CHECK_JSON_TMP, s_version,
                                                bg_new_ver, sizeof(bg_new_ver),
                                                bg_dl_url,  sizeof(bg_dl_url),
                                                bg_sha_url, sizeof(bg_sha_url));
                         bg_update_available = (res == 1);
+                    } else {
+                        /* Fallo (sin red aun, timeout, etc): reintentar
+                         * en 15s en vez de dar el check por definitivo. */
+                        bg_check_start_delay = now_ticks + 15000;
                     }
                 }
             }
