@@ -176,6 +176,9 @@ jobs:
           
           find target-install -name "dri_gbm.so" -exec cp -L {} mesa-artifacts/usr/lib/gbm/ \; || true
           
+          echo "Stripping artifacts..."
+          find mesa-artifacts -name "*.so*" -type f -exec aarch64-linux-gnu-strip --strip-unneeded {} \;
+          
           echo "Artefactos recolectados:"
           ls -R mesa-artifacts/
           
