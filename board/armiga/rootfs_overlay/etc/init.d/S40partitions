@@ -132,9 +132,13 @@ do_expand_if_needed() {
     if [ ! -f "$AMIGA_DATA_MNT/retroarch/retroarch.cfg" ] || [ "$TEMPLATE_VER" -gt "$INSTALLED_VER" ]; then
         cp /etc/retroarch/retroarch.cfg.template "$AMIGA_DATA_MNT/retroarch/retroarch.cfg"
     fi
-    # Copiar PUAE 2021.opt si no existe
-    if [ ! -f "$AMIGA_DATA_MNT/retroarch/config/PUAE 2021/PUAE 2021.opt" ]; then
-        mkdir -p "$AMIGA_DATA_MNT/retroarch/config/PUAE 2021"
+    # Copiar PUAE 2021.opt si no existe, o actualizar si el template es mas nuevo
+    mkdir -p "$AMIGA_DATA_MNT/retroarch/config/PUAE 2021"
+    PUAE_TEMPLATE_VER=$(grep "^# ARMIGA_CFG_VERSION=" "/etc/retroarch/PUAE 2021.opt" | cut -d= -f2)
+    PUAE_INSTALLED_VER=$(grep "^# ARMIGA_CFG_VERSION=" "$AMIGA_DATA_MNT/retroarch/config/PUAE 2021/PUAE 2021.opt" 2>/dev/null | cut -d= -f2)
+    PUAE_TEMPLATE_VER=${PUAE_TEMPLATE_VER:-0}
+    PUAE_INSTALLED_VER=${PUAE_INSTALLED_VER:-0}
+    if [ ! -f "$AMIGA_DATA_MNT/retroarch/config/PUAE 2021/PUAE 2021.opt" ] || [ "$PUAE_TEMPLATE_VER" -gt "$PUAE_INSTALLED_VER" ]; then
         cp "/etc/retroarch/PUAE 2021.opt" "$AMIGA_DATA_MNT/retroarch/config/PUAE 2021/PUAE 2021.opt"
     fi
     # Copiar autoconfig de mando si no existe
@@ -159,9 +163,13 @@ case "$1" in
         do_expand_if_needed
         if [ -b "$AMIGA_DATA_DEV" ]; then
             mount -t exfat -o noatime "$AMIGA_DATA_DEV" "$AMIGA_DATA_MNT" 2>/dev/null && echo -n "amiga_data "
-            # Copiar PUAE 2021.opt y autoconfig de mando si faltan (autorreparacion)
-            if [ ! -f "$AMIGA_DATA_MNT/retroarch/config/PUAE 2021/PUAE 2021.opt" ]; then
-                mkdir -p "$AMIGA_DATA_MNT/retroarch/config/PUAE 2021"
+            # Copiar PUAE 2021.opt si falta, o actualizar si el template es mas nuevo (autorreparacion + sync)
+            mkdir -p "$AMIGA_DATA_MNT/retroarch/config/PUAE 2021"
+            PUAE_TEMPLATE_VER=$(grep "^# ARMIGA_CFG_VERSION=" "/etc/retroarch/PUAE 2021.opt" | cut -d= -f2)
+            PUAE_INSTALLED_VER=$(grep "^# ARMIGA_CFG_VERSION=" "$AMIGA_DATA_MNT/retroarch/config/PUAE 2021/PUAE 2021.opt" 2>/dev/null | cut -d= -f2)
+            PUAE_TEMPLATE_VER=${PUAE_TEMPLATE_VER:-0}
+            PUAE_INSTALLED_VER=${PUAE_INSTALLED_VER:-0}
+            if [ ! -f "$AMIGA_DATA_MNT/retroarch/config/PUAE 2021/PUAE 2021.opt" ] || [ "$PUAE_TEMPLATE_VER" -gt "$PUAE_INSTALLED_VER" ]; then
                 cp "/etc/retroarch/PUAE 2021.opt" "$AMIGA_DATA_MNT/retroarch/config/PUAE 2021/PUAE 2021.opt"
             fi
             if [ ! -f "$AMIGA_DATA_MNT/retroarch/config/autoconfig/H700 Gamepad.cfg" ]; then
