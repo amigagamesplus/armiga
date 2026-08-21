@@ -1783,7 +1783,11 @@ static float capsule_coverage(float px, float py, float half_w, float half_h, fl
  * circulo (debe pintarse), 0.0 si esta totalmente dentro (no pintar). */
 static float corner_mask_coverage(float px, float py, float cx, float cy, float radius)
 {
-    const int SS = 4;
+    /* SS alto (antes 4): ahora esta funcion solo se llama al generar la
+     * mascara cacheada (unas pocas veces en toda la ejecucion, una por
+     * radio distinto), nunca por frame, asi que el coste extra es
+     * insignificante y mejora mucho el antialiasing del borde. */
+    const int SS = 16;
     int outside = 0;
     for (int sy = 0; sy < SS; sy++) {
         float oy = py - 0.5f + ((float)sy + 0.5f) / (float)SS;
@@ -1799,36 +1803,98 @@ static float corner_mask_coverage(float px, float py, float cx, float cy, float 
 /* Dibuja mascaras negras en las 4 esquinas de la pantalla, simulando
  * esquinas redondeadas fisicas del panel. Se llama al final de cada frame,
  * justo antes de SDL_RenderPresent, para que quede por encima de todo. */
+/* Mascara de una esquina redondeada (orientacion top-left) cacheada en
+ * textura la primera vez que se llama; las otras 3 esquinas se pintan
+ * volteando (flip) esa misma textura. Antes se recalculaba pixel a pixel
+ * con 4x4 supersampling en CADA frame, incondicionalmente, para las 4
+ * esquinas: era el mayor cuello de botella real de framerate del launcher. */
 static void draw_screen_corners(SDL_Renderer *r, int screen_w, int screen_h, float radius)
 {
-    SDL_BlendMode prev_blend;
-    SDL_GetRenderDrawBlendMode(r, &prev_blend);
-    SDL_SetRenderDrawBlendMode(r, SDL_BLENDMODE_BLEND);
+    static SDL_Texture *corner_tex = NULL;
+    static int cached_rad_i = -1;
     int rad_i = (int)SDL_ceilf(radius) + 1;
-    struct { float cx, cy; } corners[4] = {
-        { radius, radius },                                   /* top-left */
-        { (float)screen_w - radius, radius },                 /* top-right */
-        { radius, (float)screen_h - radius },                 /* bottom-left */
-        { (float)screen_w - radius, (float)screen_h - radius } /* bottom-right */
-    };
-    for (int c = 0; c < 4; c++) {
-        int x0 = (c == 1 || c == 3) ? screen_w - rad_i : 0;
-        int y0 = (c == 2 || c == 3) ? screen_h - rad_i : 0;
+
+    if (!corner_tex || cached_rad_i != rad_i) {
+        if (corner_tex) SDL_DestroyTexture(corner_tex);
+        corner_tex = SDL_CreateTexture(r, SDL_PIXELFORMAT_RGBA8888,
+                                        SDL_TEXTUREACCESS_TARGET, rad_i, rad_i);
+        SDL_SetTextureBlendMode(corner_tex, SDL_BLENDMODE_BLEND);
+        SDL_SetTextureScaleMode(corner_tex, SDL_SCALEMODE_LINEAR);
+        SDL_Texture *prev_target = SDL_GetRenderTarget(r);
+        SDL_SetRenderTarget(r, corner_tex);
+        SDL_SetRenderDrawBlendMode(r, SDL_BLENDMODE_NONE);
+        SDL_SetRenderDrawColor(r, 0, 0, 0, 0);
+        SDL_RenderClear(r);
         for (int row = 0; row < rad_i; row++) {
-            float py = (float)(y0 + row) + 0.5f;
+            float py = (float)row + 0.5f;
             for (int col = 0; col < rad_i; col++) {
-                float px = (float)(x0 + col) + 0.5f;
-                float cov = corner_mask_coverage(px, py, corners[c].cx, corners[c].cy, radius);
-                if (cov > 0.001f) {
-                    Uint8 a = (Uint8)(cov * 255.0f);
-                    SDL_SetRenderDrawColor(r, 0, 0, 0, a);
-                    SDL_FRect px_rect = {(float)(x0 + col), (float)(y0 + row), 1.0f, 1.0f};
-                    SDL_RenderFillRect(r, &px_rect);
-                }
+                float px = (float)col + 0.5f;
+                float cov = corner_mask_coverage(px, py, radius, radius, radius);
+                Uint8 a = (Uint8)(cov * 255.0f);
+                SDL_SetRenderDrawColor(r, 0, 0, 0, a);
+                SDL_FRect px_rect = {(float)col, (float)row, 1.0f, 1.0f};
+                SDL_RenderFillRect(r, &px_rect);
             }
         }
+        SDL_SetRenderTarget(r, prev_target);
+        cached_rad_i = rad_i;
     }
-    SDL_SetRenderDrawBlendMode(r, prev_blend);
+
+    SDL_FRect dst;
+    dst = (SDL_FRect){0.0f, 0.0f, (float)rad_i, (float)rad_i};
+    SDL_RenderTextureRotated(r, corner_tex, NULL, &dst, 0.0, NULL, SDL_FLIP_NONE);
+    dst = (SDL_FRect){(float)screen_w - (float)rad_i, 0.0f, (float)rad_i, (float)rad_i};
+    SDL_RenderTextureRotated(r, corner_tex, NULL, &dst, 0.0, NULL, SDL_FLIP_HORIZONTAL);
+    dst = (SDL_FRect){0.0f, (float)screen_h - (float)rad_i, (float)rad_i, (float)rad_i};
+    SDL_RenderTextureRotated(r, corner_tex, NULL, &dst, 0.0, NULL, SDL_FLIP_VERTICAL);
+    dst = (SDL_FRect){(float)screen_w - (float)rad_i, (float)screen_h - (float)rad_i, (float)rad_i, (float)rad_i};
+    SDL_RenderTextureRotated(r, corner_tex, NULL, &dst, 0.0, NULL, (SDL_FlipMode)(SDL_FLIP_HORIZONTAL | SDL_FLIP_VERTICAL));
+}
+/* Mascara de un cuarto de circulo (radio dado) cacheada en textura alfa
+ * (blanco puro, alpha = cobertura interior), reutilizable para CUALQUIER
+ * rectangulo redondeado de ese radio via SDL_SetTextureColorMod/AlphaMod +
+ * flip en las 4 esquinas. Antes cada pildora recalculaba sus esquinas
+ * pixel a pixel (SDF + supersampling 4x4) en CADA frame: con la barra de
+ * estado + seleccion de menu dibujando varias pildoras por frame, era el
+ * mayor cuello de botella real de framerate del launcher tras el fix de
+ * draw_screen_corners. */
+static SDL_Texture *get_pill_corner_mask(SDL_Renderer *r, float radius)
+{
+    static struct { int rad_i; SDL_Texture *tex; } cache[16];
+    static int cache_count = 0;
+    int rad_i = (int)SDL_ceilf(radius) + 1;
+
+    for (int i = 0; i < cache_count; i++)
+        if (cache[i].rad_i == rad_i) return cache[i].tex;
+
+    SDL_Texture *tex = SDL_CreateTexture(r, SDL_PIXELFORMAT_RGBA8888,
+                                          SDL_TEXTUREACCESS_TARGET, rad_i, rad_i);
+    SDL_SetTextureBlendMode(tex, SDL_BLENDMODE_BLEND);
+    SDL_SetTextureScaleMode(tex, SDL_SCALEMODE_LINEAR);
+    SDL_Texture *prev_target = SDL_GetRenderTarget(r);
+    SDL_SetRenderTarget(r, tex);
+    SDL_SetRenderDrawBlendMode(r, SDL_BLENDMODE_NONE);
+    SDL_SetRenderDrawColor(r, 0, 0, 0, 0);
+    SDL_RenderClear(r);
+    for (int row = 0; row < rad_i; row++) {
+        float py = (float)row + 0.5f;
+        for (int col = 0; col < rad_i; col++) {
+            float px = (float)col + 0.5f;
+            float cov = 1.0f - corner_mask_coverage(px, py, radius, radius, radius);
+            Uint8 a = (Uint8)(cov * 255.0f);
+            SDL_SetRenderDrawColor(r, 255, 255, 255, a);
+            SDL_FRect px_rect = {(float)col, (float)row, 1.0f, 1.0f};
+            SDL_RenderFillRect(r, &px_rect);
+        }
+    }
+    SDL_SetRenderTarget(r, prev_target);
+
+    if (cache_count < 16) {
+        cache[cache_count].rad_i = rad_i;
+        cache[cache_count].tex = tex;
+        cache_count++;
+    }
+    return tex;
 }
 static void draw_rounded_rect_filled(SDL_Renderer *r, float x, float y,
                                       float w, float h, float radius,
@@ -1838,51 +1904,38 @@ static void draw_rounded_rect_filled(SDL_Renderer *r, float x, float y,
         draw_rect_filled(r, x, y, w, h, c);
         return;
     }
+    int rad_i = (int)SDL_ceilf(radius) + 1;
+    float rf = (float)rad_i;
+    SDL_Texture *mask = get_pill_corner_mask(r, radius);
+    SDL_SetTextureColorMod(mask, c.r, c.g, c.b);
+    SDL_SetTextureAlphaMod(mask, c.a);
+
     SDL_BlendMode prev_blend;
     SDL_GetRenderDrawBlendMode(r, &prev_blend);
     SDL_SetRenderDrawBlendMode(r, SDL_BLENDMODE_BLEND);
-    float half_w = w / 2.0f;
-    float half_h = h / 2.0f;
-    int rows = (int)h;
-    int cols = (int)w;
-    int rad_i = (int)SDL_ceilf(radius) + 1;
-    for (int row = 0; row < rows; row++) {
-        float py = (float)row - half_h + 0.5f;
-        bool in_corner_band = (row < rad_i) || (row >= rows - rad_i);
-        if (!in_corner_band) {
-            /* Fila plana central: rectangulo solido a todo lo ancho */
-            SDL_SetRenderDrawColor(r, c.r, c.g, c.b, c.a);
-            SDL_FRect line_rect = {x, y + (float)row, w, 1.0f};
-            SDL_RenderFillRect(r, &line_rect);
-            continue;
-        }
-        /* Tramo central plano de la fila (fuera de la zona de esquinas en X) */
-        SDL_SetRenderDrawColor(r, c.r, c.g, c.b, c.a);
-        SDL_FRect mid_rect = {x + radius, y + (float)row, w - radius * 2.0f, 1.0f};
-        if (mid_rect.w > 0.0f) SDL_RenderFillRect(r, &mid_rect);
-        /* Zona de esquina izquierda y derecha: pixel a pixel via SDF+supersampling */
-        for (int col = 0; col < rad_i && col < cols; col++) {
-            float px_l = (float)col - half_w + 0.5f;
-            float cov = capsule_coverage(px_l, py, half_w, half_h, radius);
-            if (cov > 0.001f) {
-                Uint8 a = (Uint8)(cov * (float)c.a);
-                SDL_SetRenderDrawColor(r, c.r, c.g, c.b, a);
-                SDL_FRect left_px = {x + (float)col, y + (float)row, 1.0f, 1.0f};
-                SDL_RenderFillRect(r, &left_px);
-            }
-            int rcol = cols - 1 - col;
-            if (rcol > col) {
-                float px_r = (float)rcol - half_w + 0.5f;
-                float cov_r = capsule_coverage(px_r, py, half_w, half_h, radius);
-                if (cov_r > 0.001f) {
-                    Uint8 a2 = (Uint8)(cov_r * (float)c.a);
-                    SDL_SetRenderDrawColor(r, c.r, c.g, c.b, a2);
-                    SDL_FRect right_px = {x + (float)rcol, y + (float)row, 1.0f, 1.0f};
-                    SDL_RenderFillRect(r, &right_px);
-                }
-            }
-        }
-    }
+    SDL_SetRenderDrawColor(r, c.r, c.g, c.b, c.a);
+
+    SDL_FRect center_rect = {x + rf, y + rf, w - 2.0f * rf, h - 2.0f * rf};
+    if (center_rect.w > 0.0f && center_rect.h > 0.0f) SDL_RenderFillRect(r, &center_rect);
+    SDL_FRect top_rect = {x + rf, y, w - 2.0f * rf, rf};
+    if (top_rect.w > 0.0f) SDL_RenderFillRect(r, &top_rect);
+    SDL_FRect bot_rect = {x + rf, y + h - rf, w - 2.0f * rf, rf};
+    if (bot_rect.w > 0.0f) SDL_RenderFillRect(r, &bot_rect);
+    SDL_FRect left_rect = {x, y + rf, rf, h - 2.0f * rf};
+    if (left_rect.h > 0.0f) SDL_RenderFillRect(r, &left_rect);
+    SDL_FRect right_rect = {x + w - rf, y + rf, rf, h - 2.0f * rf};
+    if (right_rect.h > 0.0f) SDL_RenderFillRect(r, &right_rect);
+
+    SDL_FRect dst;
+    dst = (SDL_FRect){x, y, rf, rf};
+    SDL_RenderTextureRotated(r, mask, NULL, &dst, 0.0, NULL, SDL_FLIP_NONE);
+    dst = (SDL_FRect){x + w - rf, y, rf, rf};
+    SDL_RenderTextureRotated(r, mask, NULL, &dst, 0.0, NULL, SDL_FLIP_HORIZONTAL);
+    dst = (SDL_FRect){x, y + h - rf, rf, rf};
+    SDL_RenderTextureRotated(r, mask, NULL, &dst, 0.0, NULL, SDL_FLIP_VERTICAL);
+    dst = (SDL_FRect){x + w - rf, y + h - rf, rf, rf};
+    SDL_RenderTextureRotated(r, mask, NULL, &dst, 0.0, NULL, (SDL_FlipMode)(SDL_FLIP_HORIZONTAL | SDL_FLIP_VERTICAL));
+
     SDL_SetRenderDrawBlendMode(r, prev_blend);
 }
 static float draw_status_pill(SDL_Renderer *ren, TTF_Font *f, float right_edge, float y_center,
