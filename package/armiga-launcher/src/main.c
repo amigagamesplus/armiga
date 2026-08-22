@@ -813,6 +813,16 @@ static void set_cpu_governor(const char *gov)
         fclose(f);
     }
 }
+/* Escribe un valor en un fichero sysfs directamente (open/write/close),
+ * evitando el fork+exec de /bin/sh que supone system("echo ... > ..."). */
+static void write_sysfs_str(const char *path, const char *val)
+{
+    int fd = open(path, O_WRONLY);
+    if (fd < 0) return;
+    ssize_t unused_result = write(fd, val, strlen(val));
+    (void)unused_result;
+    close(fd);
+}
 static void write_brightness(int value)
 {
     FILE *f = fopen(DIM_BACKLIGHT_PATH, "w");
@@ -1047,19 +1057,61 @@ static void save_bt_enabled(int enabled)
 /* Fija (o revierte a altavoz) el audio_device de RetroArch para que el
  * audio del emulador salga por el Bluetooth conectado. mac==NULL o vacio
  * revierte a salida por defecto (altavoz interno). */
+/* Reemplaza (o inserta al final si no existe) la linea que empieza por
+ * "key = " en retroarch.cfg, preservando el resto del fichero linea a
+ * linea. Evita el fork+exec de /bin/sh + sed que suponia system("sed -i").
+ * new_line debe incluir el salto de linea final. */
+static void patch_retroarch_cfg_line(const char *key, const char *new_line)
+{
+    const char *path = "/media/amiga_data/retroarch/retroarch.cfg";
+    char **lines = NULL;
+    int n = 0, cap = 0;
+    bool replaced = false;
+    size_t key_len = strlen(key);
+
+    FILE *f = fopen(path, "r");
+    if (!f) return;
+    char buf[512];
+    while (fgets(buf, sizeof(buf), f)) {
+        if (n == cap) {
+            cap = cap ? cap * 2 : 512;
+            lines = realloc(lines, (size_t)cap * sizeof(char *));
+        }
+        if (!replaced && strncmp(buf, key, key_len) == 0 &&
+            (buf[key_len] == ' ' || buf[key_len] == '=')) {
+            lines[n++] = strdup(new_line);
+            replaced = true;
+        } else {
+            lines[n++] = strdup(buf);
+        }
+    }
+    fclose(f);
+    if (!replaced) {
+        if (n == cap) {
+            cap = cap ? cap * 2 : 512;
+            lines = realloc(lines, (size_t)cap * sizeof(char *));
+        }
+        lines[n++] = strdup(new_line);
+    }
+
+    f = fopen(path, "w");
+    if (f) {
+        for (int i = 0; i < n; i++) fputs(lines[i], f);
+        fclose(f);
+    }
+    for (int i = 0; i < n; i++) free(lines[i]);
+    free(lines);
+}
 static void set_retroarch_audio_device(const char *mac)
 {
-    char cmd[300];
+    char line[300];
     if (mac && mac[0]) {
-        snprintf(cmd, sizeof(cmd),
-            "sed -i 's|^audio_device = .*|audio_device = \"bluealsa:DEV=%s,PROFILE=a2dp\"|' "
-            "/media/amiga_data/retroarch/retroarch.cfg", mac);
+        snprintf(line, sizeof(line),
+            "audio_device = \"bluealsa:DEV=%s,PROFILE=a2dp\"\n", mac);
     } else {
-        snprintf(cmd, sizeof(cmd),
-            "sed -i 's|^audio_device = .*|audio_device = \"\"|' "
-            "/media/amiga_data/retroarch/retroarch.cfg");
+        snprintf(line, sizeof(line), "audio_device = \"\"\n");
     }
-    system(cmd);
+    patch_retroarch_cfg_line("audio_device", line);
 }
 /* Fija video_refresh_rate en retroarch.cfg para que RetroArch (proceso
  * aparte, con su propio SDL/DRM) pida el mismo modo de pantalla que el
@@ -1067,11 +1119,9 @@ static void set_retroarch_audio_device(const char *mac)
  * de lo elegido en Configuracion. Mismo patron que set_retroarch_audio_device. */
 static void set_retroarch_refresh_rate(int hz)
 {
-    char cmd[300];
-    snprintf(cmd, sizeof(cmd),
-        "sed -i 's|^video_refresh_rate = .*|video_refresh_rate = \"%d.000000\"|' "
-        "/media/amiga_data/retroarch/retroarch.cfg", hz);
-    system(cmd);
+    char line[300];
+    snprintf(line, sizeof(line), "video_refresh_rate = \"%d.000000\"\n", hz);
+    patch_retroarch_cfg_line("video_refresh_rate", line);
 }
 static void apply_bt_enabled(int enabled)
 {
@@ -1148,15 +1198,16 @@ static void save_perf_profile(int profile)
 /* Aplica el perfil en caliente: CPU governor + GPU devfreq governor. */
 static void apply_perf_profile(int profile)
 {
+    const char *gpu_gov_path = "/sys/class/devfreq/1800000.gpu/governor";
     if (profile == 0) {
         set_cpu_governor("performance");
-        system("echo performance > /sys/class/devfreq/1800000.gpu/governor 2>/dev/null");
+        write_sysfs_str(gpu_gov_path, "performance");
     } else if (profile == 2) {
         set_cpu_governor("powersave");
-        system("echo powersave > /sys/class/devfreq/1800000.gpu/governor 2>/dev/null");
+        write_sysfs_str(gpu_gov_path, "powersave");
     } else {
         set_cpu_governor("schedutil");
-        system("echo performance > /sys/class/devfreq/1800000.gpu/governor 2>/dev/null");
+        write_sysfs_str(gpu_gov_path, "performance");
     }
 }
 
@@ -1252,7 +1303,7 @@ static void send_led_payload(int brightness,
                               int r_right, int g_right, int b_right,
                               int r_left, int g_left, int b_left)
 {
-    system("echo 1 > /sys/class/leds/rgb:kbd_backlight/brightness 2>/dev/null");
+    write_sysfs_str("/sys/class/leds/rgb:kbd_backlight/brightness", "1");
 
     int fd = open(LED_SERIAL_DEV, O_WRONLY | O_NOCTTY);
     if (fd < 0) return;
@@ -1683,19 +1734,27 @@ static long read_proc_stat_cpu(long *idle_out)
     return total;
 }
 
+/* Delta contra el snapshot de la llamada anterior (esta funcion se llama
+ * cada 5s desde STATE_SYSINFO, asi que ya hay margen de sobra entre
+ * muestras). Antes bloqueaba el hilo principal 80ms con SDL_Delay para
+ * tomar dos snapshots separados en la misma llamada -> 5-10 frames
+ * perdidos de golpe cada vez. Sin delay: primera llamada tras arrancar
+ * devuelve 0% (no hay snapshot previo), se corrige solo en la siguiente. */
 static void read_cpu_usage(char *buf, size_t bufsize, int *pct_out)
 {
-    /* Delta entre dos snapshots separados 80ms */
-    long idle1 = 0, idle2 = 0;
-    long total1 = read_proc_stat_cpu(&idle1);
-    SDL_Delay(80);
-    long total2 = read_proc_stat_cpu(&idle2);
-
-    long dtotal = total2 - total1;
-    long didle  = idle2  - idle1;
+    static long prev_total = 0;
+    static long prev_idle = 0;
+    long idle = 0;
+    long total = read_proc_stat_cpu(&idle);
     int pct = 0;
-    if (dtotal > 0)
-        pct = (int)(100L * (dtotal - didle) / dtotal);
+    if (prev_total > 0 && total > prev_total) {
+        long dtotal = total - prev_total;
+        long didle  = idle  - prev_idle;
+        if (dtotal > 0)
+            pct = (int)(100L * (dtotal - didle) / dtotal);
+    }
+    prev_total = total;
+    prev_idle = idle;
     if (pct < 0)   pct = 0;
     if (pct > 100) pct = 100;
     if (pct_out) *pct_out = pct;
