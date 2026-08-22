@@ -3874,7 +3874,7 @@ int main(void)
                     if (pbadge_w > pbadge_max_w) pbadge_w = pbadge_max_w;
                     float pbadge_h = toggle_h;
                     draw_rounded_rect_filled(ren, mx + toggle_w + 16.0f, toggle_y, pbadge_w, pbadge_h, pbadge_h / 2.0f, c_bt_card);
-                    draw_text_truncated(ren, f_sm, paired_buf, c_green, mx + toggle_w + 16.0f + pbadge_pad, toggle_y + (pbadge_h - (float)ph) / 2.0f,
+                    draw_text_truncated(ren, f_sm, paired_buf, c_menu_gold, mx + toggle_w + 16.0f + pbadge_pad, toggle_y + (pbadge_h - (float)ph) / 2.0f,
                                          pbadge_w - pbadge_pad * 2.0f);
                 }
             }
@@ -3942,9 +3942,9 @@ int main(void)
                 if (bt_connecting) {
                     char cbuf[96];
                     snprintf(cbuf, sizeof(cbuf), "%s %s...", tr("Conectando a", "Connecting to"), bt_devices[bt_selected].name[0] ? bt_devices[bt_selected].name : bt_devices[bt_selected].mac);
-                    draw_text(ren, f_sm, cbuf, c_menu_gold, mx, 392.0f);
+                    draw_text(ren, f_sm, cbuf, c_menu_selbg, mx, 392.0f);
                 } else if (bt_connect_status[0]) {
-                    draw_text(ren, f_sm, bt_connect_status, c_menu_gold, mx, 392.0f);
+                    draw_text(ren, f_sm, bt_connect_status, c_menu_selbg, mx, 392.0f);
                 }
                 if (bt_scanning) {
                     float sp_cx = mx + 6.0f;
