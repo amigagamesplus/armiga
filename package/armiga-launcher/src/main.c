@@ -2345,6 +2345,7 @@ int main(void)
     Uint64 devmode_hold_start = 0; /* 0 = combo no presionado */
     bool devmode_combo_held = false;
     Uint64 screenshot_flash_until = 0; /* ms hasta cuando mostrar flash */
+    bool screenshot_capture_pending = false; /* diferir captura al final del frame */
 
     char dev_ip[32]     = "sin red";
     char dev_uptime[16] = "--";
@@ -3182,25 +3183,14 @@ int main(void)
             bool sel = SDL_GetJoystickButton(joy, BTN_SDL_SELECT);
             bool r1  = SDL_GetJoystickButton(joy, BTN_SDL_R1);
             if (sel && r1) {
-                /* Capturar el frame limpio (ya presentado, previo al flash)
-                 * solo aqui, bajo demanda, en vez de en cada iteracion del
-                 * bucle: RenderReadPixels es costoso y limitaba el framerate
-                 * real a ~17 FPS cuando se hacia incondicionalmente. */
-                SDL_Surface *clean_frame_for_screenshot = SDL_RenderReadPixels(ren, NULL);
-                /* Renderizar flash blanco encima del frame actual y presentarlo */
-                SDL_SetRenderDrawBlendMode(ren, SDL_BLENDMODE_BLEND);
-                SDL_SetRenderDrawColor(ren, 255, 255, 255, 180);
-                SDL_FRect flash_rect = {0, 0, (float)SCREEN_W, (float)SCREEN_H};
-                SDL_RenderFillRect(ren, &flash_rect);
-                SDL_SetRenderDrawBlendMode(ren, SDL_BLENDMODE_NONE);
-                SDL_RenderPresent(ren);
-                SDL_Delay(80); /* visible al menos 2 frames */
-                take_screenshot(ren, SCREEN_W, SCREEN_H, clean_frame_for_screenshot);
-                if (clean_frame_for_screenshot) {
-                    SDL_DestroySurface(clean_frame_for_screenshot);
-                    clean_frame_for_screenshot = NULL;
-                }
-                screenshot_flash_until = SDL_GetTicks() + 500;
+                /* No capturar aqui: en este punto del bucle (antes de que
+                 * este frame dibuje nada) el backbuffer puede contener
+                 * estado indefinido tras el ultimo Present (double
+                 * buffering). Solo se marca la peticion; la captura real
+                 * ocurre al final del frame, justo antes de dibujar el
+                 * flash y draw_screen_corners, cuando el contenido de ESTE
+                 * frame ya esta completamente dibujado y es valido. */
+                screenshot_capture_pending = true;
                 SDL_PumpEvents();
                 /* Esperar a que suelten los botones para evitar disparos multiples */
                 SDL_PumpEvents();
@@ -3210,6 +3200,12 @@ int main(void)
                     SDL_Delay(20);
                 }
                 SDL_Delay(200); /* debounce tras soltar */
+                /* La ventana del flash se fija AQUI, tras soltar los
+                 * botones: si se fijara antes del bucle de espera, un
+                 * usuario que mantenga la combinacion pulsada mas de
+                 * 500ms nunca veria el flash (ventana ya expirada al
+                 * reanudar el dibujado del bucle principal). */
+                screenshot_flash_until = SDL_GetTicks() + 500;
             }
         }
 
@@ -3627,12 +3623,20 @@ int main(void)
 
             float settings_y0 = 64.0f;
             float settings_item_h = 32.0f;
+            int settings_visible = 11;
+            int settings_scroll = 0;
+            if (settings_selected >= settings_visible)
+                settings_scroll = settings_selected - settings_visible + 1;
+            if (settings_scroll > SETTINGS_MENU_COUNT - settings_visible)
+                settings_scroll = SETTINGS_MENU_COUNT - settings_visible;
+            if (settings_scroll < 0) settings_scroll = 0;
             {
-                float target_y = settings_y0 + settings_selected * settings_item_h;
+                float target_y = settings_y0 + (settings_selected - settings_scroll) * settings_item_h;
                 settings_cursor_y = target_y;
             }
-            for (int i = 0; i < SETTINGS_MENU_COUNT; i++) {
-                float iy = settings_y0 + i * settings_item_h;
+            for (int row = 0; row < settings_visible && (row + settings_scroll) < SETTINGS_MENU_COUNT; row++) {
+                int i = row + settings_scroll;
+                float iy = settings_y0 + row * settings_item_h;
                 char item_label[64];
                 if (i == 6) {
                     snprintf(item_label, sizeof(item_label), "%s: %s",
@@ -3660,6 +3664,10 @@ int main(void)
                 } else {
                     draw_text(ren, f_med, item_label, c_menu_beige, mx + 8.0f, iy);
                 }
+            }
+            if (settings_scroll + settings_visible < SETTINGS_MENU_COUNT) {
+                draw_text(ren, f_xs, tr("más abajo ↓", "more below ↓"), c_menu_selbg,
+                          mx + 8.0f, settings_y0 + settings_visible * settings_item_h + 2.0f);
             }
 
             draw_line(ren, mx, 438.0f, SCREEN_W - 20.0f, 438.0f, c_green);
@@ -4659,6 +4667,12 @@ int main(void)
 
         } /* end STATE_UPDATE */
 
+        if (screenshot_capture_pending) {
+            SDL_Surface *clean_frame_for_screenshot = SDL_RenderReadPixels(ren, NULL);
+            take_screenshot(ren, SCREEN_W, SCREEN_H, clean_frame_for_screenshot);
+            if (clean_frame_for_screenshot) SDL_DestroySurface(clean_frame_for_screenshot);
+            screenshot_capture_pending = false;
+        }
         /* Flash blanco al hacer screenshot */
         if (screenshot_flash_until > 0 && SDL_GetTicks() < screenshot_flash_until) {
             SDL_SetRenderDrawBlendMode(ren, SDL_BLENDMODE_BLEND);
