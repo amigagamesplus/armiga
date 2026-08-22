@@ -177,10 +177,11 @@ static const char *SETTINGS_MENU_ITEMS[][2] = {
     {"Samba (\\\\armiga)",           "Samba (\\\\armiga)"},
     {"Rendimiento",                 "Performance"},
     {"Bluetooth",                   "Bluetooth"},
+    {"Frecuencia de refresco",       "Refresh Rate"},
     {"Restablecer valores de fábrica", "Factory reset"},
 };
-#define SETTINGS_MENU_COUNT 11
-#define SETTINGS_ACTION_FACTORY_RESET 10
+#define SETTINGS_MENU_COUNT 12
+#define SETTINGS_ACTION_FACTORY_RESET 11
 
 /* Tiempos de inactividad seleccionables, en segundos. 0 = Nunca. */
 static const int DIM_TIMEOUT_OPTIONS[] = {0, 60, 300, 600, 900, 1800, 3600};
@@ -902,6 +903,46 @@ static void save_brightness_config(int pct)
     fprintf(f, "BRIGHTNESS_PCT=%d\n", pct);
     fclose(f);
 }
+/* Lee REFRESH_120HZ de armiga.cfg. Default: desactivado (0, = 60Hz). */
+static int read_refresh_120hz(void)
+{
+    int enabled = 0;
+    FILE *f = fopen(ARMIGA_CONFIG_PATH, "r");
+    if (!f) return enabled;
+    char line[128];
+    while (fgets(line, sizeof(line), f)) {
+        char key[32], val[96];
+        if (sscanf(line, "%31[^=]=%95s", key, val) == 2) {
+            if (!strcmp(key, "REFRESH_120HZ")) enabled = atoi(val);
+        }
+    }
+    fclose(f);
+    return enabled ? 1 : 0;
+}
+/* Guarda REFRESH_120HZ en armiga.cfg, preservando otras claves,
+ * mismo patron que save_ssh_enabled. */
+static void save_refresh_120hz(int enabled)
+{
+    char lines[32][128];
+    int n = 0;
+    FILE *f = fopen(ARMIGA_CONFIG_PATH, "r");
+    if (f) {
+        while (n < 32 && fgets(lines[n], sizeof(lines[n]), f)) {
+            char key[32], val[96];
+            if (sscanf(lines[n], "%31[^=]=%95s", key, val) == 2 &&
+                !strcmp(key, "REFRESH_120HZ")) {
+                continue;
+            }
+            n++;
+        }
+        fclose(f);
+    }
+    f = fopen(ARMIGA_CONFIG_PATH, "w");
+    if (!f) return;
+    for (int i = 0; i < n; i++) fputs(lines[i], f);
+    fprintf(f, "REFRESH_120HZ=%d\n", enabled ? 1 : 0);
+    fclose(f);
+}
 /* Lee SSH_ENABLED de armiga.cfg. Default: activado (1). */
 static int read_ssh_enabled(void)
 {
@@ -943,6 +984,20 @@ static void save_ssh_enabled(int enabled)
     fclose(f);
 }
 /* Aplica el estado SSH en caliente, sin reiniciar. */
+static void apply_refresh_120hz(SDL_Window *win, int enabled)
+{
+    SDL_DisplayID disp = SDL_GetDisplayForWindow(win);
+    int num_modes = 0;
+    SDL_DisplayMode **modes = SDL_GetFullscreenDisplayModes(disp, &num_modes);
+    for (int i = 0; i < num_modes; i++) {
+        bool is_120 = modes[i]->refresh_rate > 100.0f;
+        if ((enabled && is_120) || (!enabled && !is_120)) {
+            SDL_SetWindowFullscreenMode(win, modes[i]);
+            break;
+        }
+    }
+    SDL_free(modes);
+}
 static void apply_ssh_enabled(int enabled)
 {
     if (enabled)
@@ -1555,6 +1610,12 @@ static int bt_parse_devices(BTDevice *devices, int max_count)
 }
 
 #define DEVMODE_TEMP_HISTORY_LEN 60
+/* Se incrementa cada vez que se crea un SDL_Renderer nuevo (tras
+ * volver de RetroArch, el launcher reinicializa SDL/DRM entero).
+ * Las cachés de texturas lo usan para invalidarse: comparar por
+ * puntero de renderer no es fiable, la nueva instancia puede
+ * reutilizar la misma direccion de memoria que la destruida. */
+static int g_render_generation = 0;
 static int g_devmode_temp_history[DEVMODE_TEMP_HISTORY_LEN];
 static int g_devmode_temp_history_count = 0;
 
@@ -1812,7 +1873,14 @@ static void draw_screen_corners(SDL_Renderer *r, int screen_w, int screen_h, flo
 {
     static SDL_Texture *corner_tex = NULL;
     static int cached_rad_i = -1;
+    static int cache_generation = -1;
     int rad_i = (int)SDL_ceilf(radius) + 1;
+
+    if (cache_generation != g_render_generation) {
+        corner_tex = NULL;
+        cached_rad_i = -1;
+        cache_generation = g_render_generation;
+    }
 
     if (!corner_tex || cached_rad_i != rad_i) {
         if (corner_tex) SDL_DestroyTexture(corner_tex);
@@ -1862,7 +1930,13 @@ static SDL_Texture *get_pill_corner_mask(SDL_Renderer *r, float radius)
 {
     static struct { int rad_i; SDL_Texture *tex; } cache[16];
     static int cache_count = 0;
+    static int cache_generation = -1;
     int rad_i = (int)SDL_ceilf(radius) + 1;
+
+    if (cache_generation != g_render_generation) {
+        cache_count = 0;
+        cache_generation = g_render_generation;
+    }
 
     for (int i = 0; i < cache_count; i++)
         if (cache[i].rad_i == rad_i) return cache[i].tex;
@@ -2091,10 +2165,12 @@ int main(void)
     SDL_Window *win = SDL_CreateWindow("armiga",
         SCREEN_W, SCREEN_H, SDL_WINDOW_FULLSCREEN);
     if (!win) { TTF_Quit(); SDL_Quit(); return 1; }
+    apply_refresh_120hz(win, read_refresh_120hz());
 
     SDL_Renderer *ren = SDL_CreateRenderer(win, NULL);
     if (!ren) { SDL_DestroyWindow(win); TTF_Quit(); SDL_Quit(); return 1; }
     SDL_SetRenderVSync(ren, 1);
+    g_render_generation++;
 
     TTF_Font *f_med   = TTF_OpenFont(FONT_PATH, FONT_MED);
     TTF_Font *f_sm    = TTF_OpenFont(FONT_PATH, FONT_SM);
@@ -2234,6 +2310,7 @@ int main(void)
     apply_perf_profile(perf_selected);
     int dim_max_brightness = read_max_brightness();
     int ssh_enabled = read_ssh_enabled(); /* aplicado ya por S51ssh-toggle en boot, solo reflejar estado en UI */
+    int refresh_120hz = read_refresh_120hz(); /* aplicado ya al crear la ventana, solo reflejar estado en UI */
     int samba_enabled = read_samba_enabled(); /* aplicado ya por S53samba-toggle en boot, solo reflejar estado en UI */
     int bt_enabled = read_bt_enabled(); /* aplicado ya por S22bluetooth-toggle en boot, solo reflejar estado en UI */
     int bt_selected = 0; /* cursor en lista de dispositivos escaneados */
@@ -2491,6 +2568,11 @@ int main(void)
                         state = STATE_BLUETOOTH_CONFIG;
                     }
                     if (ev.key.key == SDLK_RETURN && settings_selected == 10) {
+                        refresh_120hz = !refresh_120hz;
+                        save_refresh_120hz(refresh_120hz);
+                        apply_refresh_120hz(win, refresh_120hz);
+                    }
+                    if (ev.key.key == SDLK_RETURN && settings_selected == 11) {
                         confirm_target = SETTINGS_ACTION_FACTORY_RESET;
                         confirm_return_state = STATE_SETTINGS;
                         state = STATE_CONFIRM;
@@ -2564,6 +2646,12 @@ int main(void)
                 }
                 if (ev.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN &&
                     ev.jbutton.button == BTN_SDL_A && settings_selected == 10) {
+                    refresh_120hz = !refresh_120hz;
+                    save_refresh_120hz(refresh_120hz);
+                    apply_refresh_120hz(win, refresh_120hz);
+                }
+                if (ev.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN &&
+                    ev.jbutton.button == BTN_SDL_A && settings_selected == 11) {
                     confirm_target = SETTINGS_ACTION_FACTORY_RESET;
                     confirm_return_state = STATE_SETTINGS;
                     state = STATE_CONFIRM;
@@ -3554,6 +3642,10 @@ int main(void)
                     snprintf(item_label, sizeof(item_label), "%s: %s",
                              SETTINGS_MENU_ITEMS[i][current_lang],
                              samba_enabled ? tr("Activado", "Enabled") : tr("Desactivado", "Disabled"));
+                } else if (i == 10) {
+                    snprintf(item_label, sizeof(item_label), "%s: %s",
+                             SETTINGS_MENU_ITEMS[i][current_lang],
+                             refresh_120hz ? "120Hz" : "60Hz");
                 } else {
                     safe_copy(item_label, SETTINGS_MENU_ITEMS[i][current_lang], sizeof(item_label));
                 }
