@@ -1061,6 +1061,18 @@ static void set_retroarch_audio_device(const char *mac)
     }
     system(cmd);
 }
+/* Fija video_refresh_rate en retroarch.cfg para que RetroArch (proceso
+ * aparte, con su propio SDL/DRM) pida el mismo modo de pantalla que el
+ * launcher; si no, RetroArch siempre arranca a 60Hz independientemente
+ * de lo elegido en Configuracion. Mismo patron que set_retroarch_audio_device. */
+static void set_retroarch_refresh_rate(int hz)
+{
+    char cmd[300];
+    snprintf(cmd, sizeof(cmd),
+        "sed -i 's|^video_refresh_rate = .*|video_refresh_rate = \"%d.000000\"|' "
+        "/media/amiga_data/retroarch/retroarch.cfg", hz);
+    system(cmd);
+}
 static void apply_bt_enabled(int enabled)
 {
     /* Nunca bloquear el hilo principal: S21bluetooth puede tardar (sleeps
@@ -2572,6 +2584,7 @@ int main(void)
                         refresh_120hz = !refresh_120hz;
                         save_refresh_120hz(refresh_120hz);
                         apply_refresh_120hz(win, refresh_120hz);
+                        set_retroarch_refresh_rate(refresh_120hz ? 120 : 60);
                     }
                     if (ev.key.key == SDLK_RETURN && settings_selected == 11) {
                         confirm_target = SETTINGS_ACTION_FACTORY_RESET;
@@ -2650,6 +2663,7 @@ int main(void)
                     refresh_120hz = !refresh_120hz;
                     save_refresh_120hz(refresh_120hz);
                     apply_refresh_120hz(win, refresh_120hz);
+                    set_retroarch_refresh_rate(refresh_120hz ? 120 : 60);
                 }
                 if (ev.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN &&
                     ev.jbutton.button == BTN_SDL_A && settings_selected == 11) {
