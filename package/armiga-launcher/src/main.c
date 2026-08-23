@@ -2107,6 +2107,33 @@ static SDL_Texture *get_pill_corner_mask(SDL_Renderer *r, float radius)
     }
     return tex;
 }
+/* Anade un quad (2 triangulos, 4 vertices, 6 indices) al buffer de geometria.
+ * uv0=(u0,v0) esquina superior-izquierda del quad, uv1=(u1,v1) esquina inferior-derecha,
+ * en el espacio de textura de la mascara de esquina (0,0)-(1,1) sin flip. */
+static void geom_add_quad(SDL_Vertex *verts, int *nv, int *inds, int *ni,
+                           float x0, float y0, float x1, float y1,
+                           float u0, float v0, float u1, float v1,
+                           SDL_FColor col)
+{
+    int base = *nv;
+    verts[base + 0] = (SDL_Vertex){ {x0, y0}, col, {u0, v0} };
+    verts[base + 1] = (SDL_Vertex){ {x1, y0}, col, {u1, v0} };
+    verts[base + 2] = (SDL_Vertex){ {x1, y1}, col, {u1, v1} };
+    verts[base + 3] = (SDL_Vertex){ {x0, y1}, col, {u0, v1} };
+    inds[*ni + 0] = base + 0; inds[*ni + 1] = base + 1; inds[*ni + 2] = base + 2;
+    inds[*ni + 3] = base + 0; inds[*ni + 4] = base + 2; inds[*ni + 5] = base + 3;
+    *nv += 4;
+    *ni += 6;
+}
+/* Version de draw_rounded_rect_filled con 1 sola llamada a SDL_RenderGeometry
+ * en vez de 9 draw calls (5x SDL_RenderFillRect + 4x SDL_RenderTextureRotated).
+ * Reutiliza la misma textura de mascara de esquina cacheada por radio
+ * (get_pill_corner_mask): las 4 esquinas muestrean su UV real (con flip
+ * horizontal/vertical segun corresponda, igual que antes con SDL_FLIP_*)
+ * para conservar el antialiasing por supersampling; el centro y las 4 tiras
+ * rectas muestrean un unico texel garantizado 100% opaco de esa misma
+ * mascara (la esquina interior, mas alejada del arco), asi todo el poligono
+ * usa la misma textura sin perder el relleno solido. */
 static void draw_rounded_rect_filled(SDL_Renderer *r, float x, float y,
                                       float w, float h, float radius,
                                       SDL_Color c)
@@ -2118,36 +2145,45 @@ static void draw_rounded_rect_filled(SDL_Renderer *r, float x, float y,
     int rad_i = (int)SDL_ceilf(radius) + 1;
     float rf = (float)rad_i;
     SDL_Texture *mask = get_pill_corner_mask(r, radius);
-    SDL_SetTextureColorMod(mask, c.r, c.g, c.b);
-    SDL_SetTextureAlphaMod(mask, c.a);
+
+    SDL_FColor col = { c.r / 255.0f, c.g / 255.0f, c.b / 255.0f, c.a / 255.0f };
+    const float UV_OPAQUE_U = 1.0f, UV_OPAQUE_V = 1.0f; /* texel interior, 100% opaco */
+
+    SDL_Vertex verts[36];
+    int inds[54];
+    int nv = 0, ni = 0;
+
+    /* Esquina TL: uv normal (0,0)-(1,1) */
+    geom_add_quad(verts, &nv, inds, &ni, x, y, x + rf, y + rf, 0.0f, 0.0f, 1.0f, 1.0f, col);
+    /* Esquina TR: flip horizontal (u invertido) */
+    geom_add_quad(verts, &nv, inds, &ni, x + w - rf, y, x + w, y + rf, 1.0f, 0.0f, 0.0f, 1.0f, col);
+    /* Esquina BL: flip vertical (v invertido) */
+    geom_add_quad(verts, &nv, inds, &ni, x, y + h - rf, x + rf, y + h, 0.0f, 1.0f, 1.0f, 0.0f, col);
+    /* Esquina BR: flip ambos */
+    geom_add_quad(verts, &nv, inds, &ni, x + w - rf, y + h - rf, x + w, y + h, 1.0f, 1.0f, 0.0f, 0.0f, col);
+
+    /* Centro + 4 tiras rectas, todas con UV constante (texel opaco) */
+    if (w - 2.0f * rf > 0.0f && h - 2.0f * rf > 0.0f)
+        geom_add_quad(verts, &nv, inds, &ni, x + rf, y + rf, x + w - rf, y + h - rf,
+                      UV_OPAQUE_U, UV_OPAQUE_V, UV_OPAQUE_U, UV_OPAQUE_V, col);
+    if (w - 2.0f * rf > 0.0f)
+        geom_add_quad(verts, &nv, inds, &ni, x + rf, y, x + w - rf, y + rf,
+                      UV_OPAQUE_U, UV_OPAQUE_V, UV_OPAQUE_U, UV_OPAQUE_V, col);
+    if (w - 2.0f * rf > 0.0f)
+        geom_add_quad(verts, &nv, inds, &ni, x + rf, y + h - rf, x + w - rf, y + h,
+                      UV_OPAQUE_U, UV_OPAQUE_V, UV_OPAQUE_U, UV_OPAQUE_V, col);
+    if (h - 2.0f * rf > 0.0f)
+        geom_add_quad(verts, &nv, inds, &ni, x, y + rf, x + rf, y + h - rf,
+                      UV_OPAQUE_U, UV_OPAQUE_V, UV_OPAQUE_U, UV_OPAQUE_V, col);
+    if (h - 2.0f * rf > 0.0f)
+        geom_add_quad(verts, &nv, inds, &ni, x + w - rf, y + rf, x + w, y + h - rf,
+                      UV_OPAQUE_U, UV_OPAQUE_V, UV_OPAQUE_U, UV_OPAQUE_V, col);
 
     SDL_BlendMode prev_blend;
-    SDL_GetRenderDrawBlendMode(r, &prev_blend);
-    SDL_SetRenderDrawBlendMode(r, SDL_BLENDMODE_BLEND);
-    SDL_SetRenderDrawColor(r, c.r, c.g, c.b, c.a);
-
-    SDL_FRect center_rect = {x + rf, y + rf, w - 2.0f * rf, h - 2.0f * rf};
-    if (center_rect.w > 0.0f && center_rect.h > 0.0f) SDL_RenderFillRect(r, &center_rect);
-    SDL_FRect top_rect = {x + rf, y, w - 2.0f * rf, rf};
-    if (top_rect.w > 0.0f) SDL_RenderFillRect(r, &top_rect);
-    SDL_FRect bot_rect = {x + rf, y + h - rf, w - 2.0f * rf, rf};
-    if (bot_rect.w > 0.0f) SDL_RenderFillRect(r, &bot_rect);
-    SDL_FRect left_rect = {x, y + rf, rf, h - 2.0f * rf};
-    if (left_rect.h > 0.0f) SDL_RenderFillRect(r, &left_rect);
-    SDL_FRect right_rect = {x + w - rf, y + rf, rf, h - 2.0f * rf};
-    if (right_rect.h > 0.0f) SDL_RenderFillRect(r, &right_rect);
-
-    SDL_FRect dst;
-    dst = (SDL_FRect){x, y, rf, rf};
-    SDL_RenderTextureRotated(r, mask, NULL, &dst, 0.0, NULL, SDL_FLIP_NONE);
-    dst = (SDL_FRect){x + w - rf, y, rf, rf};
-    SDL_RenderTextureRotated(r, mask, NULL, &dst, 0.0, NULL, SDL_FLIP_HORIZONTAL);
-    dst = (SDL_FRect){x, y + h - rf, rf, rf};
-    SDL_RenderTextureRotated(r, mask, NULL, &dst, 0.0, NULL, SDL_FLIP_VERTICAL);
-    dst = (SDL_FRect){x + w - rf, y + h - rf, rf, rf};
-    SDL_RenderTextureRotated(r, mask, NULL, &dst, 0.0, NULL, (SDL_FlipMode)(SDL_FLIP_HORIZONTAL | SDL_FLIP_VERTICAL));
-
-    SDL_SetRenderDrawBlendMode(r, prev_blend);
+    SDL_GetTextureBlendMode(mask, &prev_blend);
+    SDL_SetTextureBlendMode(mask, SDL_BLENDMODE_BLEND);
+    SDL_RenderGeometry(r, mask, verts, nv, inds, ni);
+    SDL_SetTextureBlendMode(mask, prev_blend);
 }
 static float draw_status_pill(SDL_Renderer *ren, TTF_Font *f, float right_edge, float y_center,
                                SDL_Texture *icon, const char *label, SDL_Color fg, SDL_Color bg,
