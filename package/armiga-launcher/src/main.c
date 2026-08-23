@@ -3776,7 +3776,7 @@ int main(void)
         }
 
         /* Barra inferior */
-        draw_line(ren, mx, 438.0f, SCREEN_W - 20.0f, 438.0f, c_green);
+        draw_line(ren, mx, 438.0f, SCREEN_W - 20.0f, 438.0f, (SDL_Color){183, 221, 91, 255});
         draw_footer(ren, f_sm, tr("[B] Seleccionar  [DPAD] Navegar  [L1] Idioma", "[B] Select  [DPAD] Navigate  [L1] Language"), s_version);
 
         /* Barra de progreso del hold de modo dev (si se está manteniendo) */
@@ -3848,7 +3848,7 @@ int main(void)
                           mx + 8.0f, settings_y0 + settings_visible * settings_item_h + 2.0f);
             }
 
-            draw_line(ren, mx, 438.0f, SCREEN_W - 20.0f, 438.0f, c_green);
+            draw_line(ren, mx, 438.0f, SCREEN_W - 20.0f, 438.0f, (SDL_Color){183, 221, 91, 255});
             draw_footer(ren, f_sm, tr("[B] Seleccionar  [A] Volver", "[B] Select  [A] Back"), s_version);
 
         } else if (state == STATE_BRIGHTNESS_CONFIG) {
@@ -3868,7 +3868,7 @@ int main(void)
                 draw_rect_filled(ren, mx + 8.0f, iy + 44.0f, bar_w * frac, bar_h, c_white);
             }
 
-            draw_line(ren, mx, 438.0f, SCREEN_W - 20.0f, 438.0f, c_green);
+            draw_line(ren, mx, 438.0f, SCREEN_W - 20.0f, 438.0f, (SDL_Color){183, 221, 91, 255});
             draw_footer(ren, f_sm,
                 tr("[<>] Ajustar  [B] Aplicar  [A] Volver", "[<>] Adjust  [B] Apply  [A] Back"), s_version);
 
@@ -3934,7 +3934,7 @@ int main(void)
                 draw_text(ren, f_med, perf_opts[i].title[current_lang], titlec, perf_x + 38.0f, iy);
                 draw_text_wrapped(ren, f_sm, desc_flat, titlec, perf_x + 38.0f, iy + 20.0f, perf_w - 30.0f, 15.0f);
             }
-            draw_line(ren, mx, 438.0f, SCREEN_W - 20.0f, 438.0f, c_green);
+            draw_line(ren, mx, 438.0f, SCREEN_W - 20.0f, 438.0f, (SDL_Color){183, 221, 91, 255});
             draw_footer(ren, f_sm,
                 tr("[DPAD] Elegir  [B] Aplicar  [A] Volver", "[DPAD] Choose  [B] Apply  [A] Back"), s_version);
 
@@ -4073,7 +4073,7 @@ int main(void)
                     draw_text(ren, f_sm, tr("Buscando dispositivos...", "Searching for devices..."), c_menu_beige, mx + 20.0f, 416.0f);
                 }
             }
-            draw_line(ren, mx, 438.0f, SCREEN_W - 20.0f, 438.0f, c_green);
+            draw_line(ren, mx, 438.0f, SCREEN_W - 20.0f, 438.0f, (SDL_Color){183, 221, 91, 255});
             draw_footer(ren, f_sm,
                 tr("[DPAD] Elegir  [B] Conectar  [SELECT] Activar  [A] Volver", "[DPAD] Choose  [B] Connect  [SELECT] Toggle  [A] Back"), s_version);
         } else if (state == STATE_TIMEZONE_CONFIG) {
@@ -4127,7 +4127,7 @@ int main(void)
                 draw_text(ren, f_sm, TIMEZONE_LIST[timezone_selected].label[current_lang], c_menu_beige, tzp_x, tz_y0 + 66.0f);
             }
 
-            draw_line(ren, mx, 438.0f, SCREEN_W - 20.0f, 438.0f, c_green);
+            draw_line(ren, mx, 438.0f, SCREEN_W - 20.0f, 438.0f, (SDL_Color){183, 221, 91, 255});
             draw_footer(ren, f_sm,
                 tr("[B] Aplicar  [A] Volver", "[B] Apply  [A] Back"), s_version);
 
@@ -4191,7 +4191,7 @@ int main(void)
                 draw_text(ren, f_sm, valbuf, labelc, bar_x + dim_bar_w + 10.0f, iy + 16.0f);
             }
 
-            draw_line(ren, mx, 438.0f, SCREEN_W - 20.0f, 438.0f, c_green);
+            draw_line(ren, mx, 438.0f, SCREEN_W - 20.0f, 438.0f, (SDL_Color){183, 221, 91, 255});
             draw_footer(ren, f_sm,
                 tr("[B] Guardar  [A] Volver", "[B] Save  [A] Back"), s_version);
 
@@ -4240,7 +4240,7 @@ int main(void)
                 draw_text_truncated(ren, f_sm, msgbuf,
                           msgc, mx, bkm_y0 + BACKUP_MENU_COUNT * bkm_item_h + 20.0f, SCREEN_W - 40.0f);
             }
-            draw_line(ren, mx, 438.0f, SCREEN_W - 20.0f, 438.0f, c_green);
+            draw_line(ren, mx, 438.0f, SCREEN_W - 20.0f, 438.0f, (SDL_Color){183, 221, 91, 255});
             draw_footer(ren, f_sm, tr("[B] Seleccionar  [A] Volver", "[B] Select  [A] Back"), s_version);
 
         } else if (state == STATE_BACKUP_LIST) {
@@ -4274,7 +4274,7 @@ int main(void)
                     }
                 }
             }
-            draw_line(ren, mx, 438.0f, SCREEN_W - 20.0f, 438.0f, c_green);
+            draw_line(ren, mx, 438.0f, SCREEN_W - 20.0f, 438.0f, (SDL_Color){183, 221, 91, 255});
             draw_footer(ren, f_sm, tr("[B] Restaurar  [X] Eliminar  [A] Volver", "[B] Restore  [X] Delete  [A] Back"), s_version);
 
         } else if (state == STATE_WIFI_CONFIG) {
@@ -4337,7 +4337,7 @@ int main(void)
                 draw_text(ren, f_med, masked, labelc, mx + 8.0f, iy + 16.0f);
             }
 
-            draw_line(ren, mx, 438.0f, SCREEN_W - 20.0f, 438.0f, c_green);
+            draw_line(ren, mx, 438.0f, SCREEN_W - 20.0f, 438.0f, (SDL_Color){183, 221, 91, 255});
             draw_footer(ren, f_sm,
                 tr("[B] Editar  [SELECT] Ver/Ocultar  [A] Guardar", "[B] Edit  [SELECT] Show/Hide  [A] Save"),
                 s_version);
@@ -4425,7 +4425,7 @@ int main(void)
                 draw_text(ren, f_sm, tr("Derecho", "Right"), c_menu_beige, sw_right_x + (sw_size - (float)lw) / 2.0f, sw_y + 46.0f);
             }
 
-            draw_line(ren, mx, 438.0f, SCREEN_W - 20.0f, 438.0f, c_green);
+            draw_line(ren, mx, 438.0f, SCREEN_W - 20.0f, 438.0f, (SDL_Color){183, 221, 91, 255});
             draw_footer(ren, f_sm,
                 tr("[<>] Ajustar  [L1/R1] +/-20  [A] Volver", "[<>] Adjust  [L1/R1] +/-20  [A] Back"),
                 s_version);
@@ -4472,7 +4472,7 @@ int main(void)
                 }
             }
 
-            draw_line(ren, mx, 438.0f, SCREEN_W - 20.0f, 438.0f, c_green);
+            draw_line(ren, mx, 438.0f, SCREEN_W - 20.0f, 438.0f, (SDL_Color){183, 221, 91, 255});
             draw_footer(ren, f_sm,
                 tr("[B] Insertar [L1] Borrar [R1] Aceptar [A] Cancelar [SELECT] Mayus/Num", "[B] Insert [L1] Delete [R1] Accept [A] Cancel [SELECT] Caps/Num"),
                 s_version);
@@ -4783,7 +4783,7 @@ int main(void)
 #undef SI_ROW_BAR
 
             /* Barra inferior */
-            draw_line(ren, mx, 438.0f, SCREEN_W - 20.0f, 438.0f, c_green);
+            draw_line(ren, mx, 438.0f, SCREEN_W - 20.0f, 438.0f, (SDL_Color){183, 221, 91, 255});
             draw_footer(ren, f_sm, tr("[A] Volver  [L1/R1] Pagina", "[A] Back  [L1/R1] Page"), s_version);
         } else if (state == STATE_UPDATE) {
             const float UX = 20.0f;
@@ -4836,7 +4836,7 @@ int main(void)
                 draw_text(ren, f_sm, upd_msg,  c_gray, UX, 118.0f);
             }
 
-            draw_line(ren, UX, 438.0f, SCREEN_W - 20.0f, 438.0f, c_green);
+            draw_line(ren, UX, 438.0f, SCREEN_W - 20.0f, 438.0f, (SDL_Color){183, 221, 91, 255});
             if (update_phase != UPD_DOWNLOADING)
                 draw_footer(ren, f_sm, tr("[A] Volver", "[A] Back"), s_version);
             else
