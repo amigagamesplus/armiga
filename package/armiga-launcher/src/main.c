@@ -4858,6 +4858,12 @@ int main(void)
     if (logo_tex) SDL_DestroyTexture(logo_tex);
     for (int mi = 0; mi < MENU_ICON_COUNT; mi++)
         if (menu_icon_tex[mi]) SDL_DestroyTexture(menu_icon_tex[mi]);
+    if (wifi_icon_tex) SDL_DestroyTexture(wifi_icon_tex);
+    if (bt_icon_tex) SDL_DestroyTexture(bt_icon_tex);
+    if (battery_icon_tex) SDL_DestroyTexture(battery_icon_tex);
+    if (perf_bolt_tex) SDL_DestroyTexture(perf_bolt_tex);
+    if (perf_scale_tex) SDL_DestroyTexture(perf_scale_tex);
+    if (perf_battery_tex) SDL_DestroyTexture(perf_battery_tex);
     if (joy) SDL_CloseJoystick(joy);
     TTF_CloseFont(f_sm);
     TTF_CloseFont(f_med);
