@@ -2537,6 +2537,7 @@ int main(void)
     char sysinfo_temp[16]      = "--";
     char sysinfo_cpu_usage[8]  = "--";
     int  sysinfo_cpu_pct       = 0;
+    int  sysinfo_temp_pct      = 0; /* thermal_zone0, para la barra de temperatura en STATE_SYSINFO */
     char sysinfo_loadavg[32]   = "--";
     char sysinfo_wifi_sig[32]  = "--";
     int  sysinfo_wifi_pct      = -1;
@@ -3617,6 +3618,7 @@ int main(void)
             read_disk_usage("/media/amiga_data", sysinfo_disk_data, sizeof(sysinfo_disk_data));
             read_disk_usage("/", sysinfo_disk_root, sizeof(sysinfo_disk_root));
             read_cpu_temp(sysinfo_temp, sizeof(sysinfo_temp));
+            { int td = 0; if (read_sysfs_int("/sys/class/thermal/thermal_zone0/temp", &td)) sysinfo_temp_pct = td / 1000; if (sysinfo_temp_pct > 100) sysinfo_temp_pct = 100; }
             read_cpu_usage(sysinfo_cpu_usage, sizeof(sysinfo_cpu_usage), &sysinfo_cpu_pct);
             read_loadavg(sysinfo_loadavg, sizeof(sysinfo_loadavg));
             read_wifi_signal(sysinfo_wifi_sig, sizeof(sysinfo_wifi_sig), &sysinfo_wifi_pct);
@@ -4697,12 +4699,9 @@ int main(void)
                         if (mt > 0 && ma >= 0) ram_pct = (int)(100 * (mt - ma) / mt);
                     }
                 }
-                int temp_pct = 0;
-                { int td = 0; if (read_sysfs_int("/sys/class/thermal/thermal_zone0/temp",&td)) temp_pct = td/1000; if(temp_pct>100)temp_pct=100; }
-
                 SI_ROW_BAR(SI_RX, y, SI_RX + SI_CW_R, tr("Carga CPU", "CPU Load"),  sysinfo_cpu_usage, sysinfo_cpu_pct); y += SI_ROW_H;
                 SI_ROW_BAR(SI_RX, y, SI_RX + SI_CW_R, tr("Uso de RAM", "RAM Usage"),  dev_ram,           ram_pct);          y += SI_ROW_H;
-                SI_ROW_BAR(SI_RX, y, SI_RX + SI_CW_R, tr("Temp CPU", "CPU Temp"), sysinfo_temp,      temp_pct);         y += SI_ROW_H;
+                SI_ROW_BAR(SI_RX, y, SI_RX + SI_CW_R, tr("Temp CPU", "CPU Temp"), sysinfo_temp,      sysinfo_temp_pct); y += SI_ROW_H;
                 SI_ROW    (SI_RX, y, SI_RX + SI_CW_R, "Uptime",   dev_uptime);                          y += SI_ROW_H;
                 SI_ROW    (SI_RX, y, SI_RX + SI_CW_R, "Load Avg", sysinfo_loadavg);
             }
