@@ -267,6 +267,33 @@ static const char *tr(const char *es, const char *en)
     return (current_lang == LANG_EN) ? en : es;
 }
 
+/* Cache en RAM de armiga.cfg para valores leidos en el bucle de render
+ * (PERF_PROFILE, SSH_ENABLED). Poblada una vez al arrancar via config_load();
+ * los save_* existentes deben actualizar los campos correspondientes tras
+ * escribir a disco, para no depender de releer. */
+typedef struct {
+    int perf_profile;
+    int ssh_enabled;
+} AppConfigCache;
+static AppConfigCache g_cfg = { .perf_profile = 1, .ssh_enabled = 1 };
+
+static void config_load(void)
+{
+    FILE *f = fopen(ARMIGA_CONFIG_PATH, "r");
+    if (!f) return;
+    char line[128];
+    while (fgets(line, sizeof(line), f)) {
+        char key[32], val[96];
+        if (sscanf(line, "%31[^=]=%95s", key, val) == 2) {
+            if (!strcmp(key, "PERF_PROFILE")) g_cfg.perf_profile = atoi(val);
+            else if (!strcmp(key, "SSH_ENABLED")) g_cfg.ssh_enabled = atoi(val);
+        }
+    }
+    fclose(f);
+    if (g_cfg.perf_profile < 0 || g_cfg.perf_profile > 2) g_cfg.perf_profile = 1;
+    g_cfg.ssh_enabled = g_cfg.ssh_enabled ? 1 : 0;
+}
+
 #define LOCAL_CONSOLE_PATH "/dev/tty0"
 
 /* Redirige stdin/stdout/stderr a la consola local (pantalla+teclado del
@@ -953,22 +980,6 @@ static void save_refresh_120hz(int enabled)
     fprintf(f, "REFRESH_120HZ=%d\n", enabled ? 1 : 0);
     fclose(f);
 }
-/* Lee SSH_ENABLED de armiga.cfg. Default: activado (1). */
-static int read_ssh_enabled(void)
-{
-    int enabled = 1;
-    FILE *f = fopen(ARMIGA_CONFIG_PATH, "r");
-    if (!f) return enabled;
-    char line[128];
-    while (fgets(line, sizeof(line), f)) {
-        char key[32], val[96];
-        if (sscanf(line, "%31[^=]=%95s", key, val) == 2) {
-            if (!strcmp(key, "SSH_ENABLED")) enabled = atoi(val);
-        }
-    }
-    fclose(f);
-    return enabled ? 1 : 0;
-}
 /* Guarda SSH_ENABLED en armiga.cfg, preservando otras claves,
  * mismo patron que save_brightness_config. */
 static void save_ssh_enabled(int enabled)
@@ -992,6 +1003,7 @@ static void save_ssh_enabled(int enabled)
     for (int i = 0; i < n; i++) fputs(lines[i], f);
     fprintf(f, "SSH_ENABLED=%d\n", enabled ? 1 : 0);
     fclose(f);
+    g_cfg.ssh_enabled = enabled ? 1 : 0;
 }
 /* Aplica el estado SSH en caliente, sin reiniciar. */
 static void apply_refresh_120hz(SDL_Window *win, int enabled)
@@ -1156,23 +1168,6 @@ static void read_bt_connected(char *mac_out, size_t mac_sz, char *name_out, size
     }
     fclose(f);
 }
-/* Perfil de rendimiento: 0=Maximo, 1=Equilibrado (default), 2=Ahorro. */
-static int read_perf_profile(void)
-{
-    int profile = 1;
-    FILE *f = fopen(ARMIGA_CONFIG_PATH, "r");
-    if (!f) return profile;
-    char line[128];
-    while (fgets(line, sizeof(line), f)) {
-        char key[32], val[96];
-        if (sscanf(line, "%31[^=]=%95s", key, val) == 2) {
-            if (!strcmp(key, "PERF_PROFILE")) profile = atoi(val);
-        }
-    }
-    fclose(f);
-    if (profile < 0 || profile > 2) profile = 1;
-    return profile;
-}
 static void save_perf_profile(int profile)
 {
     char lines[32][128];
@@ -1194,6 +1189,7 @@ static void save_perf_profile(int profile)
     for (int i = 0; i < n; i++) fputs(lines[i], f);
     fprintf(f, "PERF_PROFILE=%d\n", profile);
     fclose(f);
+    g_cfg.perf_profile = profile;
 }
 /* Aplica el perfil en caliente: CPU governor + GPU devfreq governor. */
 static void apply_perf_profile(int profile)
@@ -1773,7 +1769,7 @@ static void draw_footer(SDL_Renderer *ren, TTF_Font *f,
     draw_text(ren, f, legend, c_gray, 20.0f, 448.0f);
     draw_text_right(ren, f, version, c_lime, SCREEN_W - 20.0f, 448.0f);
 
-    int active_profile = read_perf_profile();
+    int active_profile = g_cfg.perf_profile;
     SDL_Texture *active_icon = (active_profile >= 0 && active_profile < 3) ? g_perf_icons[active_profile] : NULL;
     if (active_icon) {
         int ver_w = 0, ver_h = 0;
@@ -2234,7 +2230,7 @@ static void draw_statusbar(SDL_Renderer *ren, TTF_Font *f, TTF_Font *f_ampm,
     }
     right -= gap;
 
-    int ssh_on = read_ssh_enabled();
+    int ssh_on = g_cfg.ssh_enabled;
     right -= draw_status_pill(ren, f, right, y, NULL, "SSH", ssh_on ? c_gold : c_dim_fg, ssh_on ? c_pill_on : c_pill_off, 0.0f);
 }
 /* Circulo relleno via barrido por filas (mismo principio que
@@ -2291,6 +2287,7 @@ int main(void)
 {
     for (;;) {
     bool relaunch_after_retroarch = false;
+    config_load();
 
     if (!SDL_Init(SDL_INIT_VIDEO | SDL_INIT_JOYSTICK)) {
         fprintf(stderr, "SDL_Init: %s\n", SDL_GetError());
@@ -2430,7 +2427,7 @@ int main(void)
     int led_repeat_dir = 0; /* -1 izq, +1 der, 0 ninguno */
     char timezone_current[64] = "UTC";
     int timezone_selected = 0;
-    int perf_selected = read_perf_profile();
+    int perf_selected = g_cfg.perf_profile;
     read_current_tz(timezone_current, sizeof(timezone_current));
     for (int i = 0; i < TIMEZONE_LIST_COUNT; i++) {
         if (!strcmp(TIMEZONE_LIST[i].tz_name, timezone_current)) {
@@ -2450,7 +2447,7 @@ int main(void)
     write_brightness((int)((int64_t)2499 * brightness_pct / 100));
     apply_perf_profile(perf_selected);
     int dim_max_brightness = read_max_brightness();
-    int ssh_enabled = read_ssh_enabled(); /* aplicado ya por S51ssh-toggle en boot, solo reflejar estado en UI */
+    int ssh_enabled = g_cfg.ssh_enabled; /* aplicado ya por S51ssh-toggle en boot, solo reflejar estado en UI */
     int refresh_120hz = read_refresh_120hz(); /* aplicado ya al crear la ventana, solo reflejar estado en UI */
     int samba_enabled = read_samba_enabled(); /* aplicado ya por S53samba-toggle en boot, solo reflejar estado en UI */
     int bt_enabled = read_bt_enabled(); /* aplicado ya por S22bluetooth-toggle en boot, solo reflejar estado en UI */
@@ -2860,7 +2857,7 @@ int main(void)
                         state = STATE_SETTINGS;
                     }
                     if (ev.key.key == SDLK_ESCAPE) {
-                        perf_selected = read_perf_profile();
+                        perf_selected = g_cfg.perf_profile;
                         state = STATE_SETTINGS;
                     }
                 }
@@ -2878,7 +2875,7 @@ int main(void)
                 }
                 if (ev.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN &&
                     ev.jbutton.button == BTN_SDL_B) {
-                    perf_selected = read_perf_profile();
+                    perf_selected = g_cfg.perf_profile;
                     state = STATE_SETTINGS;
                 }
             }
@@ -4512,7 +4509,7 @@ int main(void)
                 float g_w  = (SCREEN_W - 20.0f) - dm_rx2;
                 float g_h  = 150.0f;
                 SDL_Color c_red = COL_RED;
-                int perf_now = read_perf_profile();
+                int perf_now = g_cfg.perf_profile;
                 bool throttle_applicable = (perf_now == 0) && dev_cpu_max_freq > 0 && dev_cpu_cur_freq > 0;
                 bool throttling = throttle_applicable &&
                     dev_cpu_cur_freq < (int)(dev_cpu_max_freq * 0.95f);
