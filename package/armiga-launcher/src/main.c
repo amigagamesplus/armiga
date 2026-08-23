@@ -1483,15 +1483,91 @@ static void read_release(char *kernel, char *mesa, char *retroarch, char *sdl3, 
     fclose(f);
 }
 
+/* Se incrementa cada vez que se crea un SDL_Renderer nuevo (tras
+ * volver de RetroArch, el launcher reinicializa SDL/DRM entero).
+ * Las cachés de texturas lo usan para invalidarse: comparar por
+ * puntero de renderer no es fiable, la nueva instancia puede
+ * reutilizar la misma direccion de memoria que la destruida. */
+static int g_render_generation = 0;
+/* Cache LRU de texturas de texto, indexada por (fuente, texto, color).
+ * La inmensa mayoria de los textos dibujados por frame son constantes
+ * (etiquetas de menu, botones, etc.) y antes se creaban/destruian como
+ * textura GPU nueva en CADA frame via TTF_RenderText_Blended +
+ * SDL_CreateTextureFromSurface -> SDL_DestroyTexture, decenas de veces
+ * por frame. Con cache, se generan una sola vez y se reutilizan. */
+#define TEXT_CACHE_SIZE 128
+typedef struct {
+    TTF_Font *font;
+    char text[128];
+    SDL_Color color;
+    SDL_Texture *texture;
+    int w, h;
+    Uint64 last_used;
+    int generation;
+} CachedText;
+static CachedText s_text_cache[TEXT_CACHE_SIZE];
 static void draw_text(SDL_Renderer *r, TTF_Font *f, const char *t,
                       SDL_Color c, float x, float y)
 {
+    if (!t || !t[0]) return;
+    if (strlen(t) >= sizeof(s_text_cache[0].text)) {
+        SDL_Surface *s = TTF_RenderText_Blended(f, t, 0, c);
+        if (!s) return;
+        SDL_Texture *tx = SDL_CreateTextureFromSurface(r, s);
+        SDL_FRect dst = {x, y, (float)s->w, (float)s->h};
+        SDL_RenderTexture(r, tx, NULL, &dst);
+        SDL_DestroyTexture(tx);
+        SDL_DestroySurface(s);
+        return;
+    }
+
+    Uint64 now = SDL_GetTicks();
+    int free_slot = -1;
+    Uint64 oldest = SDL_MAX_UINT64;
+    int oldest_slot = 0;
+
+    for (int i = 0; i < TEXT_CACHE_SIZE; i++) {
+        if (s_text_cache[i].texture && s_text_cache[i].generation == g_render_generation) {
+            if (s_text_cache[i].font == f &&
+                memcmp(&s_text_cache[i].color, &c, sizeof(SDL_Color)) == 0 &&
+                strcmp(s_text_cache[i].text, t) == 0) {
+                s_text_cache[i].last_used = now;
+                SDL_FRect dst = {x, y, (float)s_text_cache[i].w, (float)s_text_cache[i].h};
+                SDL_RenderTexture(r, s_text_cache[i].texture, NULL, &dst);
+                return;
+            }
+            if (s_text_cache[i].last_used < oldest) {
+                oldest = s_text_cache[i].last_used;
+                oldest_slot = i;
+            }
+        } else {
+            if (free_slot == -1) free_slot = i;
+        }
+    }
+
+    int slot = (free_slot != -1) ? free_slot : oldest_slot;
+    if (s_text_cache[slot].texture && s_text_cache[slot].generation == g_render_generation) {
+        SDL_DestroyTexture(s_text_cache[slot].texture);
+    }
+    s_text_cache[slot].texture = NULL;
+
     SDL_Surface *s = TTF_RenderText_Blended(f, t, 0, c);
     if (!s) return;
     SDL_Texture *tx = SDL_CreateTextureFromSurface(r, s);
-    SDL_FRect dst = {x, y, (float)s->w, (float)s->h};
-    SDL_RenderTexture(r, tx, NULL, &dst);
-    SDL_DestroyTexture(tx);
+    if (tx) {
+        s_text_cache[slot].font = f;
+        strncpy(s_text_cache[slot].text, t, sizeof(s_text_cache[slot].text) - 1);
+        s_text_cache[slot].text[sizeof(s_text_cache[slot].text) - 1] = '\0';
+        s_text_cache[slot].color = c;
+        s_text_cache[slot].texture = tx;
+        s_text_cache[slot].w = s->w;
+        s_text_cache[slot].h = s->h;
+        s_text_cache[slot].last_used = now;
+        s_text_cache[slot].generation = g_render_generation;
+
+        SDL_FRect dst = {x, y, (float)s->w, (float)s->h};
+        SDL_RenderTexture(r, tx, NULL, &dst);
+    }
     SDL_DestroySurface(s);
 }
 
@@ -1673,12 +1749,6 @@ static int bt_parse_devices(BTDevice *devices, int max_count)
 }
 
 #define DEVMODE_TEMP_HISTORY_LEN 60
-/* Se incrementa cada vez que se crea un SDL_Renderer nuevo (tras
- * volver de RetroArch, el launcher reinicializa SDL/DRM entero).
- * Las cachés de texturas lo usan para invalidarse: comparar por
- * puntero de renderer no es fiable, la nueva instancia puede
- * reutilizar la misma direccion de memoria que la destruida. */
-static int g_render_generation = 0;
 static int g_devmode_temp_history[DEVMODE_TEMP_HISTORY_LEN];
 static int g_devmode_temp_history_count = 0;
 
