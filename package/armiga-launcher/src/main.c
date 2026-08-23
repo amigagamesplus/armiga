@@ -73,7 +73,9 @@ typedef enum {
     STATE_SCREENDIM_CONFIG,
     STATE_BRIGHTNESS_CONFIG,
     STATE_PERF_CONFIG,
-    STATE_BLUETOOTH_CONFIG
+    STATE_BLUETOOTH_CONFIG,
+    STATE_AREXX_LIST,
+    STATE_AREXX_RUN
 } AppState;
 
 typedef enum {
@@ -89,9 +91,10 @@ typedef enum {
 #define ACTION_ROMS    1
 #define ACTION_UPDATE  2
 #define ACTION_INFO    3
-#define ACTION_SETTINGS 4
-#define ACTION_SHELL   5
-#define ACTION_REBOOT  6
+#define ACTION_AREXX   4
+#define ACTION_SETTINGS 5
+#define ACTION_SHELL   6
+#define ACTION_REBOOT  7
 
 #define KB_ROWS 4
 #define KB_MAX_COLS 10
@@ -146,6 +149,7 @@ static const char *MENU_ITEMS[][2] = {
     {"Catálogo Amiga",              "Amiga Catalog"},
     {"Actualización de sistema",    "System Update"},
     {"Diagnóstico del sistema",     "System Diagnostics"},
+    {"ARexx Scripts",               "ARexx Scripts"},
     {"Configuración",               "Settings"},
     {"Apagar dispositivo",          "Power Off"},
     {"Reiniciar dispositivo",       "Reboot"},
@@ -157,6 +161,8 @@ static const char *MENU_DESC[][2] = {
      "Download and install the\n" "latest version of armiga."},
     {"Revisa el estado del\n" "hardware y el sistema.",
      "Check the status of the\n" "hardware and system."},
+    {"Scripts del sistema para\n" "tareas y comodidades extra.",
+     "System scripts for extra\n" "tasks and conveniences."},
     {"Ajustes del sistema:\n" "red inalambrica y mas.",
      "System settings:\n" "wireless network and more."},
     {"Apaga el dispositivo\n" "de forma segura.",
@@ -164,7 +170,7 @@ static const char *MENU_DESC[][2] = {
     {"Reinicia el dispositivo\n" "de forma segura.",
      "Restart the device\n" "safely."},
 };
-#define MENU_COUNT 6
+#define MENU_COUNT 7
 
 static const char *SETTINGS_MENU_ITEMS[][2] = {
     {"Red inalámbrica",             "Wireless Network"},
@@ -1442,6 +1448,78 @@ static void delete_backup(const char *filename)
     snprintf(path, sizeof(path), BACKUP_DIR "/%s", filename);
     unlink(path);
 }
+#define AREXX_SCRIPTS_DIR "/usr/share/armiga/arexx_scripts"
+#define AREXX_MAX_SCRIPTS 16
+typedef struct {
+    char filename[64];
+    char desc[2][96]; /* [0]=ES, [1]=EN */
+} ArexxScript;
+/* Lista los .sh de AREXX_SCRIPTS_DIR (orden alfabetico via ls) y lee la
+ * cabecera de cada uno buscando lineas "# DESC_ES:"/"# DESC_EN:" entre las
+ * primeras 8 lineas del fichero. Si no encuentra cabecera, usa el nombre
+ * de fichero como descripcion en ambos idiomas (fallback). */
+static int list_arexx_scripts(ArexxScript *scripts, int max_scripts)
+{
+    FILE *p = popen("ls " AREXX_SCRIPTS_DIR "/*.sh 2>/dev/null", "r");
+    if (!p) return 0;
+    int n = 0;
+    char line[288];
+    while (n < max_scripts && fgets(line, sizeof(line), p)) {
+        line[strcspn(line, "\r\n")] = 0;
+        const char *base = strrchr(line, '/');
+        base = base ? base + 1 : line;
+        safe_copy(scripts[n].filename, base, sizeof(scripts[n].filename));
+        safe_copy(scripts[n].desc[0], base, sizeof(scripts[n].desc[0]));
+        safe_copy(scripts[n].desc[1], base, sizeof(scripts[n].desc[1]));
+        FILE *sf = fopen(line, "r");
+        if (sf) {
+            char hline[192];
+            for (int i = 0; i < 8 && fgets(hline, sizeof(hline), sf); i++) {
+                hline[strcspn(hline, "\r\n")] = 0;
+                if (!strncmp(hline, "# DESC_ES:", 10)) {
+                    const char *v = hline + 10;
+                    while (*v == ' ') v++;
+                    safe_copy(scripts[n].desc[0], v, sizeof(scripts[n].desc[0]));
+                } else if (!strncmp(hline, "# DESC_EN:", 10)) {
+                    const char *v = hline + 10;
+                    while (*v == ' ') v++;
+                    safe_copy(scripts[n].desc[1], v, sizeof(scripts[n].desc[1]));
+                }
+            }
+            fclose(sf);
+        }
+        n++;
+    }
+    pclose(p);
+    return n;
+}
+/* Ejecuta un script ARexx forzando +x antes, capturando su salida linea a
+ * linea en un buffer de texto para mostrarla en STATE_AREXX_RUN. */
+static void run_arexx_script(const char *filename, char *out_buf, size_t out_sz)
+{
+    char path[288];
+    snprintf(path, sizeof(path), AREXX_SCRIPTS_DIR "/%s", filename);
+    chmod(path, 0755);
+    out_buf[0] = '\0';
+    size_t used = 0;
+    char cmd[320];
+    snprintf(cmd, sizeof(cmd), "%s 2>&1", path);
+    FILE *p = popen(cmd, "r");
+    if (!p) {
+        safe_copy(out_buf, "Error: no se pudo ejecutar el script.\n", out_sz);
+        return;
+    }
+    char line[256];
+    while (fgets(line, sizeof(line), p)) {
+        size_t llen = strlen(line);
+        if (used + llen >= out_sz - 1) break;
+        memcpy(out_buf + used, line, llen);
+        used += llen;
+        out_buf[used] = '\0';
+    }
+    pclose(p);
+    if (used == 0) safe_copy(out_buf, "(sin salida)\n", out_sz);
+}
 static void restore_backup(const char *filename)
 {
     char cmd[512];
@@ -2366,11 +2444,12 @@ int main(void)
     }
     /* Iconos monocromos del menu principal (PNG blanco+alfa, recoloreados
      * en tiempo real via SDL_SetTextureColorMod segun seleccion). */
-    #define MENU_ICON_COUNT 6
+    #define MENU_ICON_COUNT 7
     static const char *MENU_ICON_PATHS[MENU_ICON_COUNT] = {
         "/usr/share/armiga/icons/device-gamepad-2.png",
         "/usr/share/armiga/icons/cloud-download.png",
         "/usr/share/armiga/icons/activity.png",
+        "/usr/share/armiga/icons/terminal.png",
         "/usr/share/armiga/icons/settings.png",
         "/usr/share/armiga/icons/power.png",
         "/usr/share/armiga/icons/reboot.png",
@@ -2430,6 +2509,10 @@ int main(void)
     float bt_cursor_y = -1.0f;
     Uint64 bt_lerp_last_time = SDL_GetTicksNS();
     int dev_selected = 0;
+    ArexxScript arexx_scripts[AREXX_MAX_SCRIPTS];
+    int arexx_count = 0;
+    int arexx_selected = 0;
+    char arexx_output[4096] = "";
     bool show_fps_counter = false;
     int fps_frame_count = 0;
     float fps_display = 0.0f;
@@ -2960,6 +3043,38 @@ int main(void)
                     ev.jbutton.button == BTN_SDL_B)
                     state = STATE_SETTINGS;
             }
+            else if (state == STATE_AREXX_LIST) {
+                if (arexx_count > 0) {
+                    if (ev.type == SDL_EVENT_KEY_DOWN) {
+                        if (ev.key.key == SDLK_UP)
+                            arexx_selected = (arexx_selected - 1 + arexx_count) % arexx_count;
+                        if (ev.key.key == SDLK_DOWN)
+                            arexx_selected = (arexx_selected + 1) % arexx_count;
+                    }
+                    if (ev.type == SDL_EVENT_JOYSTICK_HAT_MOTION) {
+                        if (ev.jhat.value == SDL_HAT_UP)
+                            arexx_selected = (arexx_selected - 1 + arexx_count) % arexx_count;
+                        else if (ev.jhat.value == SDL_HAT_DOWN)
+                            arexx_selected = (arexx_selected + 1) % arexx_count;
+                    }
+                    if (ev.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN &&
+                        ev.jbutton.button == BTN_SDL_A) {
+                        run_arexx_script(arexx_scripts[arexx_selected].filename,
+                                         arexx_output, sizeof(arexx_output));
+                        state = STATE_AREXX_RUN;
+                    }
+                }
+                if (ev.type == SDL_EVENT_KEY_DOWN && ev.key.key == SDLK_ESCAPE)
+                    state = STATE_MENU;
+                if (ev.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN &&
+                    ev.jbutton.button == BTN_SDL_B)
+                    state = STATE_MENU;
+            }
+            else if (state == STATE_AREXX_RUN) {
+                if ((ev.type == SDL_EVENT_KEY_DOWN && ev.key.key == SDLK_RETURN) ||
+                    (ev.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN && ev.jbutton.button == BTN_SDL_B))
+                    state = STATE_AREXX_LIST;
+            }
             else if (state == STATE_TIMEZONE_CONFIG) {
                 if (ev.type == SDL_EVENT_KEY_DOWN) {
                     if (ev.key.key == SDLK_UP)
@@ -3407,6 +3522,10 @@ int main(void)
             } else if (action == ACTION_INFO) {
                 state = STATE_SYSINFO;
                 last_sysinfo_update = 0; /* forzar refresco inmediato */
+            } else if (action == ACTION_AREXX) {
+                state = STATE_AREXX_LIST;
+                arexx_selected = 0;
+                arexx_count = list_arexx_scripts(arexx_scripts, AREXX_MAX_SCRIPTS);
             } else if (action == ACTION_SETTINGS) {
                 state = STATE_SETTINGS;
                 settings_selected = 0;
@@ -4276,6 +4395,59 @@ int main(void)
             }
             draw_line(ren, mx, 438.0f, SCREEN_W - 20.0f, 438.0f, (SDL_Color){183, 221, 91, 255});
             draw_footer(ren, f_sm, tr("[B] Restaurar  [X] Eliminar  [A] Volver", "[B] Restore  [X] Delete  [A] Back"), s_version);
+
+        } else if (state == STATE_AREXX_LIST) {
+            draw_text_truncated(ren, f_sm, tr("Menú > ARexx Scripts", "Menu > ARexx Scripts"), c_green, mx, 20.0f, SCREEN_W - 190.0f);
+            draw_statusbar(ren, f_sm, f_xs, status_time, status_wifi_up, status_battery, status_bt_up, wifi_icon_tex, battery_icon_tex, bt_icon_tex);
+            float arx_y0 = 64.0f;
+            float arx_item_h = 34.0f;
+            if (arexx_count == 0) {
+                draw_text(ren, f_sm, tr("No hay scripts disponibles", "No scripts available"), c_gray, mx, arx_y0);
+            } else {
+                SDL_Color c_menu_gold = {27, 39, 8, 255};
+                SDL_Color c_menu_selbg = {183, 221, 91, 255};
+                for (int i = 0; i < arexx_count; i++) {
+                    float iy = arx_y0 + i * arx_item_h;
+                    if (i == arexx_selected) {
+                        int text_w = 0, text_h = 0;
+                        TTF_GetStringSize(f_sm, arexx_scripts[i].filename, 0, &text_w, &text_h);
+                        float sel_w = (float)text_w + 32.0f;
+                        float pill_h = 26.0f;
+                        float text_y = iy + (pill_h - (float)text_h) / 2.0f;
+                        draw_rounded_rect_filled(ren, mx - 10.0f, iy, sel_w, pill_h, pill_h / 2.0f, c_menu_selbg);
+                        draw_text(ren, f_sm, arexx_scripts[i].filename, c_menu_gold, mx + 8.0f, text_y);
+                        draw_text(ren, f_xs, arexx_scripts[i].desc[current_lang], c_menu_selbg, mx + 8.0f, iy + pill_h + 2.0f);
+                    } else {
+                        draw_text(ren, f_sm, arexx_scripts[i].filename, c_gray, mx + 8.0f, iy);
+                    }
+                }
+            }
+            draw_line(ren, mx, 438.0f, SCREEN_W - 20.0f, 438.0f, (SDL_Color){183, 221, 91, 255});
+            draw_footer(ren, f_sm, tr("[B] Ejecutar  [A] Volver", "[B] Run  [A] Back"), s_version);
+
+        } else if (state == STATE_AREXX_RUN) {
+            draw_text_truncated(ren, f_sm, tr("Menú > ARexx Scripts > Ejecutando", "Menu > ARexx Scripts > Running"), c_green, mx, 20.0f, SCREEN_W - 190.0f);
+            draw_statusbar(ren, f_sm, f_xs, status_time, status_wifi_up, status_battery, status_bt_up, wifi_icon_tex, battery_icon_tex, bt_icon_tex);
+            SDL_Color c_menu_gold = {27, 39, 8, 255};
+            draw_text(ren, f_sm, arexx_scripts[arexx_selected].filename, c_menu_gold, mx, 60.0f);
+            float arxr_y0 = 90.0f;
+            float arxr_line_h = 16.0f;
+            char arxr_lines[24][256];
+            int arxr_nlines = 0;
+            {
+                char tmp[4096];
+                safe_copy(tmp, arexx_output, sizeof(tmp));
+                char *tok = strtok(tmp, "\n");
+                while (tok && arxr_nlines < 24) {
+                    safe_copy(arxr_lines[arxr_nlines], tok, sizeof(arxr_lines[arxr_nlines]));
+                    arxr_nlines++;
+                    tok = strtok(NULL, "\n");
+                }
+            }
+            for (int i = 0; i < arxr_nlines; i++)
+                draw_text(ren, f_xs, arxr_lines[i], c_gray, mx, arxr_y0 + i * arxr_line_h);
+            draw_line(ren, mx, 438.0f, SCREEN_W - 20.0f, 438.0f, (SDL_Color){183, 221, 91, 255});
+            draw_footer(ren, f_sm, tr("[A] Volver", "[A] Back"), s_version);
 
         } else if (state == STATE_WIFI_CONFIG) {
             SDL_Color c_menu_gold  = {27, 39, 8, 255};
