@@ -4749,7 +4749,9 @@ int main(void)
             SI_ROW(SI_RX, y, SI_RX + SI_CW_R, "GPU",           "Mali-G31 (Panfrost)"); y += SI_ROW_H;
             SI_ROW(SI_RX, y, SI_RX + SI_CW_R, "RAM",           "1 GB LPDDR4");         y += SI_ROW_H;
             SI_ROW(SI_RX, y, SI_RX + SI_CW_R, tr("Almacenamiento", "Storage"),"microSD");              y += SI_ROW_H;
-            SI_ROW(SI_RX, y, SI_RX + SI_CW_R, tr("Resolución", "Resolution"),    "640x480 @ 60Hz");
+            char sysinfo_resolution[24];
+            snprintf(sysinfo_resolution, sizeof(sysinfo_resolution), "640x480 @ %dHz", refresh_120hz ? 120 : 60);
+            SI_ROW(SI_RX, y, SI_RX + SI_CW_R, tr("Resolución", "Resolution"),    sysinfo_resolution);
             }
 
             /* ── BLOQUE 3 IZQ: SOFTWARE ──────────────────────────────────── */
