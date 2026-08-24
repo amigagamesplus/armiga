@@ -18,11 +18,11 @@ on:
       buildroot_version:
         description: 'Versión de Buildroot'
         required: false
-        default: '2026.02.2'
+        default: '2026.05.2'
         type: string
 
 env:
-  BR_VERSION: ${{ github.event.inputs.buildroot_version || '2026.02.2' }}
+  BR_VERSION: ${{ github.event.inputs.buildroot_version || '2026.05.2' }}
   BR_EXTERNAL: ${{ github.workspace }}
   BR_DL_DIR: ${{ github.workspace }}/dl
   BR_OUTPUT: ${{ github.workspace }}/output
