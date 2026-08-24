@@ -4422,6 +4422,9 @@ int main(void)
                     }
                 }
             }
+            char arx_counter[24];
+            snprintf(arx_counter, sizeof(arx_counter), "%d %s %d", arexx_count, tr("de", "of"), AREXX_MAX_SCRIPTS);
+            draw_text(ren, f_sm, arx_counter, c_gray, mx, 418.0f);
             draw_line(ren, mx, 438.0f, SCREEN_W - 20.0f, 438.0f, (SDL_Color){183, 221, 91, 255});
             draw_footer(ren, f_sm, tr("[B] Ejecutar  [A] Volver", "[B] Run  [A] Back"), s_version);
 
