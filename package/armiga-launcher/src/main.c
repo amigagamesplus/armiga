@@ -564,10 +564,12 @@ static int finish_check_update(const char *json_path, const char *current_ver,
         }
         if (strstr(line, "\"assets\"")) in_assets = true;
         if (in_assets) {
-            if ((p = strstr(line, "\"name\"")))
-                sscanf(p, "\"name\" : \"%127[^\"]\"", last_name),
-                sscanf(p, "\"name\":\"%127[^\"]\"", last_name),
-                sscanf(p, "\"name\": \"%127[^\"]\"", last_name);
+            if ((p = strstr(line, "\"name\""))) {
+                last_name[0] = '\0';
+                sscanf(p, "\"name\" : \"%127[^\"]\"", last_name);
+                if (!last_name[0]) sscanf(p, "\"name\":\"%127[^\"]\"", last_name);
+                if (!last_name[0]) sscanf(p, "\"name\": \"%127[^\"]\"", last_name);
+            }
             if ((p = strstr(line, "\"browser_download_url\""))) {
                 char url[512] = "";
                 sscanf(p, "\"browser_download_url\" : \"%511[^\"]\"", url);
