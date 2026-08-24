@@ -2365,6 +2365,41 @@ static void draw_circle_filled(SDL_Renderer *r, float cx, float cy,
     }
 }
 
+/* Sistema de navegacion "Active Dash Pill": dots atenuados para niveles
+ * previos + capsula alargada verde-lima para el nivel activo + titulo de
+ * la seccion actual. Sustituye al breadcrumb textual "Menu > X > Y". */
+static void draw_active_dash_breadcrumbs(SDL_Renderer *ren, TTF_Font *font,
+                                         float x, float y_center,
+                                         int depth, const char *title)
+{
+    if (depth <= 0) return;
+
+    const SDL_Color c_prev_dot    = { 28,  52,  40, 255};
+    const SDL_Color c_active_dash = {183, 221,  91, 255};
+    const SDL_Color c_text        = {231, 239, 231, 255};
+
+    float cur_x = x;
+
+    const float r_dot = 2.5f;
+    const float dot_gap = 6.0f;
+    for (int i = 1; i < depth; i++) {
+        draw_circle_filled(ren, cur_x + r_dot, y_center, r_dot, c_prev_dot);
+        cur_x += (r_dot * 2.0f) + dot_gap;
+    }
+
+    const float dash_w = 16.0f;
+    const float dash_h = 7.0f;
+    const float dash_r = dash_h / 2.0f;
+    float dash_y = y_center - (dash_h / 2.0f);
+    draw_rounded_rect_filled(ren, cur_x, dash_y, dash_w, dash_h, dash_r, c_active_dash);
+    cur_x += dash_w + 10.0f;
+
+    if (title && title[0] && font) {
+        int tw = 0, th = 0;
+        TTF_GetStringSize(font, title, 0, &tw, &th);
+        draw_text(ren, font, title, c_text, cur_x, y_center - ((float)th / 2.0f));
+    }
+}
 static void draw_line(SDL_Renderer *r, float x1, float y1,
                       float x2, float y2, SDL_Color c)
 {
@@ -3916,8 +3951,8 @@ int main(void)
             SDL_Color c_menu_gold  = {27, 39, 8, 255};
             SDL_Color c_menu_beige = {231, 239, 231, 255};
             SDL_Color c_menu_selbg = {183, 221, 91, 255};
-            float sb_left = draw_statusbar(ren, f_sm, f_xs, status_time, status_wifi_up, status_battery, status_bt_up, wifi_icon_tex, battery_icon_tex, bt_icon_tex);
-            draw_text_truncated(ren, f_sm, tr("Menú > Configuración", "Menu > Settings"), c_green, mx, 20.0f, sb_left - mx - 10.0f);
+            draw_statusbar(ren, f_sm, f_xs, status_time, status_wifi_up, status_battery, status_bt_up, wifi_icon_tex, battery_icon_tex, bt_icon_tex);
+            draw_active_dash_breadcrumbs(ren, f_sm, mx, 25.0f, 2, tr("Configuración", "Settings"));
 
             float settings_y0 = 64.0f;
             float settings_item_h = 32.0f;
@@ -3972,8 +4007,8 @@ int main(void)
             draw_footer(ren, f_sm, tr("[B] Seleccionar  [A] Volver", "[B] Select  [A] Back"), s_version);
 
         } else if (state == STATE_BRIGHTNESS_CONFIG) {
-            float sb_left = draw_statusbar(ren, f_sm, f_xs, status_time, status_wifi_up, status_battery, status_bt_up, wifi_icon_tex, battery_icon_tex, bt_icon_tex);
-            draw_text_truncated(ren, f_sm, tr("Menú > Configuración > Brillo de pantalla", "Menu > Settings > Screen Brightness"), c_green, mx, 20.0f, sb_left - mx - 10.0f);
+            draw_statusbar(ren, f_sm, f_xs, status_time, status_wifi_up, status_battery, status_bt_up, wifi_icon_tex, battery_icon_tex, bt_icon_tex);
+            draw_active_dash_breadcrumbs(ren, f_sm, mx, 25.0f, 3, tr("Brillo de pantalla", "Screen Brightness"));
 
             {
                 float iy = 90.0f;
@@ -3996,8 +4031,8 @@ int main(void)
             SDL_Color c_menu_gold  = {27, 39, 8, 255};
             SDL_Color c_menu_beige = {231, 239, 231, 255};
             SDL_Color c_menu_selbg = {183, 221, 91, 255};
-            float sb_left = draw_statusbar(ren, f_sm, f_xs, status_time, status_wifi_up, status_battery, status_bt_up, wifi_icon_tex, battery_icon_tex, bt_icon_tex);
-            draw_text_truncated(ren, f_sm, tr("Menú > Configuración > Rendimiento", "Menu > Settings > Performance"), c_green, mx, 20.0f, sb_left - mx - 10.0f);
+            draw_statusbar(ren, f_sm, f_xs, status_time, status_wifi_up, status_battery, status_bt_up, wifi_icon_tex, battery_icon_tex, bt_icon_tex);
+            draw_active_dash_breadcrumbs(ren, f_sm, mx, 25.0f, 3, tr("Rendimiento", "Performance"));
             struct { const char *title[2]; const char *desc[2]; SDL_Texture *icon; } perf_opts[3] = {
                 {{"Rendimiento máximo", "Maximum performance"},
                  {"CPU y GPU siempre a máxima\nfrecuencia. Mayor consumo.",
@@ -4064,8 +4099,8 @@ int main(void)
             SDL_Color c_menu_selbg = {183, 221, 91, 255};
             SDL_Color c_bt_card    = {183, 221, 91, 255};
             SDL_Color c_bt_dim     = {90, 84, 66, 255};
-            float sb_left = draw_statusbar(ren, f_sm, f_xs, status_time, status_wifi_up, status_battery, status_bt_up, wifi_icon_tex, battery_icon_tex, bt_icon_tex);
-            draw_text_truncated(ren, f_sm, tr("Menú > Configuración > Bluetooth", "Menu > Settings > Bluetooth"), c_green, mx, 20.0f, sb_left - mx - 10.0f);
+            draw_statusbar(ren, f_sm, f_xs, status_time, status_wifi_up, status_battery, status_bt_up, wifi_icon_tex, battery_icon_tex, bt_icon_tex);
+            draw_active_dash_breadcrumbs(ren, f_sm, mx, 25.0f, 3, tr("Bluetooth", "Bluetooth"));
             {
                 float toggle_y = 64.0f;
                 float toggle_h = 34.0f;
@@ -4200,8 +4235,8 @@ int main(void)
             SDL_Color c_menu_gold  = {27, 39, 8, 255};
             SDL_Color c_menu_beige = {231, 239, 231, 255};
             SDL_Color c_menu_selbg = {183, 221, 91, 255};
-            float sb_left = draw_statusbar(ren, f_sm, f_xs, status_time, status_wifi_up, status_battery, status_bt_up, wifi_icon_tex, battery_icon_tex, bt_icon_tex);
-            draw_text_truncated(ren, f_sm, tr("Menú > Configuración > Zona horaria", "Menu > Settings > Time Zone"), c_green, mx, 20.0f, sb_left - mx - 10.0f);
+            draw_statusbar(ren, f_sm, f_xs, status_time, status_wifi_up, status_battery, status_bt_up, wifi_icon_tex, battery_icon_tex, bt_icon_tex);
+            draw_active_dash_breadcrumbs(ren, f_sm, mx, 25.0f, 3, tr("Zona horaria", "Time Zone"));
 
             float tz_y0 = 60.0f;
             float tz_item_h = 20.0f;
@@ -4255,8 +4290,8 @@ int main(void)
             SDL_Color c_menu_gold  = {27, 39, 8, 255};
             SDL_Color c_menu_beige = {231, 239, 231, 255};
             SDL_Color c_menu_selbg = {183, 221, 91, 255};
-            float sb_left = draw_statusbar(ren, f_sm, f_xs, status_time, status_wifi_up, status_battery, status_bt_up, wifi_icon_tex, battery_icon_tex, bt_icon_tex);
-            draw_text_truncated(ren, f_sm, tr("Menú > Configuración > Ahorro de pantalla", "Menu > Settings > Screen Dimming"), c_green, mx, 20.0f, sb_left - mx - 10.0f);
+            draw_statusbar(ren, f_sm, f_xs, status_time, status_wifi_up, status_battery, status_bt_up, wifi_icon_tex, battery_icon_tex, bt_icon_tex);
+            draw_active_dash_breadcrumbs(ren, f_sm, mx, 25.0f, 3, tr("Ahorro de pantalla", "Screen Dimming"));
 
             float dim_y0 = 70.0f;
             float dim_item_h = 46.0f;
@@ -4319,8 +4354,8 @@ int main(void)
             SDL_Color c_menu_gold  = {27, 39, 8, 255};
             SDL_Color c_menu_beige = {231, 239, 231, 255};
             SDL_Color c_menu_selbg = {183, 221, 91, 255};
-            float sb_left = draw_statusbar(ren, f_sm, f_xs, status_time, status_wifi_up, status_battery, status_bt_up, wifi_icon_tex, battery_icon_tex, bt_icon_tex);
-            draw_text_truncated(ren, f_sm, tr("Menú > Configuración > Copia de seguridad", "Menu > Settings > Backup"), c_green, mx, 20.0f, sb_left - mx - 10.0f);
+            draw_statusbar(ren, f_sm, f_xs, status_time, status_wifi_up, status_battery, status_bt_up, wifi_icon_tex, battery_icon_tex, bt_icon_tex);
+            draw_active_dash_breadcrumbs(ren, f_sm, mx, 25.0f, 3, tr("Copia de seguridad", "Backup"));
             float bkm_y0 = 64.0f;
             float bkm_item_h = 34.0f;
             {
@@ -4364,8 +4399,8 @@ int main(void)
             draw_footer(ren, f_sm, tr("[B] Seleccionar  [A] Volver", "[B] Select  [A] Back"), s_version);
 
         } else if (state == STATE_BACKUP_LIST) {
-            float sb_left = draw_statusbar(ren, f_sm, f_xs, status_time, status_wifi_up, status_battery, status_bt_up, wifi_icon_tex, battery_icon_tex, bt_icon_tex);
-            draw_text_truncated(ren, f_sm, tr("Menú > Configuración > Copia de seguridad > Restaurar copia", "Menu > Settings > Backup > Restore Backup"), c_green, mx, 20.0f, sb_left - mx - 10.0f);
+            draw_statusbar(ren, f_sm, f_xs, status_time, status_wifi_up, status_battery, status_bt_up, wifi_icon_tex, battery_icon_tex, bt_icon_tex);
+            draw_active_dash_breadcrumbs(ren, f_sm, mx, 25.0f, 4, tr("Restaurar copia", "Restore Backup"));
             float bkl_y0 = 64.0f;
             float bkl_item_h = 26.0f;
             if (backup_count == 0) {
@@ -4398,8 +4433,8 @@ int main(void)
             draw_footer(ren, f_sm, tr("[B] Restaurar  [X] Eliminar  [A] Volver", "[B] Restore  [X] Delete  [A] Back"), s_version);
 
         } else if (state == STATE_AREXX_LIST) {
-            float sb_left = draw_statusbar(ren, f_sm, f_xs, status_time, status_wifi_up, status_battery, status_bt_up, wifi_icon_tex, battery_icon_tex, bt_icon_tex);
-            draw_text_truncated(ren, f_sm, tr("Menú > ARexx Scripts", "Menu > ARexx Scripts"), c_green, mx, 20.0f, sb_left - mx - 10.0f);
+            draw_statusbar(ren, f_sm, f_xs, status_time, status_wifi_up, status_battery, status_bt_up, wifi_icon_tex, battery_icon_tex, bt_icon_tex);
+            draw_active_dash_breadcrumbs(ren, f_sm, mx, 25.0f, 2, tr("ARexx Scripts", "ARexx Scripts"));
             float arx_y0 = 64.0f;
             float arx_item_h = 34.0f;
             if (arexx_count == 0) {
@@ -4430,8 +4465,8 @@ int main(void)
             draw_footer(ren, f_sm, tr("[B] Ejecutar  [A] Volver", "[B] Run  [A] Back"), s_version);
 
         } else if (state == STATE_AREXX_RUN) {
-            float sb_left = draw_statusbar(ren, f_sm, f_xs, status_time, status_wifi_up, status_battery, status_bt_up, wifi_icon_tex, battery_icon_tex, bt_icon_tex);
-            draw_text_truncated(ren, f_sm, tr("Menú > ARexx Scripts > Ejecutando", "Menu > ARexx Scripts > Running"), c_green, mx, 20.0f, sb_left - mx - 10.0f);
+            draw_statusbar(ren, f_sm, f_xs, status_time, status_wifi_up, status_battery, status_bt_up, wifi_icon_tex, battery_icon_tex, bt_icon_tex);
+            draw_active_dash_breadcrumbs(ren, f_sm, mx, 25.0f, 3, tr("Ejecutando Script", "Running Script"));
             SDL_Color c_menu_selbg = {183, 221, 91, 255};
             draw_text(ren, f_sm, arexx_scripts[arexx_selected].filename, c_menu_selbg, mx, 60.0f);
             float arxr_y0 = 90.0f;
@@ -4457,8 +4492,8 @@ int main(void)
             SDL_Color c_menu_gold  = {27, 39, 8, 255};
             SDL_Color c_menu_beige = {231, 239, 231, 255};
             SDL_Color c_menu_selbg = {183, 221, 91, 255};
-            float sb_left = draw_statusbar(ren, f_sm, f_xs, status_time, status_wifi_up, status_battery, status_bt_up, wifi_icon_tex, battery_icon_tex, bt_icon_tex);
-            draw_text_truncated(ren, f_sm, tr("Menú > Configuración > Red inalámbrica", "Menu > Settings > Wireless Network"), c_green, mx, 20.0f, sb_left - mx - 10.0f);
+            draw_statusbar(ren, f_sm, f_xs, status_time, status_wifi_up, status_battery, status_bt_up, wifi_icon_tex, battery_icon_tex, bt_icon_tex);
+            draw_active_dash_breadcrumbs(ren, f_sm, mx, 25.0f, 3, tr("Red inalámbrica", "Wireless Network"));
 
             float wifi_y0 = 64.0f;
             float wifi_item_h = 44.0f;
@@ -4522,8 +4557,8 @@ int main(void)
             SDL_Color c_menu_gold  = {27, 39, 8, 255};
             SDL_Color c_menu_beige = {231, 239, 231, 255};
             SDL_Color c_menu_selbg = {183, 221, 91, 255};
-            float sb_left = draw_statusbar(ren, f_sm, f_xs, status_time, status_wifi_up, status_battery, status_bt_up, wifi_icon_tex, battery_icon_tex, bt_icon_tex);
-            draw_text_truncated(ren, f_sm, tr("Menú > Configuración > LED RGB analógicos", "Menu > Settings > Analog Stick LEDs"), c_green, mx, 20.0f, sb_left - mx - 10.0f);
+            draw_statusbar(ren, f_sm, f_xs, status_time, status_wifi_up, status_battery, status_bt_up, wifi_icon_tex, battery_icon_tex, bt_icon_tex);
+            draw_active_dash_breadcrumbs(ren, f_sm, mx, 25.0f, 3, tr("LEDs RGB analógicos", "Analog Stick LEDs"));
 
             static const char *LED_SLIDER_LABELS[][2] = {
                 {"R (derecho)", "R (right)"},
@@ -4658,8 +4693,8 @@ int main(void)
             SDL_Color c_menu_beige = {231, 239, 231, 255};
             SDL_Color c_menu_selbg = {183, 221, 91, 255};
             /* Titulo pequeño arriba a la izquierda */
-            float sb_left = draw_statusbar(ren, f_sm, f_xs, status_time, status_wifi_up, status_battery, status_bt_up, wifi_icon_tex, battery_icon_tex, bt_icon_tex);
-            draw_text_truncated(ren, f_sm, tr("Menú > Modo desarrollador", "Menu > Developer Mode"), c_green, mx, 20.0f, sb_left - mx - 10.0f);
+            draw_statusbar(ren, f_sm, f_xs, status_time, status_wifi_up, status_battery, status_bt_up, wifi_icon_tex, battery_icon_tex, bt_icon_tex);
+            draw_active_dash_breadcrumbs(ren, f_sm, mx, 25.0f, 2, tr("Modo Desarrollador", "Dev Mode"));
 
             /* Menú (columna izquierda), mismo estilo que el menu principal */
             float dev_y0 = 64.0f;
@@ -4798,8 +4833,8 @@ int main(void)
             const float SI_SEP_H2 = SI_Y0 + SI_BLK_H * 2;
 
             /* Título y separador superior: siempre en el margen fijo, no en SI_MX centrado */
-            float sb_left2 = draw_statusbar(ren, f_sm, f_xs, status_time, status_wifi_up, status_battery, status_bt_up, wifi_icon_tex, battery_icon_tex, bt_icon_tex);
-            draw_text_truncated(ren, f_sm, tr("Menú > Diagnóstico del sistema", "Menu > System Diagnostics"), c_green, 20.0f, 20.0f, sb_left2 - 20.0f - 10.0f);
+            draw_statusbar(ren, f_sm, f_xs, status_time, status_wifi_up, status_battery, status_bt_up, wifi_icon_tex, battery_icon_tex, bt_icon_tex);
+            draw_active_dash_breadcrumbs(ren, f_sm, 20.0f, 25.0f, 2, tr("Diagnóstico del sistema", "System Diagnostics"));
 
             /* Indicador de pagina: encima del footer, alineado a la derecha */
             {
@@ -4963,8 +4998,8 @@ int main(void)
             draw_footer(ren, f_sm, tr("[A] Volver  [L1/R1] Pagina", "[A] Back  [L1/R1] Page"), s_version);
         } else if (state == STATE_UPDATE) {
             const float UX = 20.0f;
-            float sb_left3 = draw_statusbar(ren, f_sm, f_xs, status_time, status_wifi_up, status_battery, status_bt_up, wifi_icon_tex, battery_icon_tex, bt_icon_tex);
-            draw_text_truncated(ren, f_sm, tr("Menú > Actualización de sistema", "Menu > System Update"), c_green, UX, 20.0f, sb_left3 - UX - 10.0f);
+            draw_statusbar(ren, f_sm, f_xs, status_time, status_wifi_up, status_battery, status_bt_up, wifi_icon_tex, battery_icon_tex, bt_icon_tex);
+            draw_active_dash_breadcrumbs(ren, f_sm, UX, 25.0f, 2, tr("Actualización de sistema", "System Update"));
 
             /* Versión actual */
             {
