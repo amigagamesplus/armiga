@@ -4416,7 +4416,7 @@ int main(void)
                         float text_y = iy + (pill_h - (float)text_h) / 2.0f;
                         draw_rounded_rect_filled(ren, mx - 10.0f, iy, sel_w, pill_h, pill_h / 2.0f, c_menu_selbg);
                         draw_text(ren, f_sm, arexx_scripts[i].filename, c_menu_gold, mx + 8.0f, text_y);
-                        draw_text(ren, f_xs, arexx_scripts[i].desc[current_lang], c_menu_selbg, mx + 8.0f, iy + pill_h + 2.0f);
+                        draw_text_wrapped(ren, f_sm, arexx_scripts[i].desc[current_lang], c_gray, rx, iy, rx_max_w, 16.0f);
                     } else {
                         draw_text(ren, f_sm, arexx_scripts[i].filename, c_gray, mx + 8.0f, iy);
                     }
@@ -4428,8 +4428,8 @@ int main(void)
         } else if (state == STATE_AREXX_RUN) {
             draw_text_truncated(ren, f_sm, tr("Menú > ARexx Scripts > Ejecutando", "Menu > ARexx Scripts > Running"), c_green, mx, 20.0f, SCREEN_W - 190.0f);
             draw_statusbar(ren, f_sm, f_xs, status_time, status_wifi_up, status_battery, status_bt_up, wifi_icon_tex, battery_icon_tex, bt_icon_tex);
-            SDL_Color c_menu_gold = {27, 39, 8, 255};
-            draw_text(ren, f_sm, arexx_scripts[arexx_selected].filename, c_menu_gold, mx, 60.0f);
+            SDL_Color c_menu_selbg = {183, 221, 91, 255};
+            draw_text(ren, f_sm, arexx_scripts[arexx_selected].filename, c_menu_selbg, mx, 60.0f);
             float arxr_y0 = 90.0f;
             float arxr_line_h = 16.0f;
             char arxr_lines[24][256];
