@@ -2511,6 +2511,8 @@ int main(void)
     g_perf_icons[1] = perf_scale_tex;
     g_perf_icons[2] = perf_battery_tex;
     if (perf_battery_tex) SDL_SetTextureScaleMode(perf_battery_tex, SDL_SCALEMODE_LINEAR);
+    SDL_Texture *arexx_icon_tex = IMG_LoadTexture(ren, "/usr/share/armiga/icons/script.png");
+    if (arexx_icon_tex) SDL_SetTextureScaleMode(arexx_icon_tex, SDL_SCALEMODE_LINEAR);
 
     /* Leer versiones */
     char s_kernel[32], s_mesa[32], s_retroarch[32], s_sdl3[32], s_puae_core[32], s_build_date[24], s_version[32], s_build_number[16];
@@ -4442,19 +4444,31 @@ int main(void)
             } else {
                 SDL_Color c_menu_gold = {27, 39, 8, 255};
                 SDL_Color c_menu_selbg = {183, 221, 91, 255};
+                SDL_Color c_white_icon = {255, 255, 255, 255};
+                float icon_size = 20.0f;
+                float icon_gap = 36.0f;
+                float pill_h_ref = 26.0f;
+                float text_x = mx + icon_size + icon_gap;
                 for (int i = 0; i < arexx_count; i++) {
                     float iy = arx_y0 + i * arx_item_h;
+                    if (arexx_icon_tex) {
+                        SDL_SetTextureColorMod(arexx_icon_tex, c_white_icon.r, c_white_icon.g, c_white_icon.b);
+                        SDL_FRect icon_dst = {mx, iy + (pill_h_ref - icon_size) / 2.0f, icon_size, icon_size};
+                        SDL_RenderTexture(ren, arexx_icon_tex, NULL, &icon_dst);
+                    }
                     if (i == arexx_selected) {
                         int text_w = 0, text_h = 0;
                         TTF_GetStringSize(f_sm, arexx_scripts[i].filename, 0, &text_w, &text_h);
                         float sel_w = (float)text_w + 32.0f;
                         float pill_h = 26.0f;
                         float text_y = iy + (pill_h - (float)text_h) / 2.0f;
-                        draw_rounded_rect_filled(ren, mx - 10.0f, iy, sel_w, pill_h, pill_h / 2.0f, c_menu_selbg);
-                        draw_text(ren, f_sm, arexx_scripts[i].filename, c_menu_gold, mx + 8.0f, text_y);
+                        float pill_x0 = text_x - 16.0f;
+                        float text_draw_x = pill_x0 + (sel_w - (float)text_w) / 2.0f;
+                        draw_rounded_rect_filled(ren, pill_x0, iy, sel_w, pill_h, pill_h / 2.0f, c_menu_selbg);
+                        draw_text(ren, f_sm, arexx_scripts[i].filename, c_menu_gold, text_draw_x, text_y);
                         draw_text_wrapped(ren, f_sm, arexx_scripts[i].desc[current_lang], c_gray, rx, iy, rx_max_w, 16.0f);
                     } else {
-                        draw_text(ren, f_sm, arexx_scripts[i].filename, c_gray, mx + 8.0f, iy);
+                        draw_text(ren, f_sm, arexx_scripts[i].filename, c_gray, text_x + 8.0f, iy);
                     }
                 }
             }
@@ -5109,6 +5123,7 @@ int main(void)
     if (perf_bolt_tex) SDL_DestroyTexture(perf_bolt_tex);
     if (perf_scale_tex) SDL_DestroyTexture(perf_scale_tex);
     if (perf_battery_tex) SDL_DestroyTexture(perf_battery_tex);
+    if (arexx_icon_tex) SDL_DestroyTexture(arexx_icon_tex);
     if (joy) SDL_CloseJoystick(joy);
     TTF_CloseFont(f_sm);
     TTF_CloseFont(f_med);
