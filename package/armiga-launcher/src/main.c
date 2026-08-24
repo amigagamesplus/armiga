@@ -1493,6 +1493,25 @@ static int list_arexx_scripts(ArexxScript *scripts, int max_scripts)
     pclose(p);
     return n;
 }
+/* Calcula el MD5 de un script ARexx (via popen a md5sum, mismo patron que
+ * list_arexx_scripts). Escribe solo el hash hexadecimal en out_buf. */
+static void compute_script_md5(const char *filename, char *out_buf, size_t out_sz)
+{
+    safe_copy(out_buf, "--", out_sz);
+    char path[288];
+    snprintf(path, sizeof(path), AREXX_SCRIPTS_DIR "/%s", filename);
+    char cmd[320];
+    snprintf(cmd, sizeof(cmd), "md5sum %s 2>/dev/null", path);
+    FILE *p = popen(cmd, "r");
+    if (!p) return;
+    char line[128];
+    if (fgets(line, sizeof(line), p)) {
+        char *sp = strchr(line, ' ');
+        if (sp) *sp = '\0';
+        safe_copy(out_buf, line, out_sz);
+    }
+    pclose(p);
+}
 /* Ejecuta un script ARexx forzando +x antes, capturando su salida linea a
  * linea en un buffer de texto para mostrarla en STATE_AREXX_RUN. */
 static void run_arexx_script(const char *filename, char *out_buf, size_t out_sz)
@@ -2365,6 +2384,20 @@ static void draw_circle_filled(SDL_Renderer *r, float cx, float cy,
     }
 }
 
+/* Simula un rectangulo redondeado "solo borde": dibuja el rect exterior
+ * del color de borde, luego un rect interior mas pequeno del color de
+ * fondo, dejando visible solo un marco de "thickness" px. */
+static void draw_rounded_rect_outline(SDL_Renderer *r, float x, float y,
+                                       float w, float h, float radius,
+                                       float thickness, SDL_Color c, SDL_Color bg)
+{
+    draw_rounded_rect_filled(r, x, y, w, h, radius, c);
+    float inner_r = radius - thickness;
+    if (inner_r < 0.0f) inner_r = 0.0f;
+    draw_rounded_rect_filled(r, x + thickness, y + thickness,
+                              w - thickness * 2.0f, h - thickness * 2.0f,
+                              inner_r, bg);
+}
 /* Sistema de navegacion "Active Dash Pill": dots atenuados para niveles
  * previos + capsula alargada verde-lima para el nivel activo + titulo de
  * la seccion actual. Sustituye al breadcrumb textual "Menu > X > Y". */
@@ -2550,6 +2583,8 @@ int main(void)
     ArexxScript arexx_scripts[AREXX_MAX_SCRIPTS];
     int arexx_count = 0;
     int arexx_selected = 0;
+    int arexx_md5_cached_for = -1;
+    char arexx_md5[40] = "";
     char arexx_output[4096] = "";
     bool show_fps_counter = false;
     int fps_frame_count = 0;
@@ -4446,7 +4481,7 @@ int main(void)
                 SDL_Color c_menu_selbg = {183, 221, 91, 255};
                 SDL_Color c_white_icon = {255, 255, 255, 255};
                 float icon_size = 20.0f;
-                float icon_gap = 36.0f;
+                float icon_gap = 26.0f;
                 float pill_h_ref = 26.0f;
                 float text_x = mx + icon_size + icon_gap;
                 for (int i = 0; i < arexx_count; i++) {
@@ -4456,21 +4491,44 @@ int main(void)
                         SDL_FRect icon_dst = {mx, iy + (pill_h_ref - icon_size) / 2.0f, icon_size, icon_size};
                         SDL_RenderTexture(ren, arexx_icon_tex, NULL, &icon_dst);
                     }
+                    int text_w = 0, text_h = 0;
+                    TTF_GetStringSize(f_sm, arexx_scripts[i].filename, 0, &text_w, &text_h);
+                    float row_h = 26.0f;
+                    float text_y = iy + (row_h - (float)text_h) / 2.0f;
                     if (i == arexx_selected) {
-                        int text_w = 0, text_h = 0;
-                        TTF_GetStringSize(f_sm, arexx_scripts[i].filename, 0, &text_w, &text_h);
                         float sel_w = (float)text_w + 32.0f;
-                        float pill_h = 26.0f;
-                        float text_y = iy + (pill_h - (float)text_h) / 2.0f;
                         float pill_x0 = text_x - 16.0f;
                         float text_draw_x = pill_x0 + (sel_w - (float)text_w) / 2.0f;
-                        draw_rounded_rect_filled(ren, pill_x0, iy, sel_w, pill_h, pill_h / 2.0f, c_menu_selbg);
+                        draw_rounded_rect_filled(ren, pill_x0, iy, sel_w, row_h, row_h / 2.0f, c_menu_selbg);
                         draw_text(ren, f_sm, arexx_scripts[i].filename, c_menu_gold, text_draw_x, text_y);
-                        draw_text_wrapped(ren, f_sm, arexx_scripts[i].desc[current_lang], c_gray, rx, iy, rx_max_w, 16.0f);
                     } else {
-                        draw_text(ren, f_sm, arexx_scripts[i].filename, c_gray, text_x + 8.0f, iy);
+                        draw_text(ren, f_sm, arexx_scripts[i].filename, c_gray, text_x, text_y);
                     }
                 }
+                if (arexx_md5_cached_for != arexx_selected) {
+                    compute_script_md5(arexx_scripts[arexx_selected].filename, arexx_md5, sizeof(arexx_md5));
+                    arexx_md5_cached_for = arexx_selected;
+                }
+                char md5_line[64];
+                snprintf(md5_line, sizeof(md5_line), "MD5: %s", arexx_md5);
+                const char *desc_line = arexx_scripts[arexx_selected].desc[current_lang];
+                float box_pad = 16.0f;
+                int md5_w = 0, md5_h = 0;
+                TTF_GetStringSize(f_sm, md5_line, 0, &md5_w, &md5_h);
+                float box_w = (float)md5_w + box_pad * 2.0f;
+                if (box_w < 240.0f) box_w = 240.0f;
+                if (box_w > SCREEN_W - mx * 2.0f) box_w = SCREEN_W - mx * 2.0f;
+                float desc_max_w = box_w - box_pad * 2.0f;
+                float desc_line_h = 16.0f;
+                float desc_max_line_w = 0.0f;
+                int desc_lines = measure_text_wrapped(f_sm, desc_line, desc_max_w, &desc_max_line_w);
+                float box_h = box_pad + (float)desc_lines * desc_line_h + 6.0f + (float)md5_h + box_pad;
+                float box_x = SCREEN_W - mx - box_w;
+                float box_y = 438.0f - 12.0f - box_h;
+                SDL_Color c_bg_box = COL_BG;
+                draw_rounded_rect_outline(ren, box_x, box_y, box_w, box_h, 10.0f, 2.0f, c_menu_selbg, c_bg_box);
+                draw_text_wrapped(ren, f_sm, desc_line, c_gray, box_x + box_pad, box_y + box_pad, desc_max_w, desc_line_h);
+                draw_text(ren, f_sm, md5_line, c_gray, box_x + box_pad, box_y + box_pad + (float)desc_lines * desc_line_h + 6.0f);
             }
             char arx_counter[24];
             snprintf(arx_counter, sizeof(arx_counter), "%d %s %d", arexx_count, tr("de", "of"), AREXX_MAX_SCRIPTS);
