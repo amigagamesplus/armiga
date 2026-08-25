@@ -4638,8 +4638,11 @@ int main(void)
                     tok = strtok(NULL, "\n");
                 }
             }
-            for (int i = 0; i < arxr_nlines; i++)
-                draw_text(ren, f_xs, arxr_lines[i], c_gray, mx, arxr_y0 + i * arxr_line_h);
+            int arxr_max_visible = (int)((438.0f - arxr_y0) / arxr_line_h);
+            if (arxr_max_visible < 1) arxr_max_visible = 1;
+            int arxr_start = (arxr_nlines > arxr_max_visible) ? (arxr_nlines - arxr_max_visible) : 0;
+            for (int i = arxr_start; i < arxr_nlines; i++)
+                draw_text(ren, f_xs, arxr_lines[i], c_gray, mx, arxr_y0 + (i - arxr_start) * arxr_line_h);
             draw_line(ren, mx, 438.0f, SCREEN_W - 20.0f, 438.0f, (SDL_Color){183, 221, 91, 255});
             draw_footer(ren, f_sm, tr("[A] Volver", "[A] Back"), s_version);
 
