@@ -2595,6 +2595,8 @@ int main(void)
     if (perf_battery_tex) SDL_SetTextureScaleMode(perf_battery_tex, SDL_SCALEMODE_LINEAR);
     SDL_Texture *arexx_icon_tex = IMG_LoadTexture(ren, "/usr/share/armiga/icons/script.png");
     if (arexx_icon_tex) SDL_SetTextureScaleMode(arexx_icon_tex, SDL_SCALEMODE_LINEAR);
+    SDL_Texture *update_icon_tex = IMG_LoadTexture(ren, "/usr/share/armiga/icons/arrow-big-up-lines.png");
+    if (update_icon_tex) SDL_SetTextureScaleMode(update_icon_tex, SDL_SCALEMODE_LINEAR);
 
     /* Leer versiones */
     char s_kernel[32], s_mesa[32], s_retroarch[32], s_sdl3[32], s_puae_core[32], s_build_date[24], s_version[32], s_build_number[16];
@@ -3959,7 +3961,18 @@ int main(void)
         draw_statusbar(ren, f_sm, f_xs, status_time, status_wifi_up, status_battery, status_bt_up, wifi_icon_tex, battery_icon_tex, bt_icon_tex);
         if (bg_update_available) {
             SDL_Color c_lime = {183, 221, 91, 255};
-            draw_text_right(ren, f_sm, tr("ACTUALIZACIÓN DISPONIBLE", "UPDATE AVAILABLE"), c_lime, SCREEN_W - 20.0f, 50.0f);
+            const char *upd_txt = tr("ACTUALIZACIÓN DISPONIBLE", "UPDATE AVAILABLE");
+            int upd_w = 0, upd_h = 0;
+            TTF_GetStringSize(f_sm, upd_txt, 0, &upd_w, &upd_h);
+            float upd_icon_size = (float)upd_h;
+            float upd_icon_gap = 6.0f;
+            float upd_text_x = SCREEN_W - 20.0f - (float)upd_w;
+            if (update_icon_tex) {
+                SDL_SetTextureColorMod(update_icon_tex, c_lime.r, c_lime.g, c_lime.b);
+                SDL_FRect upd_icon_dst = {upd_text_x - upd_icon_gap - upd_icon_size, 50.0f, upd_icon_size, upd_icon_size};
+                SDL_RenderTexture(ren, update_icon_tex, NULL, &upd_icon_dst);
+            }
+            draw_text_right(ren, f_sm, upd_txt, c_lime, SCREEN_W - 20.0f, 50.0f);
         }
 
 
@@ -5238,6 +5251,7 @@ int main(void)
     if (perf_scale_tex) SDL_DestroyTexture(perf_scale_tex);
     if (perf_battery_tex) SDL_DestroyTexture(perf_battery_tex);
     if (arexx_icon_tex) SDL_DestroyTexture(arexx_icon_tex);
+    if (update_icon_tex) SDL_DestroyTexture(update_icon_tex);
     if (joy) SDL_CloseJoystick(joy);
     TTF_CloseFont(f_sm);
     TTF_CloseFont(f_med);
