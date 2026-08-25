@@ -3964,12 +3964,14 @@ int main(void)
             const char *upd_txt = tr("ACTUALIZACIÓN DISPONIBLE", "UPDATE AVAILABLE");
             int upd_w = 0, upd_h = 0;
             TTF_GetStringSize(f_sm, upd_txt, 0, &upd_w, &upd_h);
-            float upd_icon_size = (float)upd_h;
+            float upd_icon_size = (float)upd_h * 0.85f;
             float upd_icon_gap = 6.0f;
             float upd_text_x = SCREEN_W - 20.0f - (float)upd_w;
             if (update_icon_tex) {
                 SDL_SetTextureColorMod(update_icon_tex, c_lime.r, c_lime.g, c_lime.b);
-                SDL_FRect upd_icon_dst = {upd_text_x - upd_icon_gap - upd_icon_size, 50.0f, upd_icon_size, upd_icon_size};
+                SDL_FRect upd_icon_dst = {upd_text_x - upd_icon_gap - upd_icon_size,
+                                          50.0f + ((float)upd_h - upd_icon_size) / 2.0f,
+                                          upd_icon_size, upd_icon_size};
                 SDL_RenderTexture(ren, update_icon_tex, NULL, &upd_icon_dst);
             }
             draw_text_right(ren, f_sm, upd_txt, c_lime, SCREEN_W - 20.0f, 50.0f);
