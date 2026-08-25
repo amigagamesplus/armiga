@@ -146,6 +146,10 @@ do_expand_if_needed() {
         mkdir -p "$AMIGA_DATA_MNT/retroarch/config/autoconfig"
         cp "/etc/retroarch/autoconfig/H700 Gamepad.cfg" "$AMIGA_DATA_MNT/retroarch/config/autoconfig/H700 Gamepad.cfg"
     fi
+    # Copiar Commodore - Amiga.dat (base de datos para renombrado/scraping) si no existe
+    if [ ! -f "$AMIGA_DATA_MNT/roms/Commodore - Amiga.dat" ]; then
+        cp "/etc/retroarch/Commodore - Amiga.dat" "$AMIGA_DATA_MNT/roms/Commodore - Amiga.dat"
+    fi
     # Crear wifi.conf de ejemplo si no existe
     if [ ! -f "$AMIGA_DATA_MNT/wifi.conf" ]; then
         printf '# Configuracion WiFi de Armiga\n# Edita este fichero con tu red WiFi\nSSID=nombre_de_tu_red\nPASSWORD=tu_contrasena\n'             > "$AMIGA_DATA_MNT/wifi.conf"
@@ -175,6 +179,10 @@ case "$1" in
             if [ ! -f "$AMIGA_DATA_MNT/retroarch/config/autoconfig/H700 Gamepad.cfg" ]; then
                 mkdir -p "$AMIGA_DATA_MNT/retroarch/config/autoconfig"
                 cp "/etc/retroarch/autoconfig/H700 Gamepad.cfg" "$AMIGA_DATA_MNT/retroarch/config/autoconfig/H700 Gamepad.cfg"
+            fi
+            mkdir -p "$AMIGA_DATA_MNT/roms"
+            if [ ! -f "$AMIGA_DATA_MNT/roms/Commodore - Amiga.dat" ]; then
+                cp "/etc/retroarch/Commodore - Amiga.dat" "$AMIGA_DATA_MNT/roms/Commodore - Amiga.dat"
             fi
             mkdir -p "$AMIGA_DATA_MNT/kickstarts" \
                      "$AMIGA_DATA_MNT/roms/adf" "$AMIGA_DATA_MNT/roms/ipf" \
