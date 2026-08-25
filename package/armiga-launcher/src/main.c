@@ -1516,30 +1516,79 @@ static void compute_script_md5(const char *filename, char *out_buf, size_t out_s
 }
 /* Ejecuta un script ARexx forzando +x antes, capturando su salida linea a
  * linea en un buffer de texto para mostrarla en STATE_AREXX_RUN. */
-static void run_arexx_script(const char *filename, char *out_buf, size_t out_sz)
+static pid_t s_arexx_pid = -1;
+static int s_arexx_out_fd = -1;
+/* Lanza un script ARexx en background (fork + pipe no bloqueante), forzando
+ * +x antes. No bloquea el hilo principal: la salida se lee progresivamente
+ * via poll_arexx_script() desde el bucle principal. */
+static void start_arexx_script_async(const char *filename)
 {
     char path[288];
     snprintf(path, sizeof(path), AREXX_SCRIPTS_DIR "/%s", filename);
     chmod(path, 0755);
-    out_buf[0] = '\0';
-    size_t used = 0;
-    char cmd[320];
-    snprintf(cmd, sizeof(cmd), "%s 2>&1", path);
-    FILE *p = popen(cmd, "r");
-    if (!p) {
-        safe_copy(out_buf, "Error: no se pudo ejecutar el script.\n", out_sz);
+    int pipefd[2];
+    if (pipe(pipefd) != 0) { s_arexx_pid = -1; s_arexx_out_fd = -1; return; }
+    s_arexx_pid = fork();
+    if (s_arexx_pid < 0) {
+        close(pipefd[0]); close(pipefd[1]);
+        s_arexx_pid = -1; s_arexx_out_fd = -1;
         return;
     }
-    char line[256];
-    while (fgets(line, sizeof(line), p)) {
-        size_t llen = strlen(line);
-        if (used + llen >= out_sz - 1) break;
-        memcpy(out_buf + used, line, llen);
-        used += llen;
-        out_buf[used] = '\0';
+    if (s_arexx_pid == 0) {
+        close(pipefd[0]);
+        dup2(pipefd[1], STDOUT_FILENO);
+        dup2(pipefd[1], STDERR_FILENO);
+        close(pipefd[1]);
+        execl(path, path, (char *)NULL);
+        _exit(127);
     }
-    pclose(p);
-    if (used == 0) safe_copy(out_buf, "(sin salida)\n", out_sz);
+    close(pipefd[1]);
+    int flags = fcntl(pipefd[0], F_GETFL, 0);
+    fcntl(pipefd[0], F_SETFL, flags | O_NONBLOCK);
+    s_arexx_out_fd = pipefd[0];
+}
+/* Sondea el script en curso: lee lo disponible del pipe sin bloquear y lo
+ * anexa a out_buf. Devuelve: 0=en curso, 1=terminado. */
+static int poll_arexx_script(char *out_buf, size_t out_sz)
+{
+    if (s_arexx_out_fd >= 0) {
+        char chunk[512];
+        ssize_t n;
+        while ((n = read(s_arexx_out_fd, chunk, sizeof(chunk) - 1)) > 0) {
+            chunk[n] = '\0';
+            size_t used = strlen(out_buf);
+            size_t room = (used < out_sz - 1) ? (out_sz - 1 - used) : 0;
+            size_t copy_n = ((size_t)n < room) ? (size_t)n : room;
+            if (copy_n > 0) {
+                memcpy(out_buf + used, chunk, copy_n);
+                out_buf[used + copy_n] = '\0';
+            }
+        }
+    }
+    if (s_arexx_pid <= 0) return 1;
+    int status = 0;
+    pid_t r = waitpid(s_arexx_pid, &status, WNOHANG);
+    if (r == 0) return 0; /* sigue en curso */
+    /* Termino: drenar cualquier resto que quedara en el pipe */
+    if (s_arexx_out_fd >= 0) {
+        char chunk[512];
+        ssize_t n;
+        while ((n = read(s_arexx_out_fd, chunk, sizeof(chunk) - 1)) > 0) {
+            chunk[n] = '\0';
+            size_t used = strlen(out_buf);
+            size_t room = (used < out_sz - 1) ? (out_sz - 1 - used) : 0;
+            size_t copy_n = ((size_t)n < room) ? (size_t)n : room;
+            if (copy_n > 0) {
+                memcpy(out_buf + used, chunk, copy_n);
+                out_buf[used + copy_n] = '\0';
+            }
+        }
+        close(s_arexx_out_fd);
+        s_arexx_out_fd = -1;
+    }
+    s_arexx_pid = -1;
+    if (out_buf[0] == '\0') safe_copy(out_buf, "(sin salida)\n", out_sz);
+    return 1;
 }
 static void restore_backup(const char *filename)
 {
@@ -3134,8 +3183,8 @@ int main(void)
                     }
                     if (ev.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN &&
                         ev.jbutton.button == BTN_SDL_A) {
-                        run_arexx_script(arexx_scripts[arexx_selected].filename,
-                                         arexx_output, sizeof(arexx_output));
+                        arexx_output[0] = '\0';
+                        start_arexx_script_async(arexx_scripts[arexx_selected].filename);
                         state = STATE_AREXX_RUN;
                     }
                 }
@@ -3146,8 +3195,9 @@ int main(void)
                     state = STATE_MENU;
             }
             else if (state == STATE_AREXX_RUN) {
-                if ((ev.type == SDL_EVENT_KEY_DOWN && ev.key.key == SDLK_RETURN) ||
-                    (ev.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN && ev.jbutton.button == BTN_SDL_B))
+                if (s_arexx_pid <= 0 &&
+                    ((ev.type == SDL_EVENT_KEY_DOWN && ev.key.key == SDLK_RETURN) ||
+                     (ev.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN && ev.jbutton.button == BTN_SDL_B)))
                     state = STATE_AREXX_LIST;
             }
             else if (state == STATE_TIMEZONE_CONFIG) {
@@ -4539,10 +4589,16 @@ int main(void)
             draw_footer(ren, f_sm, tr("[B] Ejecutar  [A] Volver", "[B] Run  [A] Back"), s_version);
 
         } else if (state == STATE_AREXX_RUN) {
+            int arexx_still_running = (poll_arexx_script(arexx_output, sizeof(arexx_output)) == 0);
             draw_statusbar(ren, f_sm, f_xs, status_time, status_wifi_up, status_battery, status_bt_up, wifi_icon_tex, battery_icon_tex, bt_icon_tex);
             draw_active_dash_breadcrumbs(ren, f_sm, mx, 25.0f, 3, tr("Ejecutando Script", "Running Script"));
             SDL_Color c_menu_selbg = {183, 221, 91, 255};
             draw_text(ren, f_sm, arexx_scripts[arexx_selected].filename, c_menu_selbg, mx, 60.0f);
+            if (arexx_still_running) {
+                int fname_w = 0, fname_h = 0;
+                TTF_GetStringSize(f_sm, arexx_scripts[arexx_selected].filename, 0, &fname_w, &fname_h);
+                draw_text_animdots(ren, f_xs, tr("Ejecutando", "Running"), c_gray, mx + (float)fname_w + 16.0f, 62.0f, SDL_GetTicks());
+            }
             float arxr_y0 = 90.0f;
             float arxr_line_h = 16.0f;
             char arxr_lines[24][256];
