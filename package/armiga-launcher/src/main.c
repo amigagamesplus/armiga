@@ -48,10 +48,8 @@ static void safe_copy(char *dst, const char *src, size_t sz) {
 #define FONT_LG      28
 
 #define COL_BG       {15, 31, 24, 255}
-#define COL_GREEN    {231, 239, 231, 255}
-#define COL_DKGREEN  {231, 239, 231, 255}
+#define COL_CREAM    {231, 239, 231, 255} /* usado antes bajo 3 nombres distintos (GREEN/DKGREEN/GRAY) con el mismo valor */
 #define COL_WHITE    {220, 220, 220, 255}
-#define COL_GRAY     {231, 239, 231, 255}
 #define COL_SEL_BG   {183, 221, 91, 255}
 #define COL_RED      {200,  40,  40, 255}
 #define COL_KEY_BG   { 22,  22,  22, 255}
@@ -1910,8 +1908,8 @@ static void devmode_push_temp(int temp_c)
 static void draw_footer(SDL_Renderer *ren, TTF_Font *f,
                         const char *legend, const char *version)
 {
-    SDL_Color c_gray    = COL_GRAY;
-    SDL_Color c_dkgreen = COL_DKGREEN;
+    SDL_Color c_gray    = COL_CREAM;
+    SDL_Color c_dkgreen = COL_CREAM;
     SDL_Color c_gold    = {27, 39, 8, 255};
     SDL_Color c_lime    = {183, 221, 91, 255};
     draw_text(ren, f, legend, c_gray, 20.0f, 448.0f);
@@ -2785,10 +2783,10 @@ int main(void)
     bool rt_bt_applied_init = false;
 
     SDL_Color c_bg      = COL_BG;
-    SDL_Color c_green   = COL_GREEN;
-    SDL_Color c_dkgreen = COL_DKGREEN;
+    SDL_Color c_green   = COL_CREAM;
+    SDL_Color c_dkgreen = COL_CREAM;
     SDL_Color c_white   = COL_WHITE;
-    SDL_Color c_gray    = COL_GRAY;
+    SDL_Color c_gray    = COL_CREAM;
     SDL_Color c_selbg   = COL_SEL_BG;
 
     /* Layout */
