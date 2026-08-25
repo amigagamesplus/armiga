@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
 
 env:
-  MESA_VERSION: "26.2.0"
+  MESA_VERSION: "26.2.1"
 
 jobs:
   build:
@@ -175,6 +175,9 @@ jobs:
           find target-install -name "libgallium-*.so" -exec cp -a {} mesa-artifacts/usr/lib/ \;
           
           find target-install -name "dri_gbm.so" -exec cp -L {} mesa-artifacts/usr/lib/gbm/ \; || true
+          
+          echo "Stripping artifacts..."
+          find mesa-artifacts -name "*.so*" -type f -exec aarch64-linux-gnu-strip --strip-unneeded {} \;
           
           echo "Artefactos recolectados:"
           ls -R mesa-artifacts/

@@ -48,10 +48,8 @@ static void safe_copy(char *dst, const char *src, size_t sz) {
 #define FONT_LG      28
 
 #define COL_BG       {15, 31, 24, 255}
-#define COL_GREEN    {231, 239, 231, 255}
-#define COL_DKGREEN  {231, 239, 231, 255}
+#define COL_CREAM    {231, 239, 231, 255} /* usado antes bajo 3 nombres distintos (GREEN/DKGREEN/GRAY) con el mismo valor */
 #define COL_WHITE    {220, 220, 220, 255}
-#define COL_GRAY     {231, 239, 231, 255}
 #define COL_SEL_BG   {183, 221, 91, 255}
 #define COL_RED      {200,  40,  40, 255}
 #define COL_KEY_BG   { 22,  22,  22, 255}
@@ -73,7 +71,9 @@ typedef enum {
     STATE_SCREENDIM_CONFIG,
     STATE_BRIGHTNESS_CONFIG,
     STATE_PERF_CONFIG,
-    STATE_BLUETOOTH_CONFIG
+    STATE_BLUETOOTH_CONFIG,
+    STATE_AREXX_LIST,
+    STATE_AREXX_RUN
 } AppState;
 
 typedef enum {
@@ -89,9 +89,10 @@ typedef enum {
 #define ACTION_ROMS    1
 #define ACTION_UPDATE  2
 #define ACTION_INFO    3
-#define ACTION_SETTINGS 4
-#define ACTION_SHELL   5
-#define ACTION_REBOOT  6
+#define ACTION_AREXX   4
+#define ACTION_SETTINGS 5
+#define ACTION_SHELL   6
+#define ACTION_REBOOT  7
 
 #define KB_ROWS 4
 #define KB_MAX_COLS 10
@@ -146,6 +147,7 @@ static const char *MENU_ITEMS[][2] = {
     {"Catálogo Amiga",              "Amiga Catalog"},
     {"Actualización de sistema",    "System Update"},
     {"Diagnóstico del sistema",     "System Diagnostics"},
+    {"ARexx Scripts",               "ARexx Scripts"},
     {"Configuración",               "Settings"},
     {"Apagar dispositivo",          "Power Off"},
     {"Reiniciar dispositivo",       "Reboot"},
@@ -157,6 +159,8 @@ static const char *MENU_DESC[][2] = {
      "Download and install the\n" "latest version of armiga."},
     {"Revisa el estado del\n" "hardware y el sistema.",
      "Check the status of the\n" "hardware and system."},
+    {"Scripts del sistema para\n" "tareas y comodidades extra.",
+     "System scripts for extra\n" "tasks and conveniences."},
     {"Ajustes del sistema:\n" "red inalambrica y mas.",
      "System settings:\n" "wireless network and more."},
     {"Apaga el dispositivo\n" "de forma segura.",
@@ -164,7 +168,7 @@ static const char *MENU_DESC[][2] = {
     {"Reinicia el dispositivo\n" "de forma segura.",
      "Restart the device\n" "safely."},
 };
-#define MENU_COUNT 6
+#define MENU_COUNT 7
 
 static const char *SETTINGS_MENU_ITEMS[][2] = {
     {"Red inalámbrica",             "Wireless Network"},
@@ -177,10 +181,11 @@ static const char *SETTINGS_MENU_ITEMS[][2] = {
     {"Samba (\\\\armiga)",           "Samba (\\\\armiga)"},
     {"Rendimiento",                 "Performance"},
     {"Bluetooth",                   "Bluetooth"},
+    {"Frecuencia de refresco",       "Refresh Rate"},
     {"Restablecer valores de fábrica", "Factory reset"},
 };
-#define SETTINGS_MENU_COUNT 11
-#define SETTINGS_ACTION_FACTORY_RESET 10
+#define SETTINGS_MENU_COUNT 12
+#define SETTINGS_ACTION_FACTORY_RESET 11
 
 /* Tiempos de inactividad seleccionables, en segundos. 0 = Nunca. */
 static const int DIM_TIMEOUT_OPTIONS[] = {0, 60, 300, 600, 900, 1800, 3600};
@@ -236,14 +241,16 @@ static const char *BACKUP_MENU_ITEMS[][2] = {
 #define DEV_ACTION_BTOP     1
 #define DEV_ACTION_REBOOT   2
 #define DEV_ACTION_SHUTDOWN 3
+#define DEV_ACTION_FPS_TOGGLE 4
 
 static const char *DEV_MENU_ITEMS[] = {
     "Terminal",
     "btop",
     "Reboot",
     "Shutdown",
+    "FPS Counter",
 };
-#define DEV_MENU_COUNT 4
+#define DEV_MENU_COUNT 5
 
 /* SDL button indices del H700 (confirmados en hardware, no kernel/evdev) */
 #define BTN_SDL_B      1
@@ -262,6 +269,33 @@ static Lang current_lang = LANG_ES;
 static const char *tr(const char *es, const char *en)
 {
     return (current_lang == LANG_EN) ? en : es;
+}
+
+/* Cache en RAM de armiga.cfg para valores leidos en el bucle de render
+ * (PERF_PROFILE, SSH_ENABLED). Poblada una vez al arrancar via config_load();
+ * los save_* existentes deben actualizar los campos correspondientes tras
+ * escribir a disco, para no depender de releer. */
+typedef struct {
+    int perf_profile;
+    int ssh_enabled;
+} AppConfigCache;
+static AppConfigCache g_cfg = { .perf_profile = 1, .ssh_enabled = 1 };
+
+static void config_load(void)
+{
+    FILE *f = fopen(ARMIGA_CONFIG_PATH, "r");
+    if (!f) return;
+    char line[128];
+    while (fgets(line, sizeof(line), f)) {
+        char key[32], val[96];
+        if (sscanf(line, "%31[^=]=%95s", key, val) == 2) {
+            if (!strcmp(key, "PERF_PROFILE")) g_cfg.perf_profile = atoi(val);
+            else if (!strcmp(key, "SSH_ENABLED")) g_cfg.ssh_enabled = atoi(val);
+        }
+    }
+    fclose(f);
+    if (g_cfg.perf_profile < 0 || g_cfg.perf_profile > 2) g_cfg.perf_profile = 1;
+    g_cfg.ssh_enabled = g_cfg.ssh_enabled ? 1 : 0;
 }
 
 #define LOCAL_CONSOLE_PATH "/dev/tty0"
@@ -528,10 +562,12 @@ static int finish_check_update(const char *json_path, const char *current_ver,
         }
         if (strstr(line, "\"assets\"")) in_assets = true;
         if (in_assets) {
-            if ((p = strstr(line, "\"name\"")))
-                sscanf(p, "\"name\" : \"%127[^\"]\"", last_name),
-                sscanf(p, "\"name\":\"%127[^\"]\"", last_name),
-                sscanf(p, "\"name\": \"%127[^\"]\"", last_name);
+            if ((p = strstr(line, "\"name\""))) {
+                last_name[0] = '\0';
+                sscanf(p, "\"name\" : \"%127[^\"]\"", last_name);
+                if (!last_name[0]) sscanf(p, "\"name\":\"%127[^\"]\"", last_name);
+                if (!last_name[0]) sscanf(p, "\"name\": \"%127[^\"]\"", last_name);
+            }
             if ((p = strstr(line, "\"browser_download_url\""))) {
                 char url[512] = "";
                 sscanf(p, "\"browser_download_url\" : \"%511[^\"]\"", url);
@@ -810,6 +846,16 @@ static void set_cpu_governor(const char *gov)
         fclose(f);
     }
 }
+/* Escribe un valor en un fichero sysfs directamente (open/write/close),
+ * evitando el fork+exec de /bin/sh que supone system("echo ... > ..."). */
+static void write_sysfs_str(const char *path, const char *val)
+{
+    int fd = open(path, O_WRONLY);
+    if (fd < 0) return;
+    ssize_t unused_result = write(fd, val, strlen(val));
+    (void)unused_result;
+    close(fd);
+}
 static void write_brightness(int value)
 {
     FILE *f = fopen(DIM_BACKLIGHT_PATH, "w");
@@ -900,21 +946,45 @@ static void save_brightness_config(int pct)
     fprintf(f, "BRIGHTNESS_PCT=%d\n", pct);
     fclose(f);
 }
-/* Lee SSH_ENABLED de armiga.cfg. Default: activado (1). */
-static int read_ssh_enabled(void)
+/* Lee REFRESH_120HZ de armiga.cfg. Default: desactivado (0, = 60Hz). */
+static int read_refresh_120hz(void)
 {
-    int enabled = 1;
+    int enabled = 0;
     FILE *f = fopen(ARMIGA_CONFIG_PATH, "r");
     if (!f) return enabled;
     char line[128];
     while (fgets(line, sizeof(line), f)) {
         char key[32], val[96];
         if (sscanf(line, "%31[^=]=%95s", key, val) == 2) {
-            if (!strcmp(key, "SSH_ENABLED")) enabled = atoi(val);
+            if (!strcmp(key, "REFRESH_120HZ")) enabled = atoi(val);
         }
     }
     fclose(f);
     return enabled ? 1 : 0;
+}
+/* Guarda REFRESH_120HZ en armiga.cfg, preservando otras claves,
+ * mismo patron que save_ssh_enabled. */
+static void save_refresh_120hz(int enabled)
+{
+    char lines[32][128];
+    int n = 0;
+    FILE *f = fopen(ARMIGA_CONFIG_PATH, "r");
+    if (f) {
+        while (n < 32 && fgets(lines[n], sizeof(lines[n]), f)) {
+            char key[32], val[96];
+            if (sscanf(lines[n], "%31[^=]=%95s", key, val) == 2 &&
+                !strcmp(key, "REFRESH_120HZ")) {
+                continue;
+            }
+            n++;
+        }
+        fclose(f);
+    }
+    f = fopen(ARMIGA_CONFIG_PATH, "w");
+    if (!f) return;
+    for (int i = 0; i < n; i++) fputs(lines[i], f);
+    fprintf(f, "REFRESH_120HZ=%d\n", enabled ? 1 : 0);
+    fclose(f);
 }
 /* Guarda SSH_ENABLED en armiga.cfg, preservando otras claves,
  * mismo patron que save_brightness_config. */
@@ -939,8 +1009,23 @@ static void save_ssh_enabled(int enabled)
     for (int i = 0; i < n; i++) fputs(lines[i], f);
     fprintf(f, "SSH_ENABLED=%d\n", enabled ? 1 : 0);
     fclose(f);
+    g_cfg.ssh_enabled = enabled ? 1 : 0;
 }
 /* Aplica el estado SSH en caliente, sin reiniciar. */
+static void apply_refresh_120hz(SDL_Window *win, int enabled)
+{
+    SDL_DisplayID disp = SDL_GetDisplayForWindow(win);
+    int num_modes = 0;
+    SDL_DisplayMode **modes = SDL_GetFullscreenDisplayModes(disp, &num_modes);
+    for (int i = 0; i < num_modes; i++) {
+        bool is_120 = modes[i]->refresh_rate > 100.0f;
+        if ((enabled && is_120) || (!enabled && !is_120)) {
+            SDL_SetWindowFullscreenMode(win, modes[i]);
+            break;
+        }
+    }
+    SDL_free(modes);
+}
 static void apply_ssh_enabled(int enabled)
 {
     if (enabled)
@@ -990,19 +1075,71 @@ static void save_bt_enabled(int enabled)
 /* Fija (o revierte a altavoz) el audio_device de RetroArch para que el
  * audio del emulador salga por el Bluetooth conectado. mac==NULL o vacio
  * revierte a salida por defecto (altavoz interno). */
+/* Reemplaza (o inserta al final si no existe) la linea que empieza por
+ * "key = " en retroarch.cfg, preservando el resto del fichero linea a
+ * linea. Evita el fork+exec de /bin/sh + sed que suponia system("sed -i").
+ * new_line debe incluir el salto de linea final. */
+static void patch_retroarch_cfg_line(const char *key, const char *new_line)
+{
+    const char *path = "/media/amiga_data/retroarch/retroarch.cfg";
+    char **lines = NULL;
+    int n = 0, cap = 0;
+    bool replaced = false;
+    size_t key_len = strlen(key);
+
+    FILE *f = fopen(path, "r");
+    if (!f) return;
+    char buf[512];
+    while (fgets(buf, sizeof(buf), f)) {
+        if (n == cap) {
+            cap = cap ? cap * 2 : 512;
+            lines = realloc(lines, (size_t)cap * sizeof(char *));
+        }
+        if (!replaced && strncmp(buf, key, key_len) == 0 &&
+            (buf[key_len] == ' ' || buf[key_len] == '=')) {
+            lines[n++] = strdup(new_line);
+            replaced = true;
+        } else {
+            lines[n++] = strdup(buf);
+        }
+    }
+    fclose(f);
+    if (!replaced) {
+        if (n == cap) {
+            cap = cap ? cap * 2 : 512;
+            lines = realloc(lines, (size_t)cap * sizeof(char *));
+        }
+        lines[n++] = strdup(new_line);
+    }
+
+    f = fopen(path, "w");
+    if (f) {
+        for (int i = 0; i < n; i++) fputs(lines[i], f);
+        fclose(f);
+    }
+    for (int i = 0; i < n; i++) free(lines[i]);
+    free(lines);
+}
 static void set_retroarch_audio_device(const char *mac)
 {
-    char cmd[300];
+    char line[300];
     if (mac && mac[0]) {
-        snprintf(cmd, sizeof(cmd),
-            "sed -i 's|^audio_device = .*|audio_device = \"bluealsa:DEV=%s,PROFILE=a2dp\"|' "
-            "/media/amiga_data/retroarch/retroarch.cfg", mac);
+        snprintf(line, sizeof(line),
+            "audio_device = \"bluealsa:DEV=%s,PROFILE=a2dp\"\n", mac);
     } else {
-        snprintf(cmd, sizeof(cmd),
-            "sed -i 's|^audio_device = .*|audio_device = \"\"|' "
-            "/media/amiga_data/retroarch/retroarch.cfg");
+        snprintf(line, sizeof(line), "audio_device = \"\"\n");
     }
-    system(cmd);
+    patch_retroarch_cfg_line("audio_device", line);
+}
+/* Fija video_refresh_rate en retroarch.cfg para que RetroArch (proceso
+ * aparte, con su propio SDL/DRM) pida el mismo modo de pantalla que el
+ * launcher; si no, RetroArch siempre arranca a 60Hz independientemente
+ * de lo elegido en Configuracion. Mismo patron que set_retroarch_audio_device. */
+static void set_retroarch_refresh_rate(int hz)
+{
+    char line[300];
+    snprintf(line, sizeof(line), "video_refresh_rate = \"%d.000000\"\n", hz);
+    patch_retroarch_cfg_line("video_refresh_rate", line);
 }
 static void apply_bt_enabled(int enabled)
 {
@@ -1037,23 +1174,6 @@ static void read_bt_connected(char *mac_out, size_t mac_sz, char *name_out, size
     }
     fclose(f);
 }
-/* Perfil de rendimiento: 0=Maximo, 1=Equilibrado (default), 2=Ahorro. */
-static int read_perf_profile(void)
-{
-    int profile = 1;
-    FILE *f = fopen(ARMIGA_CONFIG_PATH, "r");
-    if (!f) return profile;
-    char line[128];
-    while (fgets(line, sizeof(line), f)) {
-        char key[32], val[96];
-        if (sscanf(line, "%31[^=]=%95s", key, val) == 2) {
-            if (!strcmp(key, "PERF_PROFILE")) profile = atoi(val);
-        }
-    }
-    fclose(f);
-    if (profile < 0 || profile > 2) profile = 1;
-    return profile;
-}
 static void save_perf_profile(int profile)
 {
     char lines[32][128];
@@ -1075,19 +1195,21 @@ static void save_perf_profile(int profile)
     for (int i = 0; i < n; i++) fputs(lines[i], f);
     fprintf(f, "PERF_PROFILE=%d\n", profile);
     fclose(f);
+    g_cfg.perf_profile = profile;
 }
 /* Aplica el perfil en caliente: CPU governor + GPU devfreq governor. */
 static void apply_perf_profile(int profile)
 {
+    const char *gpu_gov_path = "/sys/class/devfreq/1800000.gpu/governor";
     if (profile == 0) {
         set_cpu_governor("performance");
-        system("echo performance > /sys/class/devfreq/1800000.gpu/governor 2>/dev/null");
+        write_sysfs_str(gpu_gov_path, "performance");
     } else if (profile == 2) {
         set_cpu_governor("powersave");
-        system("echo powersave > /sys/class/devfreq/1800000.gpu/governor 2>/dev/null");
+        write_sysfs_str(gpu_gov_path, "powersave");
     } else {
         set_cpu_governor("schedutil");
-        system("echo performance > /sys/class/devfreq/1800000.gpu/governor 2>/dev/null");
+        write_sysfs_str(gpu_gov_path, "performance");
     }
 }
 
@@ -1183,7 +1305,7 @@ static void send_led_payload(int brightness,
                               int r_right, int g_right, int b_right,
                               int r_left, int g_left, int b_left)
 {
-    system("echo 1 > /sys/class/leds/rgb:kbd_backlight/brightness 2>/dev/null");
+    write_sysfs_str("/sys/class/leds/rgb:kbd_backlight/brightness", "1");
 
     int fd = open(LED_SERIAL_DEV, O_WRONLY | O_NOCTTY);
     if (fd < 0) return;
@@ -1326,6 +1448,146 @@ static void delete_backup(const char *filename)
     snprintf(path, sizeof(path), BACKUP_DIR "/%s", filename);
     unlink(path);
 }
+#define AREXX_SCRIPTS_DIR "/usr/share/armiga/arexx_scripts"
+#define AREXX_MAX_SCRIPTS 16
+typedef struct {
+    char filename[64];
+    char desc[2][96]; /* [0]=ES, [1]=EN */
+} ArexxScript;
+/* Lista los .sh de AREXX_SCRIPTS_DIR (orden alfabetico via ls) y lee la
+ * cabecera de cada uno buscando lineas "# DESC_ES:"/"# DESC_EN:" entre las
+ * primeras 8 lineas del fichero. Si no encuentra cabecera, usa el nombre
+ * de fichero como descripcion en ambos idiomas (fallback). */
+static int list_arexx_scripts(ArexxScript *scripts, int max_scripts)
+{
+    FILE *p = popen("ls " AREXX_SCRIPTS_DIR "/*.sh 2>/dev/null", "r");
+    if (!p) return 0;
+    int n = 0;
+    char line[288];
+    while (n < max_scripts && fgets(line, sizeof(line), p)) {
+        line[strcspn(line, "\r\n")] = 0;
+        const char *base = strrchr(line, '/');
+        base = base ? base + 1 : line;
+        safe_copy(scripts[n].filename, base, sizeof(scripts[n].filename));
+        safe_copy(scripts[n].desc[0], base, sizeof(scripts[n].desc[0]));
+        safe_copy(scripts[n].desc[1], base, sizeof(scripts[n].desc[1]));
+        FILE *sf = fopen(line, "r");
+        if (sf) {
+            char hline[192];
+            for (int i = 0; i < 8 && fgets(hline, sizeof(hline), sf); i++) {
+                hline[strcspn(hline, "\r\n")] = 0;
+                if (!strncmp(hline, "# DESC_ES:", 10)) {
+                    const char *v = hline + 10;
+                    while (*v == ' ') v++;
+                    safe_copy(scripts[n].desc[0], v, sizeof(scripts[n].desc[0]));
+                } else if (!strncmp(hline, "# DESC_EN:", 10)) {
+                    const char *v = hline + 10;
+                    while (*v == ' ') v++;
+                    safe_copy(scripts[n].desc[1], v, sizeof(scripts[n].desc[1]));
+                }
+            }
+            fclose(sf);
+        }
+        n++;
+    }
+    pclose(p);
+    return n;
+}
+/* Calcula el MD5 de un script ARexx (via popen a md5sum, mismo patron que
+ * list_arexx_scripts). Escribe solo el hash hexadecimal en out_buf. */
+static void compute_script_md5(const char *filename, char *out_buf, size_t out_sz)
+{
+    safe_copy(out_buf, "--", out_sz);
+    char path[288];
+    snprintf(path, sizeof(path), AREXX_SCRIPTS_DIR "/%s", filename);
+    char cmd[320];
+    snprintf(cmd, sizeof(cmd), "md5sum %s 2>/dev/null", path);
+    FILE *p = popen(cmd, "r");
+    if (!p) return;
+    char line[128];
+    if (fgets(line, sizeof(line), p)) {
+        char *sp = strchr(line, ' ');
+        if (sp) *sp = '\0';
+        safe_copy(out_buf, line, out_sz);
+    }
+    pclose(p);
+}
+/* Ejecuta un script ARexx forzando +x antes, capturando su salida linea a
+ * linea en un buffer de texto para mostrarla en STATE_AREXX_RUN. */
+static pid_t s_arexx_pid = -1;
+static int s_arexx_out_fd = -1;
+/* Lanza un script ARexx en background (fork + pipe no bloqueante), forzando
+ * +x antes. No bloquea el hilo principal: la salida se lee progresivamente
+ * via poll_arexx_script() desde el bucle principal. */
+static void start_arexx_script_async(const char *filename)
+{
+    char path[288];
+    snprintf(path, sizeof(path), AREXX_SCRIPTS_DIR "/%s", filename);
+    chmod(path, 0755);
+    int pipefd[2];
+    if (pipe(pipefd) != 0) { s_arexx_pid = -1; s_arexx_out_fd = -1; return; }
+    s_arexx_pid = fork();
+    if (s_arexx_pid < 0) {
+        close(pipefd[0]); close(pipefd[1]);
+        s_arexx_pid = -1; s_arexx_out_fd = -1;
+        return;
+    }
+    if (s_arexx_pid == 0) {
+        close(pipefd[0]);
+        dup2(pipefd[1], STDOUT_FILENO);
+        dup2(pipefd[1], STDERR_FILENO);
+        close(pipefd[1]);
+        execl(path, path, (char *)NULL);
+        _exit(127);
+    }
+    close(pipefd[1]);
+    int flags = fcntl(pipefd[0], F_GETFL, 0);
+    fcntl(pipefd[0], F_SETFL, flags | O_NONBLOCK);
+    s_arexx_out_fd = pipefd[0];
+}
+/* Sondea el script en curso: lee lo disponible del pipe sin bloquear y lo
+ * anexa a out_buf. Devuelve: 0=en curso, 1=terminado. */
+static int poll_arexx_script(char *out_buf, size_t out_sz)
+{
+    if (s_arexx_out_fd >= 0) {
+        char chunk[512];
+        ssize_t n;
+        while ((n = read(s_arexx_out_fd, chunk, sizeof(chunk) - 1)) > 0) {
+            chunk[n] = '\0';
+            size_t used = strlen(out_buf);
+            size_t room = (used < out_sz - 1) ? (out_sz - 1 - used) : 0;
+            size_t copy_n = ((size_t)n < room) ? (size_t)n : room;
+            if (copy_n > 0) {
+                memcpy(out_buf + used, chunk, copy_n);
+                out_buf[used + copy_n] = '\0';
+            }
+        }
+    }
+    if (s_arexx_pid <= 0) return 1;
+    int status = 0;
+    pid_t r = waitpid(s_arexx_pid, &status, WNOHANG);
+    if (r == 0) return 0; /* sigue en curso */
+    /* Termino: drenar cualquier resto que quedara en el pipe */
+    if (s_arexx_out_fd >= 0) {
+        char chunk[512];
+        ssize_t n;
+        while ((n = read(s_arexx_out_fd, chunk, sizeof(chunk) - 1)) > 0) {
+            chunk[n] = '\0';
+            size_t used = strlen(out_buf);
+            size_t room = (used < out_sz - 1) ? (out_sz - 1 - used) : 0;
+            size_t copy_n = ((size_t)n < room) ? (size_t)n : room;
+            if (copy_n > 0) {
+                memcpy(out_buf + used, chunk, copy_n);
+                out_buf[used + copy_n] = '\0';
+            }
+        }
+        close(s_arexx_out_fd);
+        s_arexx_out_fd = -1;
+    }
+    s_arexx_pid = -1;
+    if (out_buf[0] == '\0') safe_copy(out_buf, "(sin salida)\n", out_sz);
+    return 1;
+}
 static void restore_backup(const char *filename)
 {
     char cmd[512];
@@ -1363,15 +1625,91 @@ static void read_release(char *kernel, char *mesa, char *retroarch, char *sdl3, 
     fclose(f);
 }
 
+/* Se incrementa cada vez que se crea un SDL_Renderer nuevo (tras
+ * volver de RetroArch, el launcher reinicializa SDL/DRM entero).
+ * Las cachés de texturas lo usan para invalidarse: comparar por
+ * puntero de renderer no es fiable, la nueva instancia puede
+ * reutilizar la misma direccion de memoria que la destruida. */
+static int g_render_generation = 0;
+/* Cache LRU de texturas de texto, indexada por (fuente, texto, color).
+ * La inmensa mayoria de los textos dibujados por frame son constantes
+ * (etiquetas de menu, botones, etc.) y antes se creaban/destruian como
+ * textura GPU nueva en CADA frame via TTF_RenderText_Blended +
+ * SDL_CreateTextureFromSurface -> SDL_DestroyTexture, decenas de veces
+ * por frame. Con cache, se generan una sola vez y se reutilizan. */
+#define TEXT_CACHE_SIZE 128
+typedef struct {
+    TTF_Font *font;
+    char text[128];
+    SDL_Color color;
+    SDL_Texture *texture;
+    int w, h;
+    Uint64 last_used;
+    int generation;
+} CachedText;
+static CachedText s_text_cache[TEXT_CACHE_SIZE];
 static void draw_text(SDL_Renderer *r, TTF_Font *f, const char *t,
                       SDL_Color c, float x, float y)
 {
+    if (!t || !t[0]) return;
+    if (strlen(t) >= sizeof(s_text_cache[0].text)) {
+        SDL_Surface *s = TTF_RenderText_Blended(f, t, 0, c);
+        if (!s) return;
+        SDL_Texture *tx = SDL_CreateTextureFromSurface(r, s);
+        SDL_FRect dst = {x, y, (float)s->w, (float)s->h};
+        SDL_RenderTexture(r, tx, NULL, &dst);
+        SDL_DestroyTexture(tx);
+        SDL_DestroySurface(s);
+        return;
+    }
+
+    Uint64 now = SDL_GetTicks();
+    int free_slot = -1;
+    Uint64 oldest = SDL_MAX_UINT64;
+    int oldest_slot = 0;
+
+    for (int i = 0; i < TEXT_CACHE_SIZE; i++) {
+        if (s_text_cache[i].texture && s_text_cache[i].generation == g_render_generation) {
+            if (s_text_cache[i].font == f &&
+                memcmp(&s_text_cache[i].color, &c, sizeof(SDL_Color)) == 0 &&
+                strcmp(s_text_cache[i].text, t) == 0) {
+                s_text_cache[i].last_used = now;
+                SDL_FRect dst = {x, y, (float)s_text_cache[i].w, (float)s_text_cache[i].h};
+                SDL_RenderTexture(r, s_text_cache[i].texture, NULL, &dst);
+                return;
+            }
+            if (s_text_cache[i].last_used < oldest) {
+                oldest = s_text_cache[i].last_used;
+                oldest_slot = i;
+            }
+        } else {
+            if (free_slot == -1) free_slot = i;
+        }
+    }
+
+    int slot = (free_slot != -1) ? free_slot : oldest_slot;
+    if (s_text_cache[slot].texture && s_text_cache[slot].generation == g_render_generation) {
+        SDL_DestroyTexture(s_text_cache[slot].texture);
+    }
+    s_text_cache[slot].texture = NULL;
+
     SDL_Surface *s = TTF_RenderText_Blended(f, t, 0, c);
     if (!s) return;
     SDL_Texture *tx = SDL_CreateTextureFromSurface(r, s);
-    SDL_FRect dst = {x, y, (float)s->w, (float)s->h};
-    SDL_RenderTexture(r, tx, NULL, &dst);
-    SDL_DestroyTexture(tx);
+    if (tx) {
+        s_text_cache[slot].font = f;
+        strncpy(s_text_cache[slot].text, t, sizeof(s_text_cache[slot].text) - 1);
+        s_text_cache[slot].text[sizeof(s_text_cache[slot].text) - 1] = '\0';
+        s_text_cache[slot].color = c;
+        s_text_cache[slot].texture = tx;
+        s_text_cache[slot].w = s->w;
+        s_text_cache[slot].h = s->h;
+        s_text_cache[slot].last_used = now;
+        s_text_cache[slot].generation = g_render_generation;
+
+        SDL_FRect dst = {x, y, (float)s->w, (float)s->h};
+        SDL_RenderTexture(r, tx, NULL, &dst);
+    }
     SDL_DestroySurface(s);
 }
 
@@ -1570,14 +1908,14 @@ static void devmode_push_temp(int temp_c)
 static void draw_footer(SDL_Renderer *ren, TTF_Font *f,
                         const char *legend, const char *version)
 {
-    SDL_Color c_gray    = COL_GRAY;
-    SDL_Color c_dkgreen = COL_DKGREEN;
+    SDL_Color c_gray    = COL_CREAM;
+    SDL_Color c_dkgreen = COL_CREAM;
     SDL_Color c_gold    = {27, 39, 8, 255};
     SDL_Color c_lime    = {183, 221, 91, 255};
     draw_text(ren, f, legend, c_gray, 20.0f, 448.0f);
     draw_text_right(ren, f, version, c_lime, SCREEN_W - 20.0f, 448.0f);
 
-    int active_profile = read_perf_profile();
+    int active_profile = g_cfg.perf_profile;
     SDL_Texture *active_icon = (active_profile >= 0 && active_profile < 3) ? g_perf_icons[active_profile] : NULL;
     if (active_icon) {
         int ver_w = 0, ver_h = 0;
@@ -1608,19 +1946,27 @@ static long read_proc_stat_cpu(long *idle_out)
     return total;
 }
 
+/* Delta contra el snapshot de la llamada anterior (esta funcion se llama
+ * cada 5s desde STATE_SYSINFO, asi que ya hay margen de sobra entre
+ * muestras). Antes bloqueaba el hilo principal 80ms con SDL_Delay para
+ * tomar dos snapshots separados en la misma llamada -> 5-10 frames
+ * perdidos de golpe cada vez. Sin delay: primera llamada tras arrancar
+ * devuelve 0% (no hay snapshot previo), se corrige solo en la siguiente. */
 static void read_cpu_usage(char *buf, size_t bufsize, int *pct_out)
 {
-    /* Delta entre dos snapshots separados 80ms */
-    long idle1 = 0, idle2 = 0;
-    long total1 = read_proc_stat_cpu(&idle1);
-    SDL_Delay(80);
-    long total2 = read_proc_stat_cpu(&idle2);
-
-    long dtotal = total2 - total1;
-    long didle  = idle2  - idle1;
+    static long prev_total = 0;
+    static long prev_idle = 0;
+    long idle = 0;
+    long total = read_proc_stat_cpu(&idle);
     int pct = 0;
-    if (dtotal > 0)
-        pct = (int)(100L * (dtotal - didle) / dtotal);
+    if (prev_total > 0 && total > prev_total) {
+        long dtotal = total - prev_total;
+        long didle  = idle  - prev_idle;
+        if (dtotal > 0)
+            pct = (int)(100L * (dtotal - didle) / dtotal);
+    }
+    prev_total = total;
+    prev_idle = idle;
     if (pct < 0)   pct = 0;
     if (pct > 100) pct = 100;
     if (pct_out) *pct_out = pct;
@@ -1781,7 +2127,11 @@ static float capsule_coverage(float px, float py, float half_w, float half_h, fl
  * circulo (debe pintarse), 0.0 si esta totalmente dentro (no pintar). */
 static float corner_mask_coverage(float px, float py, float cx, float cy, float radius)
 {
-    const int SS = 4;
+    /* SS alto (antes 4): ahora esta funcion solo se llama al generar la
+     * mascara cacheada (unas pocas veces en toda la ejecucion, una por
+     * radio distinto), nunca por frame, asi que el coste extra es
+     * insignificante y mejora mucho el antialiasing del borde. */
+    const int SS = 16;
     int outside = 0;
     for (int sy = 0; sy < SS; sy++) {
         float oy = py - 0.5f + ((float)sy + 0.5f) / (float)SS;
@@ -1797,37 +2147,139 @@ static float corner_mask_coverage(float px, float py, float cx, float cy, float 
 /* Dibuja mascaras negras en las 4 esquinas de la pantalla, simulando
  * esquinas redondeadas fisicas del panel. Se llama al final de cada frame,
  * justo antes de SDL_RenderPresent, para que quede por encima de todo. */
+/* Mascara de una esquina redondeada (orientacion top-left) cacheada en
+ * textura la primera vez que se llama; las otras 3 esquinas se pintan
+ * volteando (flip) esa misma textura. Antes se recalculaba pixel a pixel
+ * con 4x4 supersampling en CADA frame, incondicionalmente, para las 4
+ * esquinas: era el mayor cuello de botella real de framerate del launcher. */
 static void draw_screen_corners(SDL_Renderer *r, int screen_w, int screen_h, float radius)
 {
-    SDL_BlendMode prev_blend;
-    SDL_GetRenderDrawBlendMode(r, &prev_blend);
-    SDL_SetRenderDrawBlendMode(r, SDL_BLENDMODE_BLEND);
+    static SDL_Texture *corner_tex = NULL;
+    static int cached_rad_i = -1;
+    static int cache_generation = -1;
     int rad_i = (int)SDL_ceilf(radius) + 1;
-    struct { float cx, cy; } corners[4] = {
-        { radius, radius },                                   /* top-left */
-        { (float)screen_w - radius, radius },                 /* top-right */
-        { radius, (float)screen_h - radius },                 /* bottom-left */
-        { (float)screen_w - radius, (float)screen_h - radius } /* bottom-right */
-    };
-    for (int c = 0; c < 4; c++) {
-        int x0 = (c == 1 || c == 3) ? screen_w - rad_i : 0;
-        int y0 = (c == 2 || c == 3) ? screen_h - rad_i : 0;
+
+    if (cache_generation != g_render_generation) {
+        corner_tex = NULL;
+        cached_rad_i = -1;
+        cache_generation = g_render_generation;
+    }
+
+    if (!corner_tex || cached_rad_i != rad_i) {
+        if (corner_tex) SDL_DestroyTexture(corner_tex);
+        corner_tex = SDL_CreateTexture(r, SDL_PIXELFORMAT_RGBA8888,
+                                        SDL_TEXTUREACCESS_TARGET, rad_i, rad_i);
+        SDL_SetTextureBlendMode(corner_tex, SDL_BLENDMODE_BLEND);
+        SDL_SetTextureScaleMode(corner_tex, SDL_SCALEMODE_LINEAR);
+        SDL_Texture *prev_target = SDL_GetRenderTarget(r);
+        SDL_SetRenderTarget(r, corner_tex);
+        SDL_SetRenderDrawBlendMode(r, SDL_BLENDMODE_NONE);
+        SDL_SetRenderDrawColor(r, 0, 0, 0, 0);
+        SDL_RenderClear(r);
         for (int row = 0; row < rad_i; row++) {
-            float py = (float)(y0 + row) + 0.5f;
+            float py = (float)row + 0.5f;
             for (int col = 0; col < rad_i; col++) {
-                float px = (float)(x0 + col) + 0.5f;
-                float cov = corner_mask_coverage(px, py, corners[c].cx, corners[c].cy, radius);
-                if (cov > 0.001f) {
-                    Uint8 a = (Uint8)(cov * 255.0f);
-                    SDL_SetRenderDrawColor(r, 0, 0, 0, a);
-                    SDL_FRect px_rect = {(float)(x0 + col), (float)(y0 + row), 1.0f, 1.0f};
-                    SDL_RenderFillRect(r, &px_rect);
-                }
+                float px = (float)col + 0.5f;
+                float cov = corner_mask_coverage(px, py, radius, radius, radius);
+                Uint8 a = (Uint8)(cov * 255.0f);
+                SDL_SetRenderDrawColor(r, 0, 0, 0, a);
+                SDL_FRect px_rect = {(float)col, (float)row, 1.0f, 1.0f};
+                SDL_RenderFillRect(r, &px_rect);
             }
         }
+        SDL_SetRenderTarget(r, prev_target);
+        cached_rad_i = rad_i;
     }
-    SDL_SetRenderDrawBlendMode(r, prev_blend);
+
+    SDL_FRect dst;
+    dst = (SDL_FRect){0.0f, 0.0f, (float)rad_i, (float)rad_i};
+    SDL_RenderTextureRotated(r, corner_tex, NULL, &dst, 0.0, NULL, SDL_FLIP_NONE);
+    dst = (SDL_FRect){(float)screen_w - (float)rad_i, 0.0f, (float)rad_i, (float)rad_i};
+    SDL_RenderTextureRotated(r, corner_tex, NULL, &dst, 0.0, NULL, SDL_FLIP_HORIZONTAL);
+    dst = (SDL_FRect){0.0f, (float)screen_h - (float)rad_i, (float)rad_i, (float)rad_i};
+    SDL_RenderTextureRotated(r, corner_tex, NULL, &dst, 0.0, NULL, SDL_FLIP_VERTICAL);
+    dst = (SDL_FRect){(float)screen_w - (float)rad_i, (float)screen_h - (float)rad_i, (float)rad_i, (float)rad_i};
+    SDL_RenderTextureRotated(r, corner_tex, NULL, &dst, 0.0, NULL, (SDL_FlipMode)(SDL_FLIP_HORIZONTAL | SDL_FLIP_VERTICAL));
 }
+/* Mascara de un cuarto de circulo (radio dado) cacheada en textura alfa
+ * (blanco puro, alpha = cobertura interior), reutilizable para CUALQUIER
+ * rectangulo redondeado de ese radio via SDL_SetTextureColorMod/AlphaMod +
+ * flip en las 4 esquinas. Antes cada pildora recalculaba sus esquinas
+ * pixel a pixel (SDF + supersampling 4x4) en CADA frame: con la barra de
+ * estado + seleccion de menu dibujando varias pildoras por frame, era el
+ * mayor cuello de botella real de framerate del launcher tras el fix de
+ * draw_screen_corners. */
+static SDL_Texture *get_pill_corner_mask(SDL_Renderer *r, float radius)
+{
+    static struct { int rad_i; SDL_Texture *tex; } cache[16];
+    static int cache_count = 0;
+    static int cache_generation = -1;
+    int rad_i = (int)SDL_ceilf(radius) + 1;
+
+    if (cache_generation != g_render_generation) {
+        cache_count = 0;
+        cache_generation = g_render_generation;
+    }
+
+    for (int i = 0; i < cache_count; i++)
+        if (cache[i].rad_i == rad_i) return cache[i].tex;
+
+    SDL_Texture *tex = SDL_CreateTexture(r, SDL_PIXELFORMAT_RGBA8888,
+                                          SDL_TEXTUREACCESS_TARGET, rad_i, rad_i);
+    SDL_SetTextureBlendMode(tex, SDL_BLENDMODE_BLEND);
+    SDL_SetTextureScaleMode(tex, SDL_SCALEMODE_LINEAR);
+    SDL_Texture *prev_target = SDL_GetRenderTarget(r);
+    SDL_SetRenderTarget(r, tex);
+    SDL_SetRenderDrawBlendMode(r, SDL_BLENDMODE_NONE);
+    SDL_SetRenderDrawColor(r, 0, 0, 0, 0);
+    SDL_RenderClear(r);
+    for (int row = 0; row < rad_i; row++) {
+        float py = (float)row + 0.5f;
+        for (int col = 0; col < rad_i; col++) {
+            float px = (float)col + 0.5f;
+            float cov = 1.0f - corner_mask_coverage(px, py, radius, radius, radius);
+            Uint8 a = (Uint8)(cov * 255.0f);
+            SDL_SetRenderDrawColor(r, 255, 255, 255, a);
+            SDL_FRect px_rect = {(float)col, (float)row, 1.0f, 1.0f};
+            SDL_RenderFillRect(r, &px_rect);
+        }
+    }
+    SDL_SetRenderTarget(r, prev_target);
+
+    if (cache_count < 16) {
+        cache[cache_count].rad_i = rad_i;
+        cache[cache_count].tex = tex;
+        cache_count++;
+    }
+    return tex;
+}
+/* Anade un quad (2 triangulos, 4 vertices, 6 indices) al buffer de geometria.
+ * uv0=(u0,v0) esquina superior-izquierda del quad, uv1=(u1,v1) esquina inferior-derecha,
+ * en el espacio de textura de la mascara de esquina (0,0)-(1,1) sin flip. */
+static void geom_add_quad(SDL_Vertex *verts, int *nv, int *inds, int *ni,
+                           float x0, float y0, float x1, float y1,
+                           float u0, float v0, float u1, float v1,
+                           SDL_FColor col)
+{
+    int base = *nv;
+    verts[base + 0] = (SDL_Vertex){ {x0, y0}, col, {u0, v0} };
+    verts[base + 1] = (SDL_Vertex){ {x1, y0}, col, {u1, v0} };
+    verts[base + 2] = (SDL_Vertex){ {x1, y1}, col, {u1, v1} };
+    verts[base + 3] = (SDL_Vertex){ {x0, y1}, col, {u0, v1} };
+    inds[*ni + 0] = base + 0; inds[*ni + 1] = base + 1; inds[*ni + 2] = base + 2;
+    inds[*ni + 3] = base + 0; inds[*ni + 4] = base + 2; inds[*ni + 5] = base + 3;
+    *nv += 4;
+    *ni += 6;
+}
+/* Version de draw_rounded_rect_filled con 1 sola llamada a SDL_RenderGeometry
+ * en vez de 9 draw calls (5x SDL_RenderFillRect + 4x SDL_RenderTextureRotated).
+ * Reutiliza la misma textura de mascara de esquina cacheada por radio
+ * (get_pill_corner_mask): las 4 esquinas muestrean su UV real (con flip
+ * horizontal/vertical segun corresponda, igual que antes con SDL_FLIP_*)
+ * para conservar el antialiasing por supersampling; el centro y las 4 tiras
+ * rectas muestrean un unico texel garantizado 100% opaco de esa misma
+ * mascara (la esquina interior, mas alejada del arco), asi todo el poligono
+ * usa la misma textura sin perder el relleno solido. */
 static void draw_rounded_rect_filled(SDL_Renderer *r, float x, float y,
                                       float w, float h, float radius,
                                       SDL_Color c)
@@ -1836,52 +2288,48 @@ static void draw_rounded_rect_filled(SDL_Renderer *r, float x, float y,
         draw_rect_filled(r, x, y, w, h, c);
         return;
     }
-    SDL_BlendMode prev_blend;
-    SDL_GetRenderDrawBlendMode(r, &prev_blend);
-    SDL_SetRenderDrawBlendMode(r, SDL_BLENDMODE_BLEND);
-    float half_w = w / 2.0f;
-    float half_h = h / 2.0f;
-    int rows = (int)h;
-    int cols = (int)w;
     int rad_i = (int)SDL_ceilf(radius) + 1;
-    for (int row = 0; row < rows; row++) {
-        float py = (float)row - half_h + 0.5f;
-        bool in_corner_band = (row < rad_i) || (row >= rows - rad_i);
-        if (!in_corner_band) {
-            /* Fila plana central: rectangulo solido a todo lo ancho */
-            SDL_SetRenderDrawColor(r, c.r, c.g, c.b, c.a);
-            SDL_FRect line_rect = {x, y + (float)row, w, 1.0f};
-            SDL_RenderFillRect(r, &line_rect);
-            continue;
-        }
-        /* Tramo central plano de la fila (fuera de la zona de esquinas en X) */
-        SDL_SetRenderDrawColor(r, c.r, c.g, c.b, c.a);
-        SDL_FRect mid_rect = {x + radius, y + (float)row, w - radius * 2.0f, 1.0f};
-        if (mid_rect.w > 0.0f) SDL_RenderFillRect(r, &mid_rect);
-        /* Zona de esquina izquierda y derecha: pixel a pixel via SDF+supersampling */
-        for (int col = 0; col < rad_i && col < cols; col++) {
-            float px_l = (float)col - half_w + 0.5f;
-            float cov = capsule_coverage(px_l, py, half_w, half_h, radius);
-            if (cov > 0.001f) {
-                Uint8 a = (Uint8)(cov * (float)c.a);
-                SDL_SetRenderDrawColor(r, c.r, c.g, c.b, a);
-                SDL_FRect left_px = {x + (float)col, y + (float)row, 1.0f, 1.0f};
-                SDL_RenderFillRect(r, &left_px);
-            }
-            int rcol = cols - 1 - col;
-            if (rcol > col) {
-                float px_r = (float)rcol - half_w + 0.5f;
-                float cov_r = capsule_coverage(px_r, py, half_w, half_h, radius);
-                if (cov_r > 0.001f) {
-                    Uint8 a2 = (Uint8)(cov_r * (float)c.a);
-                    SDL_SetRenderDrawColor(r, c.r, c.g, c.b, a2);
-                    SDL_FRect right_px = {x + (float)rcol, y + (float)row, 1.0f, 1.0f};
-                    SDL_RenderFillRect(r, &right_px);
-                }
-            }
-        }
-    }
-    SDL_SetRenderDrawBlendMode(r, prev_blend);
+    float rf = (float)rad_i;
+    SDL_Texture *mask = get_pill_corner_mask(r, radius);
+
+    SDL_FColor col = { c.r / 255.0f, c.g / 255.0f, c.b / 255.0f, c.a / 255.0f };
+    const float UV_OPAQUE_U = 1.0f, UV_OPAQUE_V = 1.0f; /* texel interior, 100% opaco */
+
+    SDL_Vertex verts[36];
+    int inds[54];
+    int nv = 0, ni = 0;
+
+    /* Esquina TL: uv normal (0,0)-(1,1) */
+    geom_add_quad(verts, &nv, inds, &ni, x, y, x + rf, y + rf, 0.0f, 0.0f, 1.0f, 1.0f, col);
+    /* Esquina TR: flip horizontal (u invertido) */
+    geom_add_quad(verts, &nv, inds, &ni, x + w - rf, y, x + w, y + rf, 1.0f, 0.0f, 0.0f, 1.0f, col);
+    /* Esquina BL: flip vertical (v invertido) */
+    geom_add_quad(verts, &nv, inds, &ni, x, y + h - rf, x + rf, y + h, 0.0f, 1.0f, 1.0f, 0.0f, col);
+    /* Esquina BR: flip ambos */
+    geom_add_quad(verts, &nv, inds, &ni, x + w - rf, y + h - rf, x + w, y + h, 1.0f, 1.0f, 0.0f, 0.0f, col);
+
+    /* Centro + 4 tiras rectas, todas con UV constante (texel opaco) */
+    if (w - 2.0f * rf > 0.0f && h - 2.0f * rf > 0.0f)
+        geom_add_quad(verts, &nv, inds, &ni, x + rf, y + rf, x + w - rf, y + h - rf,
+                      UV_OPAQUE_U, UV_OPAQUE_V, UV_OPAQUE_U, UV_OPAQUE_V, col);
+    if (w - 2.0f * rf > 0.0f)
+        geom_add_quad(verts, &nv, inds, &ni, x + rf, y, x + w - rf, y + rf,
+                      UV_OPAQUE_U, UV_OPAQUE_V, UV_OPAQUE_U, UV_OPAQUE_V, col);
+    if (w - 2.0f * rf > 0.0f)
+        geom_add_quad(verts, &nv, inds, &ni, x + rf, y + h - rf, x + w - rf, y + h,
+                      UV_OPAQUE_U, UV_OPAQUE_V, UV_OPAQUE_U, UV_OPAQUE_V, col);
+    if (h - 2.0f * rf > 0.0f)
+        geom_add_quad(verts, &nv, inds, &ni, x, y + rf, x + rf, y + h - rf,
+                      UV_OPAQUE_U, UV_OPAQUE_V, UV_OPAQUE_U, UV_OPAQUE_V, col);
+    if (h - 2.0f * rf > 0.0f)
+        geom_add_quad(verts, &nv, inds, &ni, x + w - rf, y + rf, x + w, y + h - rf,
+                      UV_OPAQUE_U, UV_OPAQUE_V, UV_OPAQUE_U, UV_OPAQUE_V, col);
+
+    SDL_BlendMode prev_blend;
+    SDL_GetTextureBlendMode(mask, &prev_blend);
+    SDL_SetTextureBlendMode(mask, SDL_BLENDMODE_BLEND);
+    SDL_RenderGeometry(r, mask, verts, nv, inds, ni);
+    SDL_SetTextureBlendMode(mask, prev_blend);
 }
 static float draw_status_pill(SDL_Renderer *ren, TTF_Font *f, float right_edge, float y_center,
                                SDL_Texture *icon, const char *label, SDL_Color fg, SDL_Color bg,
@@ -1909,7 +2357,7 @@ static float draw_status_pill(SDL_Renderer *ren, TTF_Font *f, float right_edge, 
         draw_text(ren, f, label, fg, cursor_x, y_center - (float)h / 2.0f);
     return pill_w;
 }
-static void draw_statusbar(SDL_Renderer *ren, TTF_Font *f, TTF_Font *f_ampm,
+static float draw_statusbar(SDL_Renderer *ren, TTF_Font *f, TTF_Font *f_ampm,
                             const char *time_str, bool wifi_up, int battery, bool bt_up,
                             SDL_Texture *wifi_icon_tex, SDL_Texture *battery_icon_tex,
                             SDL_Texture *bt_icon_tex)
@@ -1964,8 +2412,9 @@ static void draw_statusbar(SDL_Renderer *ren, TTF_Font *f, TTF_Font *f_ampm,
     }
     right -= gap;
 
-    int ssh_on = read_ssh_enabled();
+    int ssh_on = g_cfg.ssh_enabled;
     right -= draw_status_pill(ren, f, right, y, NULL, "SSH", ssh_on ? c_gold : c_dim_fg, ssh_on ? c_pill_on : c_pill_off, 0.0f);
+    return right;
 }
 /* Circulo relleno via barrido por filas (mismo principio que
  * draw_rounded_rect_filled, con radius aplicado a las 4 "esquinas"). */
@@ -1984,6 +2433,55 @@ static void draw_circle_filled(SDL_Renderer *r, float cx, float cy,
     }
 }
 
+/* Simula un rectangulo redondeado "solo borde": dibuja el rect exterior
+ * del color de borde, luego un rect interior mas pequeno del color de
+ * fondo, dejando visible solo un marco de "thickness" px. */
+static void draw_rounded_rect_outline(SDL_Renderer *r, float x, float y,
+                                       float w, float h, float radius,
+                                       float thickness, SDL_Color c, SDL_Color bg)
+{
+    draw_rounded_rect_filled(r, x, y, w, h, radius, c);
+    float inner_r = radius - thickness;
+    if (inner_r < 0.0f) inner_r = 0.0f;
+    draw_rounded_rect_filled(r, x + thickness, y + thickness,
+                              w - thickness * 2.0f, h - thickness * 2.0f,
+                              inner_r, bg);
+}
+/* Sistema de navegacion "Active Dash Pill": dots atenuados para niveles
+ * previos + capsula alargada verde-lima para el nivel activo + titulo de
+ * la seccion actual. Sustituye al breadcrumb textual "Menu > X > Y". */
+static void draw_active_dash_breadcrumbs(SDL_Renderer *ren, TTF_Font *font,
+                                         float x, float y_center,
+                                         int depth, const char *title)
+{
+    if (depth <= 0) return;
+
+    const SDL_Color c_prev_dot    = { 28,  52,  40, 255};
+    const SDL_Color c_active_dash = {183, 221,  91, 255};
+    const SDL_Color c_text        = {231, 239, 231, 255};
+
+    float cur_x = x;
+
+    const float r_dot = 2.5f;
+    const float dot_gap = 6.0f;
+    for (int i = 1; i < depth; i++) {
+        draw_circle_filled(ren, cur_x + r_dot, y_center, r_dot, c_prev_dot);
+        cur_x += (r_dot * 2.0f) + dot_gap;
+    }
+
+    const float dash_w = 16.0f;
+    const float dash_h = 7.0f;
+    const float dash_r = dash_h / 2.0f;
+    float dash_y = y_center - (dash_h / 2.0f);
+    draw_rounded_rect_filled(ren, cur_x, dash_y, dash_w, dash_h, dash_r, c_active_dash);
+    cur_x += dash_w + 10.0f;
+
+    if (title && title[0] && font) {
+        int tw = 0, th = 0;
+        TTF_GetStringSize(font, title, 0, &tw, &th);
+        draw_text(ren, font, title, c_text, cur_x, y_center - ((float)th / 2.0f));
+    }
+}
 static void draw_line(SDL_Renderer *r, float x1, float y1,
                       float x2, float y2, SDL_Color c)
 {
@@ -2021,6 +2519,7 @@ int main(void)
 {
     for (;;) {
     bool relaunch_after_retroarch = false;
+    config_load();
 
     if (!SDL_Init(SDL_INIT_VIDEO | SDL_INIT_JOYSTICK)) {
         fprintf(stderr, "SDL_Init: %s\n", SDL_GetError());
@@ -2036,10 +2535,12 @@ int main(void)
     SDL_Window *win = SDL_CreateWindow("armiga",
         SCREEN_W, SCREEN_H, SDL_WINDOW_FULLSCREEN);
     if (!win) { TTF_Quit(); SDL_Quit(); return 1; }
+    apply_refresh_120hz(win, read_refresh_120hz());
 
     SDL_Renderer *ren = SDL_CreateRenderer(win, NULL);
     if (!ren) { SDL_DestroyWindow(win); TTF_Quit(); SDL_Quit(); return 1; }
     SDL_SetRenderVSync(ren, 1);
+    g_render_generation++;
 
     TTF_Font *f_med   = TTF_OpenFont(FONT_PATH, FONT_MED);
     TTF_Font *f_sm    = TTF_OpenFont(FONT_PATH, FONT_SM);
@@ -2061,11 +2562,12 @@ int main(void)
     }
     /* Iconos monocromos del menu principal (PNG blanco+alfa, recoloreados
      * en tiempo real via SDL_SetTextureColorMod segun seleccion). */
-    #define MENU_ICON_COUNT 6
+    #define MENU_ICON_COUNT 7
     static const char *MENU_ICON_PATHS[MENU_ICON_COUNT] = {
         "/usr/share/armiga/icons/device-gamepad-2.png",
         "/usr/share/armiga/icons/cloud-download.png",
         "/usr/share/armiga/icons/activity.png",
+        "/usr/share/armiga/icons/terminal.png",
         "/usr/share/armiga/icons/settings.png",
         "/usr/share/armiga/icons/power.png",
         "/usr/share/armiga/icons/reboot.png",
@@ -2091,6 +2593,8 @@ int main(void)
     g_perf_icons[1] = perf_scale_tex;
     g_perf_icons[2] = perf_battery_tex;
     if (perf_battery_tex) SDL_SetTextureScaleMode(perf_battery_tex, SDL_SCALEMODE_LINEAR);
+    SDL_Texture *arexx_icon_tex = IMG_LoadTexture(ren, "/usr/share/armiga/icons/script.png");
+    if (arexx_icon_tex) SDL_SetTextureScaleMode(arexx_icon_tex, SDL_SCALEMODE_LINEAR);
 
     /* Leer versiones */
     char s_kernel[32], s_mesa[32], s_retroarch[32], s_sdl3[32], s_puae_core[32], s_build_date[24], s_version[32], s_build_number[16];
@@ -2125,6 +2629,16 @@ int main(void)
     float bt_cursor_y = -1.0f;
     Uint64 bt_lerp_last_time = SDL_GetTicksNS();
     int dev_selected = 0;
+    ArexxScript arexx_scripts[AREXX_MAX_SCRIPTS];
+    int arexx_count = 0;
+    int arexx_selected = 0;
+    int arexx_md5_cached_for = -1;
+    char arexx_md5[40] = "";
+    char arexx_output[4096] = "";
+    bool show_fps_counter = false;
+    int fps_frame_count = 0;
+    float fps_display = 0.0f;
+    Uint64 fps_last_update = SDL_GetTicksNS();
     int confirm_target = DEV_ACTION_REBOOT; /* cual de los dos confirm. */
     AppState confirm_return_state = STATE_DEVMODE;
     int settings_selected = 0;
@@ -2154,7 +2668,7 @@ int main(void)
     int led_repeat_dir = 0; /* -1 izq, +1 der, 0 ninguno */
     char timezone_current[64] = "UTC";
     int timezone_selected = 0;
-    int perf_selected = read_perf_profile();
+    int perf_selected = g_cfg.perf_profile;
     read_current_tz(timezone_current, sizeof(timezone_current));
     for (int i = 0; i < TIMEZONE_LIST_COUNT; i++) {
         if (!strcmp(TIMEZONE_LIST[i].tz_name, timezone_current)) {
@@ -2174,7 +2688,8 @@ int main(void)
     write_brightness((int)((int64_t)2499 * brightness_pct / 100));
     apply_perf_profile(perf_selected);
     int dim_max_brightness = read_max_brightness();
-    int ssh_enabled = read_ssh_enabled(); /* aplicado ya por S51ssh-toggle en boot, solo reflejar estado en UI */
+    int ssh_enabled = g_cfg.ssh_enabled; /* aplicado ya por S51ssh-toggle en boot, solo reflejar estado en UI */
+    int refresh_120hz = read_refresh_120hz(); /* aplicado ya al crear la ventana, solo reflejar estado en UI */
     int samba_enabled = read_samba_enabled(); /* aplicado ya por S53samba-toggle en boot, solo reflejar estado en UI */
     int bt_enabled = read_bt_enabled(); /* aplicado ya por S22bluetooth-toggle en boot, solo reflejar estado en UI */
     int bt_selected = 0; /* cursor en lista de dispositivos escaneados */
@@ -2209,6 +2724,7 @@ int main(void)
     Uint64 devmode_hold_start = 0; /* 0 = combo no presionado */
     bool devmode_combo_held = false;
     Uint64 screenshot_flash_until = 0; /* ms hasta cuando mostrar flash */
+    bool screenshot_capture_pending = false; /* diferir captura al final del frame */
 
     char dev_ip[32]     = "sin red";
     char dev_uptime[16] = "--";
@@ -2226,6 +2742,7 @@ int main(void)
     char sysinfo_temp[16]      = "--";
     char sysinfo_cpu_usage[8]  = "--";
     int  sysinfo_cpu_pct       = 0;
+    int  sysinfo_temp_pct      = 0; /* thermal_zone0, para la barra de temperatura en STATE_SYSINFO */
     char sysinfo_loadavg[32]   = "--";
     char sysinfo_wifi_sig[32]  = "--";
     int  sysinfo_wifi_pct      = -1;
@@ -2266,10 +2783,10 @@ int main(void)
     bool rt_bt_applied_init = false;
 
     SDL_Color c_bg      = COL_BG;
-    SDL_Color c_green   = COL_GREEN;
-    SDL_Color c_dkgreen = COL_DKGREEN;
+    SDL_Color c_green   = COL_CREAM;
+    SDL_Color c_dkgreen = COL_CREAM;
     SDL_Color c_white   = COL_WHITE;
-    SDL_Color c_gray    = COL_GRAY;
+    SDL_Color c_gray    = COL_CREAM;
     SDL_Color c_selbg   = COL_SEL_BG;
 
     /* Layout */
@@ -2280,7 +2797,6 @@ int main(void)
     float rx_max_w = SCREEN_W - rx - 15.0f;
     float menu_y0 = 130.0f;
     float item_h  = 34.0f;
-    SDL_Surface *clean_frame_for_screenshot = NULL;
 
     while (running) {
         while (SDL_PollEvent(&ev)) {
@@ -2368,6 +2884,8 @@ int main(void)
                     } else if (dev_selected == DEV_ACTION_SHUTDOWN) {
                         confirm_target = DEV_ACTION_SHUTDOWN;
                         state = STATE_CONFIRM;
+                    } else if (dev_selected == DEV_ACTION_FPS_TOGGLE) {
+                        show_fps_counter = !show_fps_counter;
                     }
                 }
                 if (ev.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN &&
@@ -2431,6 +2949,12 @@ int main(void)
                         state = STATE_BLUETOOTH_CONFIG;
                     }
                     if (ev.key.key == SDLK_RETURN && settings_selected == 10) {
+                        refresh_120hz = !refresh_120hz;
+                        save_refresh_120hz(refresh_120hz);
+                        apply_refresh_120hz(win, refresh_120hz);
+                        set_retroarch_refresh_rate(refresh_120hz ? 120 : 60);
+                    }
+                    if (ev.key.key == SDLK_RETURN && settings_selected == 11) {
                         confirm_target = SETTINGS_ACTION_FACTORY_RESET;
                         confirm_return_state = STATE_SETTINGS;
                         state = STATE_CONFIRM;
@@ -2504,6 +3028,13 @@ int main(void)
                 }
                 if (ev.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN &&
                     ev.jbutton.button == BTN_SDL_A && settings_selected == 10) {
+                    refresh_120hz = !refresh_120hz;
+                    save_refresh_120hz(refresh_120hz);
+                    apply_refresh_120hz(win, refresh_120hz);
+                    set_retroarch_refresh_rate(refresh_120hz ? 120 : 60);
+                }
+                if (ev.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN &&
+                    ev.jbutton.button == BTN_SDL_A && settings_selected == 11) {
                     confirm_target = SETTINGS_ACTION_FACTORY_RESET;
                     confirm_return_state = STATE_SETTINGS;
                     state = STATE_CONFIRM;
@@ -2568,7 +3099,7 @@ int main(void)
                         state = STATE_SETTINGS;
                     }
                     if (ev.key.key == SDLK_ESCAPE) {
-                        perf_selected = read_perf_profile();
+                        perf_selected = g_cfg.perf_profile;
                         state = STATE_SETTINGS;
                     }
                 }
@@ -2586,7 +3117,7 @@ int main(void)
                 }
                 if (ev.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN &&
                     ev.jbutton.button == BTN_SDL_B) {
-                    perf_selected = read_perf_profile();
+                    perf_selected = g_cfg.perf_profile;
                     state = STATE_SETTINGS;
                 }
             }
@@ -2633,6 +3164,39 @@ int main(void)
                 if (ev.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN &&
                     ev.jbutton.button == BTN_SDL_B)
                     state = STATE_SETTINGS;
+            }
+            else if (state == STATE_AREXX_LIST) {
+                if (arexx_count > 0) {
+                    if (ev.type == SDL_EVENT_KEY_DOWN) {
+                        if (ev.key.key == SDLK_UP)
+                            arexx_selected = (arexx_selected - 1 + arexx_count) % arexx_count;
+                        if (ev.key.key == SDLK_DOWN)
+                            arexx_selected = (arexx_selected + 1) % arexx_count;
+                    }
+                    if (ev.type == SDL_EVENT_JOYSTICK_HAT_MOTION) {
+                        if (ev.jhat.value == SDL_HAT_UP)
+                            arexx_selected = (arexx_selected - 1 + arexx_count) % arexx_count;
+                        else if (ev.jhat.value == SDL_HAT_DOWN)
+                            arexx_selected = (arexx_selected + 1) % arexx_count;
+                    }
+                    if (ev.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN &&
+                        ev.jbutton.button == BTN_SDL_A) {
+                        arexx_output[0] = '\0';
+                        start_arexx_script_async(arexx_scripts[arexx_selected].filename);
+                        state = STATE_AREXX_RUN;
+                    }
+                }
+                if (ev.type == SDL_EVENT_KEY_DOWN && ev.key.key == SDLK_ESCAPE)
+                    state = STATE_MENU;
+                if (ev.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN &&
+                    ev.jbutton.button == BTN_SDL_B)
+                    state = STATE_MENU;
+            }
+            else if (state == STATE_AREXX_RUN) {
+                if (s_arexx_pid <= 0 &&
+                    ((ev.type == SDL_EVENT_KEY_DOWN && ev.key.key == SDLK_RETURN) ||
+                     (ev.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN && ev.jbutton.button == BTN_SDL_B)))
+                    state = STATE_AREXX_LIST;
             }
             else if (state == STATE_TIMEZONE_CONFIG) {
                 if (ev.type == SDL_EVENT_KEY_DOWN) {
@@ -3034,16 +3598,14 @@ int main(void)
             bool sel = SDL_GetJoystickButton(joy, BTN_SDL_SELECT);
             bool r1  = SDL_GetJoystickButton(joy, BTN_SDL_R1);
             if (sel && r1) {
-                /* Renderizar flash blanco encima del frame actual y presentarlo */
-                SDL_SetRenderDrawBlendMode(ren, SDL_BLENDMODE_BLEND);
-                SDL_SetRenderDrawColor(ren, 255, 255, 255, 180);
-                SDL_FRect flash_rect = {0, 0, (float)SCREEN_W, (float)SCREEN_H};
-                SDL_RenderFillRect(ren, &flash_rect);
-                SDL_SetRenderDrawBlendMode(ren, SDL_BLENDMODE_NONE);
-                SDL_RenderPresent(ren);
-                SDL_Delay(80); /* visible al menos 2 frames */
-                take_screenshot(ren, SCREEN_W, SCREEN_H, clean_frame_for_screenshot);
-                screenshot_flash_until = SDL_GetTicks() + 500;
+                /* No capturar aqui: en este punto del bucle (antes de que
+                 * este frame dibuje nada) el backbuffer puede contener
+                 * estado indefinido tras el ultimo Present (double
+                 * buffering). Solo se marca la peticion; la captura real
+                 * ocurre al final del frame, justo antes de dibujar el
+                 * flash y draw_screen_corners, cuando el contenido de ESTE
+                 * frame ya esta completamente dibujado y es valido. */
+                screenshot_capture_pending = true;
                 SDL_PumpEvents();
                 /* Esperar a que suelten los botones para evitar disparos multiples */
                 SDL_PumpEvents();
@@ -3053,6 +3615,12 @@ int main(void)
                     SDL_Delay(20);
                 }
                 SDL_Delay(200); /* debounce tras soltar */
+                /* La ventana del flash se fija AQUI, tras soltar los
+                 * botones: si se fijara antes del bucle de espera, un
+                 * usuario que mantenga la combinacion pulsada mas de
+                 * 500ms nunca veria el flash (ventana ya expirada al
+                 * reanudar el dibujado del bucle principal). */
+                screenshot_flash_until = SDL_GetTicks() + 500;
             }
         }
 
@@ -3077,6 +3645,10 @@ int main(void)
             } else if (action == ACTION_INFO) {
                 state = STATE_SYSINFO;
                 last_sysinfo_update = 0; /* forzar refresco inmediato */
+            } else if (action == ACTION_AREXX) {
+                state = STATE_AREXX_LIST;
+                arexx_selected = 0;
+                arexx_count = list_arexx_scripts(arexx_scripts, AREXX_MAX_SCRIPTS);
             } else if (action == ACTION_SETTINGS) {
                 state = STATE_SETTINGS;
                 settings_selected = 0;
@@ -3135,19 +3707,24 @@ int main(void)
          * sin bloquear la UI ni interferir con STATE_UPDATE. */
         if (!bg_update_checked) {
             if (bg_check_start_delay == 0) bg_check_start_delay = now_ticks;
-            if (s_bgcheck_pid == -1 && now_ticks - bg_check_start_delay >= 2000) {
+            if (s_bgcheck_pid == -1 && status_wifi_up &&
+                now_ticks - bg_check_start_delay >= 2000) {
                 unlink(BG_CHECK_JSON_TMP);
                 s_bgcheck_pid = spawn_curl_to_file(GITHUB_API_URL, BG_CHECK_JSON_TMP, "10");
             } else if (s_bgcheck_pid != -1) {
                 int r = poll_curl_pid(&s_bgcheck_pid, BG_CHECK_JSON_TMP, 1);
                 if (r != 0) {
-                    bg_update_checked = true;
                     if (r > 0) {
+                        bg_update_checked = true;
                         int res = finish_check_update(BG_CHECK_JSON_TMP, s_version,
                                                bg_new_ver, sizeof(bg_new_ver),
                                                bg_dl_url,  sizeof(bg_dl_url),
                                                bg_sha_url, sizeof(bg_sha_url));
                         bg_update_available = (res == 1);
+                    } else {
+                        /* Fallo (sin red aun, timeout, etc): reintentar
+                         * en 15s en vez de dar el check por definitivo. */
+                        bg_check_start_delay = now_ticks + 15000;
                     }
                 }
             }
@@ -3283,6 +3860,7 @@ int main(void)
             read_disk_usage("/media/amiga_data", sysinfo_disk_data, sizeof(sysinfo_disk_data));
             read_disk_usage("/", sysinfo_disk_root, sizeof(sysinfo_disk_root));
             read_cpu_temp(sysinfo_temp, sizeof(sysinfo_temp));
+            { int td = 0; if (read_sysfs_int("/sys/class/thermal/thermal_zone0/temp", &td)) sysinfo_temp_pct = td / 1000; if (sysinfo_temp_pct > 100) sysinfo_temp_pct = 100; }
             read_cpu_usage(sysinfo_cpu_usage, sizeof(sysinfo_cpu_usage), &sysinfo_cpu_pct);
             read_loadavg(sysinfo_loadavg, sizeof(sysinfo_loadavg));
             read_wifi_signal(sysinfo_wifi_sig, sizeof(sysinfo_wifi_sig), &sysinfo_wifi_pct);
@@ -3379,6 +3957,10 @@ int main(void)
         draw_text(ren, f_sm, "68K SOUL, ARM64 HEART.", c_dkgreen, mx + 2.0f, 94.0f);
 
         draw_statusbar(ren, f_sm, f_xs, status_time, status_wifi_up, status_battery, status_bt_up, wifi_icon_tex, battery_icon_tex, bt_icon_tex);
+        if (bg_update_available) {
+            SDL_Color c_lime = {183, 221, 91, 255};
+            draw_text_right(ren, f_sm, tr("ACTUALIZACIÓN DISPONIBLE", "UPDATE AVAILABLE"), c_lime, SCREEN_W - 20.0f, 50.0f);
+        }
 
 
         /* Menú */
@@ -3387,14 +3969,7 @@ int main(void)
         SDL_Color c_menu_selbg = {183, 221, 91, 255};
         {
             float target_y = menu_y0 + selected * item_h;
-            if (menu_cursor_y < 0.0f) menu_cursor_y = target_y;
-            Uint64 now_ns = SDL_GetTicksNS();
-            float dt = (float)(now_ns - menu_lerp_last_time) / 1000000000.0f;
-            menu_lerp_last_time = now_ns;
-            if (dt > 0.1f) dt = 0.1f;
-            float lerp_speed = 15.0f;
-            menu_cursor_y += (target_y - menu_cursor_y) * lerp_speed * dt;
-            if (fabsf(target_y - menu_cursor_y) < 0.5f) menu_cursor_y = target_y;
+            menu_cursor_y = target_y;
         }
         for (int i = 0; i < MENU_COUNT; i++) {
             float iy = menu_y0 + i * item_h;
@@ -3412,20 +3987,6 @@ int main(void)
                     SDL_RenderTexture(ren, menu_icon_tex[i], NULL, &icon_dst);
                 }
                 draw_text(ren, f_med, MENU_ITEMS[i][current_lang], c_menu_gold, mx + 46.0f, iy);
-                if (i == 1 && bg_update_available) {
-                    int tw2 = 0, th2 = 0;
-                    TTF_GetStringSize(f_med, MENU_ITEMS[i][current_lang], 0, &tw2, &th2);
-                    float bx = mx + 46.0f + (float)tw2 + 12.0f;
-                    float by = iy + 2.0f;
-                    SDL_Color c_red_badge = {220, 40, 40, 255};
-                    draw_circle_filled(ren, bx + 8.0f, by + 8.0f, 8.0f, c_red_badge);
-                    /* Signo de exclamacion blanco centrado sobre el circulo */
-                    SDL_Color c_white_excl = {255, 255, 255, 255};
-                    int ew = 0, eh = 0;
-                    TTF_GetStringSize(f_sm, "!", 0, &ew, &eh);
-                    draw_text(ren, f_sm, "!", c_white_excl,
-                              bx + 8.0f - (float)ew / 2.0f, by + 8.0f - (float)eh / 2.0f);
-                }
             } else {
                 if (menu_icon_tex[i]) {
                     SDL_SetTextureColorMod(menu_icon_tex[i], c_menu_beige.r, c_menu_beige.g, c_menu_beige.b);
@@ -3433,19 +3994,6 @@ int main(void)
                     SDL_RenderTexture(ren, menu_icon_tex[i], NULL, &icon_dst);
                 }
                 draw_text(ren, f_med, MENU_ITEMS[i][current_lang], c_menu_beige, mx + 46.0f, iy);
-                if (i == 1 && bg_update_available) {
-                    int tw2 = 0, th2 = 0;
-                    TTF_GetStringSize(f_med, MENU_ITEMS[i][current_lang], 0, &tw2, &th2);
-                    float bx = mx + 46.0f + (float)tw2 + 12.0f;
-                    float by = iy + 2.0f;
-                    SDL_Color c_red_badge = {220, 40, 40, 255};
-                    draw_circle_filled(ren, bx + 8.0f, by + 8.0f, 8.0f, c_red_badge);
-                    SDL_Color c_white_excl = {255, 255, 255, 255};
-                    int ew = 0, eh = 0;
-                    TTF_GetStringSize(f_sm, "!", 0, &ew, &eh);
-                    draw_text(ren, f_sm, "!", c_white_excl,
-                              bx + 8.0f - (float)ew / 2.0f, by + 8.0f - (float)eh / 2.0f);
-                }
             }
         }
 
@@ -3470,7 +4018,7 @@ int main(void)
         }
 
         /* Barra inferior */
-        draw_line(ren, mx, 438.0f, SCREEN_W - 20.0f, 438.0f, c_green);
+        draw_line(ren, mx, 438.0f, SCREEN_W - 20.0f, 438.0f, (SDL_Color){183, 221, 91, 255});
         draw_footer(ren, f_sm, tr("[B] Seleccionar  [DPAD] Navegar  [L1] Idioma", "[B] Select  [DPAD] Navigate  [L1] Language"), s_version);
 
         /* Barra de progreso del hold de modo dev (si se está manteniendo) */
@@ -3490,24 +4038,25 @@ int main(void)
             SDL_Color c_menu_gold  = {27, 39, 8, 255};
             SDL_Color c_menu_beige = {231, 239, 231, 255};
             SDL_Color c_menu_selbg = {183, 221, 91, 255};
-            draw_text_truncated(ren, f_sm, tr("Menú > Configuración", "Menu > Settings"), c_green, mx, 20.0f, SCREEN_W - 190.0f);
             draw_statusbar(ren, f_sm, f_xs, status_time, status_wifi_up, status_battery, status_bt_up, wifi_icon_tex, battery_icon_tex, bt_icon_tex);
+            draw_active_dash_breadcrumbs(ren, f_sm, mx, 25.0f, 2, tr("Configuración", "Settings"));
 
             float settings_y0 = 64.0f;
             float settings_item_h = 32.0f;
+            int settings_visible = 11;
+            int settings_scroll = 0;
+            if (settings_selected >= settings_visible)
+                settings_scroll = settings_selected - settings_visible + 1;
+            if (settings_scroll > SETTINGS_MENU_COUNT - settings_visible)
+                settings_scroll = SETTINGS_MENU_COUNT - settings_visible;
+            if (settings_scroll < 0) settings_scroll = 0;
             {
-                float target_y = settings_y0 + settings_selected * settings_item_h;
-                if (settings_cursor_y < 0.0f) settings_cursor_y = target_y;
-                Uint64 now_ns = SDL_GetTicksNS();
-                float dt = (float)(now_ns - settings_lerp_last_time) / 1000000000.0f;
-                settings_lerp_last_time = now_ns;
-                if (dt > 0.1f) dt = 0.1f;
-                float lerp_speed = 15.0f;
-                settings_cursor_y += (target_y - settings_cursor_y) * lerp_speed * dt;
-                if (fabsf(target_y - settings_cursor_y) < 0.5f) settings_cursor_y = target_y;
+                float target_y = settings_y0 + (settings_selected - settings_scroll) * settings_item_h;
+                settings_cursor_y = target_y;
             }
-            for (int i = 0; i < SETTINGS_MENU_COUNT; i++) {
-                float iy = settings_y0 + i * settings_item_h;
+            for (int row = 0; row < settings_visible && (row + settings_scroll) < SETTINGS_MENU_COUNT; row++) {
+                int i = row + settings_scroll;
+                float iy = settings_y0 + row * settings_item_h;
                 char item_label[64];
                 if (i == 6) {
                     snprintf(item_label, sizeof(item_label), "%s: %s",
@@ -3517,6 +4066,10 @@ int main(void)
                     snprintf(item_label, sizeof(item_label), "%s: %s",
                              SETTINGS_MENU_ITEMS[i][current_lang],
                              samba_enabled ? tr("Activado", "Enabled") : tr("Desactivado", "Disabled"));
+                } else if (i == 10) {
+                    snprintf(item_label, sizeof(item_label), "%s: %s",
+                             SETTINGS_MENU_ITEMS[i][current_lang],
+                             refresh_120hz ? "120Hz" : "60Hz");
                 } else {
                     safe_copy(item_label, SETTINGS_MENU_ITEMS[i][current_lang], sizeof(item_label));
                 }
@@ -3532,13 +4085,17 @@ int main(void)
                     draw_text(ren, f_med, item_label, c_menu_beige, mx + 8.0f, iy);
                 }
             }
+            if (settings_scroll + settings_visible < SETTINGS_MENU_COUNT) {
+                draw_text(ren, f_xs, tr("más abajo ↓", "more below ↓"), c_menu_selbg,
+                          mx + 8.0f, settings_y0 + settings_visible * settings_item_h + 2.0f);
+            }
 
-            draw_line(ren, mx, 438.0f, SCREEN_W - 20.0f, 438.0f, c_green);
+            draw_line(ren, mx, 438.0f, SCREEN_W - 20.0f, 438.0f, (SDL_Color){183, 221, 91, 255});
             draw_footer(ren, f_sm, tr("[B] Seleccionar  [A] Volver", "[B] Select  [A] Back"), s_version);
 
         } else if (state == STATE_BRIGHTNESS_CONFIG) {
-            draw_text_truncated(ren, f_sm, tr("Menú > Configuración > Brillo de pantalla", "Menu > Settings > Screen Brightness"), c_green, mx, 20.0f, SCREEN_W - 190.0f);
             draw_statusbar(ren, f_sm, f_xs, status_time, status_wifi_up, status_battery, status_bt_up, wifi_icon_tex, battery_icon_tex, bt_icon_tex);
+            draw_active_dash_breadcrumbs(ren, f_sm, mx, 25.0f, 3, tr("Brillo de pantalla", "Screen Brightness"));
 
             {
                 float iy = 90.0f;
@@ -3553,7 +4110,7 @@ int main(void)
                 draw_rect_filled(ren, mx + 8.0f, iy + 44.0f, bar_w * frac, bar_h, c_white);
             }
 
-            draw_line(ren, mx, 438.0f, SCREEN_W - 20.0f, 438.0f, c_green);
+            draw_line(ren, mx, 438.0f, SCREEN_W - 20.0f, 438.0f, (SDL_Color){183, 221, 91, 255});
             draw_footer(ren, f_sm,
                 tr("[<>] Ajustar  [B] Aplicar  [A] Volver", "[<>] Adjust  [B] Apply  [A] Back"), s_version);
 
@@ -3561,8 +4118,8 @@ int main(void)
             SDL_Color c_menu_gold  = {27, 39, 8, 255};
             SDL_Color c_menu_beige = {231, 239, 231, 255};
             SDL_Color c_menu_selbg = {183, 221, 91, 255};
-            draw_text_truncated(ren, f_sm, tr("Menú > Configuración > Rendimiento", "Menu > Settings > Performance"), c_green, mx, 20.0f, SCREEN_W - 190.0f);
             draw_statusbar(ren, f_sm, f_xs, status_time, status_wifi_up, status_battery, status_bt_up, wifi_icon_tex, battery_icon_tex, bt_icon_tex);
+            draw_active_dash_breadcrumbs(ren, f_sm, mx, 25.0f, 3, tr("Rendimiento", "Performance"));
             struct { const char *title[2]; const char *desc[2]; SDL_Texture *icon; } perf_opts[3] = {
                 {{"Rendimiento máximo", "Maximum performance"},
                  {"CPU y GPU siempre a máxima\nfrecuencia. Mayor consumo.",
@@ -3583,14 +4140,7 @@ int main(void)
             float perf_x = (SCREEN_W - perf_w) / 2.0f;
             {
                 float target_y = perf_y0 + perf_selected * perf_item_h;
-                if (perf_cursor_y < 0.0f) perf_cursor_y = target_y;
-                Uint64 now_ns = SDL_GetTicksNS();
-                float dt = (float)(now_ns - perf_lerp_last_time) / 1000000000.0f;
-                perf_lerp_last_time = now_ns;
-                if (dt > 0.1f) dt = 0.1f;
-                float lerp_speed = 15.0f;
-                perf_cursor_y += (target_y - perf_cursor_y) * lerp_speed * dt;
-                if (fabsf(target_y - perf_cursor_y) < 0.5f) perf_cursor_y = target_y;
+                perf_cursor_y = target_y;
             }
             for (int i = 0; i < 3; i++) {
                 float iy = perf_y0 + i * perf_item_h;
@@ -3626,7 +4176,7 @@ int main(void)
                 draw_text(ren, f_med, perf_opts[i].title[current_lang], titlec, perf_x + 38.0f, iy);
                 draw_text_wrapped(ren, f_sm, desc_flat, titlec, perf_x + 38.0f, iy + 20.0f, perf_w - 30.0f, 15.0f);
             }
-            draw_line(ren, mx, 438.0f, SCREEN_W - 20.0f, 438.0f, c_green);
+            draw_line(ren, mx, 438.0f, SCREEN_W - 20.0f, 438.0f, (SDL_Color){183, 221, 91, 255});
             draw_footer(ren, f_sm,
                 tr("[DPAD] Elegir  [B] Aplicar  [A] Volver", "[DPAD] Choose  [B] Apply  [A] Back"), s_version);
 
@@ -3636,8 +4186,8 @@ int main(void)
             SDL_Color c_menu_selbg = {183, 221, 91, 255};
             SDL_Color c_bt_card    = {183, 221, 91, 255};
             SDL_Color c_bt_dim     = {90, 84, 66, 255};
-            draw_text_truncated(ren, f_sm, tr("Menú > Configuración > Bluetooth", "Menu > Settings > Bluetooth"), c_green, mx, 20.0f, SCREEN_W - 190.0f);
             draw_statusbar(ren, f_sm, f_xs, status_time, status_wifi_up, status_battery, status_bt_up, wifi_icon_tex, battery_icon_tex, bt_icon_tex);
+            draw_active_dash_breadcrumbs(ren, f_sm, mx, 25.0f, 3, tr("Bluetooth", "Bluetooth"));
             {
                 float toggle_y = 64.0f;
                 float toggle_h = 34.0f;
@@ -3671,7 +4221,7 @@ int main(void)
                     if (pbadge_w > pbadge_max_w) pbadge_w = pbadge_max_w;
                     float pbadge_h = toggle_h;
                     draw_rounded_rect_filled(ren, mx + toggle_w + 16.0f, toggle_y, pbadge_w, pbadge_h, pbadge_h / 2.0f, c_bt_card);
-                    draw_text_truncated(ren, f_sm, paired_buf, c_green, mx + toggle_w + 16.0f + pbadge_pad, toggle_y + (pbadge_h - (float)ph) / 2.0f,
+                    draw_text_truncated(ren, f_sm, paired_buf, c_menu_gold, mx + toggle_w + 16.0f + pbadge_pad, toggle_y + (pbadge_h - (float)ph) / 2.0f,
                                          pbadge_w - pbadge_pad * 2.0f);
                 }
             }
@@ -3695,14 +4245,7 @@ int main(void)
                 if (bt_scroll < 0) bt_scroll = 0;
                 {
                     float target_y = bt_y0 + (bt_selected - bt_scroll) * bt_item_h;
-                    if (bt_cursor_y < 0.0f) bt_cursor_y = target_y;
-                    Uint64 now_ns = SDL_GetTicksNS();
-                    float dt = (float)(now_ns - bt_lerp_last_time) / 1000000000.0f;
-                    bt_lerp_last_time = now_ns;
-                    if (dt > 0.1f) dt = 0.1f;
-                    float lerp_speed = 15.0f;
-                    bt_cursor_y += (target_y - bt_cursor_y) * lerp_speed * dt;
-                    if (fabsf(target_y - bt_cursor_y) < 0.5f) bt_cursor_y = target_y;
+                    bt_cursor_y = target_y;
                 }
                 for (int row = 0; row < bt_list_rows && (row + bt_scroll) < bt_device_count; row++) {
                     int i = row + bt_scroll;
@@ -3746,9 +4289,9 @@ int main(void)
                 if (bt_connecting) {
                     char cbuf[96];
                     snprintf(cbuf, sizeof(cbuf), "%s %s...", tr("Conectando a", "Connecting to"), bt_devices[bt_selected].name[0] ? bt_devices[bt_selected].name : bt_devices[bt_selected].mac);
-                    draw_text(ren, f_sm, cbuf, c_menu_gold, mx, 392.0f);
+                    draw_text(ren, f_sm, cbuf, c_menu_selbg, mx, 392.0f);
                 } else if (bt_connect_status[0]) {
-                    draw_text(ren, f_sm, bt_connect_status, c_menu_gold, mx, 392.0f);
+                    draw_text(ren, f_sm, bt_connect_status, c_menu_selbg, mx, 392.0f);
                 }
                 if (bt_scanning) {
                     float sp_cx = mx + 6.0f;
@@ -3772,15 +4315,15 @@ int main(void)
                     draw_text(ren, f_sm, tr("Buscando dispositivos...", "Searching for devices..."), c_menu_beige, mx + 20.0f, 416.0f);
                 }
             }
-            draw_line(ren, mx, 438.0f, SCREEN_W - 20.0f, 438.0f, c_green);
+            draw_line(ren, mx, 438.0f, SCREEN_W - 20.0f, 438.0f, (SDL_Color){183, 221, 91, 255});
             draw_footer(ren, f_sm,
                 tr("[DPAD] Elegir  [B] Conectar  [SELECT] Activar  [A] Volver", "[DPAD] Choose  [B] Connect  [SELECT] Toggle  [A] Back"), s_version);
         } else if (state == STATE_TIMEZONE_CONFIG) {
             SDL_Color c_menu_gold  = {27, 39, 8, 255};
             SDL_Color c_menu_beige = {231, 239, 231, 255};
             SDL_Color c_menu_selbg = {183, 221, 91, 255};
-            draw_text_truncated(ren, f_sm, tr("Menú > Configuración > Zona horaria", "Menu > Settings > Time Zone"), c_green, mx, 20.0f, SCREEN_W - 190.0f);
             draw_statusbar(ren, f_sm, f_xs, status_time, status_wifi_up, status_battery, status_bt_up, wifi_icon_tex, battery_icon_tex, bt_icon_tex);
+            draw_active_dash_breadcrumbs(ren, f_sm, mx, 25.0f, 3, tr("Zona horaria", "Time Zone"));
 
             float tz_y0 = 60.0f;
             float tz_item_h = 20.0f;
@@ -3794,14 +4337,7 @@ int main(void)
 
             {
                 float target_y = tz_y0 + (timezone_selected - tz_scroll) * tz_item_h;
-                if (tz_cursor_y < 0.0f) tz_cursor_y = target_y;
-                Uint64 now_ns = SDL_GetTicksNS();
-                float dt = (float)(now_ns - tz_lerp_last_time) / 1000000000.0f;
-                tz_lerp_last_time = now_ns;
-                if (dt > 0.1f) dt = 0.1f;
-                float lerp_speed = 15.0f;
-                tz_cursor_y += (target_y - tz_cursor_y) * lerp_speed * dt;
-                if (fabsf(target_y - tz_cursor_y) < 0.5f) tz_cursor_y = target_y;
+                tz_cursor_y = target_y;
             }
 
             for (int row = 0; row < tz_visible && (row + tz_scroll) < TIMEZONE_LIST_COUNT; row++) {
@@ -3833,7 +4369,7 @@ int main(void)
                 draw_text(ren, f_sm, TIMEZONE_LIST[timezone_selected].label[current_lang], c_menu_beige, tzp_x, tz_y0 + 66.0f);
             }
 
-            draw_line(ren, mx, 438.0f, SCREEN_W - 20.0f, 438.0f, c_green);
+            draw_line(ren, mx, 438.0f, SCREEN_W - 20.0f, 438.0f, (SDL_Color){183, 221, 91, 255});
             draw_footer(ren, f_sm,
                 tr("[B] Aplicar  [A] Volver", "[B] Apply  [A] Back"), s_version);
 
@@ -3841,8 +4377,8 @@ int main(void)
             SDL_Color c_menu_gold  = {27, 39, 8, 255};
             SDL_Color c_menu_beige = {231, 239, 231, 255};
             SDL_Color c_menu_selbg = {183, 221, 91, 255};
-            draw_text_truncated(ren, f_sm, tr("Menú > Configuración > Ahorro de pantalla", "Menu > Settings > Screen Dimming"), c_green, mx, 20.0f, SCREEN_W - 190.0f);
             draw_statusbar(ren, f_sm, f_xs, status_time, status_wifi_up, status_battery, status_bt_up, wifi_icon_tex, battery_icon_tex, bt_icon_tex);
+            draw_active_dash_breadcrumbs(ren, f_sm, mx, 25.0f, 3, tr("Ahorro de pantalla", "Screen Dimming"));
 
             float dim_y0 = 70.0f;
             float dim_item_h = 46.0f;
@@ -3851,14 +4387,7 @@ int main(void)
 
             {
                 float target_y = dim_y0 + dim_field_selected * dim_item_h;
-                if (dim_cursor_y < 0.0f) dim_cursor_y = target_y;
-                Uint64 now_ns = SDL_GetTicksNS();
-                float dt = (float)(now_ns - dim_lerp_last_time) / 1000000000.0f;
-                dim_lerp_last_time = now_ns;
-                if (dt > 0.1f) dt = 0.1f;
-                float lerp_speed = 15.0f;
-                dim_cursor_y += (target_y - dim_cursor_y) * lerp_speed * dt;
-                if (fabsf(target_y - dim_cursor_y) < 0.5f) dim_cursor_y = target_y;
+                dim_cursor_y = target_y;
             }
 
             {
@@ -3904,7 +4433,7 @@ int main(void)
                 draw_text(ren, f_sm, valbuf, labelc, bar_x + dim_bar_w + 10.0f, iy + 16.0f);
             }
 
-            draw_line(ren, mx, 438.0f, SCREEN_W - 20.0f, 438.0f, c_green);
+            draw_line(ren, mx, 438.0f, SCREEN_W - 20.0f, 438.0f, (SDL_Color){183, 221, 91, 255});
             draw_footer(ren, f_sm,
                 tr("[B] Guardar  [A] Volver", "[B] Save  [A] Back"), s_version);
 
@@ -3912,20 +4441,13 @@ int main(void)
             SDL_Color c_menu_gold  = {27, 39, 8, 255};
             SDL_Color c_menu_beige = {231, 239, 231, 255};
             SDL_Color c_menu_selbg = {183, 221, 91, 255};
-            draw_text_truncated(ren, f_sm, tr("Menú > Configuración > Copia de seguridad", "Menu > Settings > Backup"), c_green, mx, 20.0f, SCREEN_W - 190.0f);
             draw_statusbar(ren, f_sm, f_xs, status_time, status_wifi_up, status_battery, status_bt_up, wifi_icon_tex, battery_icon_tex, bt_icon_tex);
+            draw_active_dash_breadcrumbs(ren, f_sm, mx, 25.0f, 3, tr("Copia de seguridad", "Backup"));
             float bkm_y0 = 64.0f;
             float bkm_item_h = 34.0f;
             {
                 float target_y = bkm_y0 + backup_selected * bkm_item_h;
-                if (bkm_cursor_y < 0.0f) bkm_cursor_y = target_y;
-                Uint64 now_ns = SDL_GetTicksNS();
-                float dt = (float)(now_ns - bkm_lerp_last_time) / 1000000000.0f;
-                bkm_lerp_last_time = now_ns;
-                if (dt > 0.1f) dt = 0.1f;
-                float lerp_speed = 15.0f;
-                bkm_cursor_y += (target_y - bkm_cursor_y) * lerp_speed * dt;
-                if (fabsf(target_y - bkm_cursor_y) < 0.5f) bkm_cursor_y = target_y;
+                bkm_cursor_y = target_y;
             }
             for (int i = 0; i < BACKUP_MENU_COUNT; i++) {
                 float iy = bkm_y0 + i * bkm_item_h;
@@ -3960,12 +4482,12 @@ int main(void)
                 draw_text_truncated(ren, f_sm, msgbuf,
                           msgc, mx, bkm_y0 + BACKUP_MENU_COUNT * bkm_item_h + 20.0f, SCREEN_W - 40.0f);
             }
-            draw_line(ren, mx, 438.0f, SCREEN_W - 20.0f, 438.0f, c_green);
+            draw_line(ren, mx, 438.0f, SCREEN_W - 20.0f, 438.0f, (SDL_Color){183, 221, 91, 255});
             draw_footer(ren, f_sm, tr("[B] Seleccionar  [A] Volver", "[B] Select  [A] Back"), s_version);
 
         } else if (state == STATE_BACKUP_LIST) {
-            draw_text_truncated(ren, f_sm, tr("Menú > Configuración > Copia de seguridad > Restaurar copia", "Menu > Settings > Backup > Restore Backup"), c_green, mx, 20.0f, 270.0f);
             draw_statusbar(ren, f_sm, f_xs, status_time, status_wifi_up, status_battery, status_bt_up, wifi_icon_tex, battery_icon_tex, bt_icon_tex);
+            draw_active_dash_breadcrumbs(ren, f_sm, mx, 25.0f, 4, tr("Restaurar copia", "Restore Backup"));
             float bkl_y0 = 64.0f;
             float bkl_item_h = 26.0f;
             if (backup_count == 0) {
@@ -3973,14 +4495,7 @@ int main(void)
             } else {
                 {
                     float target_y = bkl_y0 + backup_list_selected * bkl_item_h;
-                    if (bkl_cursor_y < 0.0f) bkl_cursor_y = target_y;
-                    Uint64 now_ns = SDL_GetTicksNS();
-                    float dt = (float)(now_ns - bkl_lerp_last_time) / 1000000000.0f;
-                    bkl_lerp_last_time = now_ns;
-                    if (dt > 0.1f) dt = 0.1f;
-                    float lerp_speed = 15.0f;
-                    bkl_cursor_y += (target_y - bkl_cursor_y) * lerp_speed * dt;
-                    if (fabsf(target_y - bkl_cursor_y) < 0.5f) bkl_cursor_y = target_y;
+                    bkl_cursor_y = target_y;
                 }
                 SDL_Color c_menu_gold = {27, 39, 8, 255};
                 SDL_Color c_menu_selbg = {183, 221, 91, 255};
@@ -4001,29 +4516,119 @@ int main(void)
                     }
                 }
             }
-            draw_line(ren, mx, 438.0f, SCREEN_W - 20.0f, 438.0f, c_green);
+            draw_line(ren, mx, 438.0f, SCREEN_W - 20.0f, 438.0f, (SDL_Color){183, 221, 91, 255});
             draw_footer(ren, f_sm, tr("[B] Restaurar  [X] Eliminar  [A] Volver", "[B] Restore  [X] Delete  [A] Back"), s_version);
+
+        } else if (state == STATE_AREXX_LIST) {
+            draw_statusbar(ren, f_sm, f_xs, status_time, status_wifi_up, status_battery, status_bt_up, wifi_icon_tex, battery_icon_tex, bt_icon_tex);
+            draw_active_dash_breadcrumbs(ren, f_sm, mx, 25.0f, 2, tr("ARexx Scripts", "ARexx Scripts"));
+            float arx_y0 = 64.0f;
+            float arx_item_h = 34.0f;
+            if (arexx_count == 0) {
+                draw_text(ren, f_sm, tr("No hay scripts disponibles", "No scripts available"), c_gray, mx, arx_y0);
+            } else {
+                SDL_Color c_menu_gold = {27, 39, 8, 255};
+                SDL_Color c_menu_selbg = {183, 221, 91, 255};
+                SDL_Color c_white_icon = {255, 255, 255, 255};
+                float icon_size = 20.0f;
+                float icon_gap = 26.0f;
+                float pill_h_ref = 26.0f;
+                float text_x = mx + icon_size + icon_gap;
+                for (int i = 0; i < arexx_count; i++) {
+                    float iy = arx_y0 + i * arx_item_h;
+                    if (arexx_icon_tex) {
+                        SDL_SetTextureColorMod(arexx_icon_tex, c_white_icon.r, c_white_icon.g, c_white_icon.b);
+                        SDL_FRect icon_dst = {mx, iy + (pill_h_ref - icon_size) / 2.0f, icon_size, icon_size};
+                        SDL_RenderTexture(ren, arexx_icon_tex, NULL, &icon_dst);
+                    }
+                    int text_w = 0, text_h = 0;
+                    TTF_GetStringSize(f_sm, arexx_scripts[i].filename, 0, &text_w, &text_h);
+                    float row_h = 26.0f;
+                    float text_y = iy + (row_h - (float)text_h) / 2.0f;
+                    if (i == arexx_selected) {
+                        float sel_w = (float)text_w + 32.0f;
+                        float pill_x0 = text_x - 16.0f;
+                        float text_draw_x = pill_x0 + (sel_w - (float)text_w) / 2.0f;
+                        draw_rounded_rect_filled(ren, pill_x0, iy, sel_w, row_h, row_h / 2.0f, c_menu_selbg);
+                        draw_text(ren, f_sm, arexx_scripts[i].filename, c_menu_gold, text_draw_x, text_y);
+                    } else {
+                        draw_text(ren, f_sm, arexx_scripts[i].filename, c_gray, text_x, text_y);
+                    }
+                }
+                if (arexx_md5_cached_for != arexx_selected) {
+                    compute_script_md5(arexx_scripts[arexx_selected].filename, arexx_md5, sizeof(arexx_md5));
+                    arexx_md5_cached_for = arexx_selected;
+                }
+                char md5_line[64];
+                snprintf(md5_line, sizeof(md5_line), "MD5: %s", arexx_md5);
+                const char *desc_line = arexx_scripts[arexx_selected].desc[current_lang];
+                float box_pad = 16.0f;
+                int md5_w = 0, md5_h = 0;
+                TTF_GetStringSize(f_sm, md5_line, 0, &md5_w, &md5_h);
+                float box_w = (float)md5_w + box_pad * 2.0f;
+                if (box_w < 240.0f) box_w = 240.0f;
+                if (box_w > SCREEN_W - mx * 2.0f) box_w = SCREEN_W - mx * 2.0f;
+                float desc_max_w = box_w - box_pad * 2.0f;
+                float desc_line_h = 16.0f;
+                float desc_max_line_w = 0.0f;
+                int desc_lines = measure_text_wrapped(f_sm, desc_line, desc_max_w, &desc_max_line_w);
+                float box_h = box_pad + (float)desc_lines * desc_line_h + 6.0f + (float)md5_h + box_pad;
+                float box_x = SCREEN_W - mx - box_w;
+                float box_y = 438.0f - 12.0f - box_h;
+                SDL_Color c_bg_box = COL_BG;
+                draw_rounded_rect_outline(ren, box_x, box_y, box_w, box_h, 10.0f, 2.0f, c_menu_selbg, c_bg_box);
+                draw_text_wrapped(ren, f_sm, desc_line, c_gray, box_x + box_pad, box_y + box_pad, desc_max_w, desc_line_h);
+                draw_text(ren, f_sm, md5_line, c_gray, box_x + box_pad, box_y + box_pad + (float)desc_lines * desc_line_h + 6.0f);
+            }
+            char arx_counter[24];
+            snprintf(arx_counter, sizeof(arx_counter), "%d %s %d", arexx_count, tr("de", "of"), AREXX_MAX_SCRIPTS);
+            draw_text(ren, f_sm, arx_counter, c_gray, mx, 418.0f);
+            draw_line(ren, mx, 438.0f, SCREEN_W - 20.0f, 438.0f, (SDL_Color){183, 221, 91, 255});
+            draw_footer(ren, f_sm, tr("[B] Ejecutar  [A] Volver", "[B] Run  [A] Back"), s_version);
+
+        } else if (state == STATE_AREXX_RUN) {
+            int arexx_still_running = (poll_arexx_script(arexx_output, sizeof(arexx_output)) == 0);
+            draw_statusbar(ren, f_sm, f_xs, status_time, status_wifi_up, status_battery, status_bt_up, wifi_icon_tex, battery_icon_tex, bt_icon_tex);
+            draw_active_dash_breadcrumbs(ren, f_sm, mx, 25.0f, 3, tr("Ejecutando Script", "Running Script"));
+            SDL_Color c_menu_selbg = {183, 221, 91, 255};
+            draw_text(ren, f_sm, arexx_scripts[arexx_selected].filename, c_menu_selbg, mx, 60.0f);
+            if (arexx_still_running) {
+                int fname_w = 0, fname_h = 0;
+                TTF_GetStringSize(f_sm, arexx_scripts[arexx_selected].filename, 0, &fname_w, &fname_h);
+                draw_text_animdots(ren, f_xs, tr("Ejecutando", "Running"), c_gray, mx + (float)fname_w + 16.0f, 62.0f, SDL_GetTicks());
+            }
+            float arxr_y0 = 90.0f;
+            float arxr_line_h = 16.0f;
+            char arxr_lines[24][256];
+            int arxr_nlines = 0;
+            {
+                char tmp[4096];
+                safe_copy(tmp, arexx_output, sizeof(tmp));
+                char *tok = strtok(tmp, "\n");
+                while (tok && arxr_nlines < 24) {
+                    safe_copy(arxr_lines[arxr_nlines], tok, sizeof(arxr_lines[arxr_nlines]));
+                    arxr_nlines++;
+                    tok = strtok(NULL, "\n");
+                }
+            }
+            for (int i = 0; i < arxr_nlines; i++)
+                draw_text(ren, f_xs, arxr_lines[i], c_gray, mx, arxr_y0 + i * arxr_line_h);
+            draw_line(ren, mx, 438.0f, SCREEN_W - 20.0f, 438.0f, (SDL_Color){183, 221, 91, 255});
+            draw_footer(ren, f_sm, tr("[A] Volver", "[A] Back"), s_version);
 
         } else if (state == STATE_WIFI_CONFIG) {
             SDL_Color c_menu_gold  = {27, 39, 8, 255};
             SDL_Color c_menu_beige = {231, 239, 231, 255};
             SDL_Color c_menu_selbg = {183, 221, 91, 255};
-            draw_text_truncated(ren, f_sm, tr("Menú > Configuración > Red inalámbrica", "Menu > Settings > Wireless Network"), c_green, mx, 20.0f, SCREEN_W - 190.0f);
             draw_statusbar(ren, f_sm, f_xs, status_time, status_wifi_up, status_battery, status_bt_up, wifi_icon_tex, battery_icon_tex, bt_icon_tex);
+            draw_active_dash_breadcrumbs(ren, f_sm, mx, 25.0f, 3, tr("Red inalámbrica", "Wireless Network"));
 
             float wifi_y0 = 64.0f;
             float wifi_item_h = 44.0f;
 
             {
                 float target_y = wifi_y0 + wifi_field_selected * wifi_item_h;
-                if (wifi_cursor_y < 0.0f) wifi_cursor_y = target_y;
-                Uint64 now_ns = SDL_GetTicksNS();
-                float dt = (float)(now_ns - wifi_lerp_last_time) / 1000000000.0f;
-                wifi_lerp_last_time = now_ns;
-                if (dt > 0.1f) dt = 0.1f;
-                float lerp_speed = 15.0f;
-                wifi_cursor_y += (target_y - wifi_cursor_y) * lerp_speed * dt;
-                if (fabsf(target_y - wifi_cursor_y) < 0.5f) wifi_cursor_y = target_y;
+                wifi_cursor_y = target_y;
             }
 
             {
@@ -4071,7 +4676,7 @@ int main(void)
                 draw_text(ren, f_med, masked, labelc, mx + 8.0f, iy + 16.0f);
             }
 
-            draw_line(ren, mx, 438.0f, SCREEN_W - 20.0f, 438.0f, c_green);
+            draw_line(ren, mx, 438.0f, SCREEN_W - 20.0f, 438.0f, (SDL_Color){183, 221, 91, 255});
             draw_footer(ren, f_sm,
                 tr("[B] Editar  [SELECT] Ver/Ocultar  [A] Guardar", "[B] Edit  [SELECT] Show/Hide  [A] Save"),
                 s_version);
@@ -4080,8 +4685,8 @@ int main(void)
             SDL_Color c_menu_gold  = {27, 39, 8, 255};
             SDL_Color c_menu_beige = {231, 239, 231, 255};
             SDL_Color c_menu_selbg = {183, 221, 91, 255};
-            draw_text_truncated(ren, f_sm, tr("Menú > Configuración > LED RGB analógicos", "Menu > Settings > Analog Stick LEDs"), c_green, mx, 20.0f, SCREEN_W - 190.0f);
             draw_statusbar(ren, f_sm, f_xs, status_time, status_wifi_up, status_battery, status_bt_up, wifi_icon_tex, battery_icon_tex, bt_icon_tex);
+            draw_active_dash_breadcrumbs(ren, f_sm, mx, 25.0f, 3, tr("LEDs RGB analógicos", "Analog Stick LEDs"));
 
             static const char *LED_SLIDER_LABELS[][2] = {
                 {"R (derecho)", "R (right)"},
@@ -4110,14 +4715,7 @@ int main(void)
 
             {
                 float target_y = led_y0 + led_selected * led_item_h;
-                if (led_cursor_y < 0.0f) led_cursor_y = target_y;
-                Uint64 now_ns = SDL_GetTicksNS();
-                float dt = (float)(now_ns - led_lerp_last_time) / 1000000000.0f;
-                led_lerp_last_time = now_ns;
-                if (dt > 0.1f) dt = 0.1f;
-                float lerp_speed = 15.0f;
-                led_cursor_y += (target_y - led_cursor_y) * lerp_speed * dt;
-                if (fabsf(target_y - led_cursor_y) < 0.5f) led_cursor_y = target_y;
+                led_cursor_y = target_y;
             }
 
             for (int i = 0; i < LED_SLIDER_COUNT; i++) {
@@ -4166,7 +4764,7 @@ int main(void)
                 draw_text(ren, f_sm, tr("Derecho", "Right"), c_menu_beige, sw_right_x + (sw_size - (float)lw) / 2.0f, sw_y + 46.0f);
             }
 
-            draw_line(ren, mx, 438.0f, SCREEN_W - 20.0f, 438.0f, c_green);
+            draw_line(ren, mx, 438.0f, SCREEN_W - 20.0f, 438.0f, (SDL_Color){183, 221, 91, 255});
             draw_footer(ren, f_sm,
                 tr("[<>] Ajustar  [L1/R1] +/-20  [A] Volver", "[<>] Adjust  [L1/R1] +/-20  [A] Back"),
                 s_version);
@@ -4213,7 +4811,7 @@ int main(void)
                 }
             }
 
-            draw_line(ren, mx, 438.0f, SCREEN_W - 20.0f, 438.0f, c_green);
+            draw_line(ren, mx, 438.0f, SCREEN_W - 20.0f, 438.0f, (SDL_Color){183, 221, 91, 255});
             draw_footer(ren, f_sm,
                 tr("[B] Insertar [L1] Borrar [R1] Aceptar [A] Cancelar [SELECT] Mayus/Num", "[B] Insert [L1] Delete [R1] Accept [A] Cancel [SELECT] Caps/Num"),
                 s_version);
@@ -4223,8 +4821,8 @@ int main(void)
             SDL_Color c_menu_beige = {231, 239, 231, 255};
             SDL_Color c_menu_selbg = {183, 221, 91, 255};
             /* Titulo pequeño arriba a la izquierda */
-            draw_text_truncated(ren, f_sm, tr("Menú > Modo desarrollador", "Menu > Developer Mode"), c_green, mx, 20.0f, SCREEN_W - 190.0f);
             draw_statusbar(ren, f_sm, f_xs, status_time, status_wifi_up, status_battery, status_bt_up, wifi_icon_tex, battery_icon_tex, bt_icon_tex);
+            draw_active_dash_breadcrumbs(ren, f_sm, mx, 25.0f, 2, tr("Modo Desarrollador", "Dev Mode"));
 
             /* Menú (columna izquierda), mismo estilo que el menu principal */
             float dev_y0 = 64.0f;
@@ -4232,16 +4830,23 @@ int main(void)
 
             for (int i = 0; i < DEV_MENU_COUNT; i++) {
                 float iy = dev_y0 + i * dev_item_h;
+                char dev_label_buf[40];
+                const char *dev_label = DEV_MENU_ITEMS[i];
+                if (i == DEV_ACTION_FPS_TOGGLE) {
+                    snprintf(dev_label_buf, sizeof(dev_label_buf), "FPS Counter: %s",
+                             show_fps_counter ? "ON" : "OFF");
+                    dev_label = dev_label_buf;
+                }
                 if (i == dev_selected) {
                     int text_w = 0, text_h = 0;
-                    TTF_GetStringSize(f_sm, DEV_MENU_ITEMS[i], 0, &text_w, &text_h);
+                    TTF_GetStringSize(f_sm, dev_label, 0, &text_w, &text_h);
                     float sel_w = (float)text_w + 32.0f;
                     float pill_h = dev_item_h - 4.0f;
                     draw_rounded_rect_filled(ren, mx - 10.0f, iy - 5.0f,
                                      sel_w, pill_h, pill_h / 2.0f, c_menu_selbg);
-                    draw_text(ren, f_sm, DEV_MENU_ITEMS[i], c_menu_gold, mx + 8.0f, iy);
+                    draw_text(ren, f_sm, dev_label, c_menu_gold, mx + 8.0f, iy);
                 } else {
-                    draw_text(ren, f_sm, DEV_MENU_ITEMS[i], c_menu_beige, mx + 8.0f, iy);
+                    draw_text(ren, f_sm, dev_label, c_menu_beige, mx + 8.0f, iy);
                 }
             }
 
@@ -4281,7 +4886,7 @@ int main(void)
                 float g_w  = (SCREEN_W - 20.0f) - dm_rx2;
                 float g_h  = 150.0f;
                 SDL_Color c_red = COL_RED;
-                int perf_now = read_perf_profile();
+                int perf_now = g_cfg.perf_profile;
                 bool throttle_applicable = (perf_now == 0) && dev_cpu_max_freq > 0 && dev_cpu_cur_freq > 0;
                 bool throttling = throttle_applicable &&
                     dev_cpu_cur_freq < (int)(dev_cpu_max_freq * 0.95f);
@@ -4356,8 +4961,8 @@ int main(void)
             const float SI_SEP_H2 = SI_Y0 + SI_BLK_H * 2;
 
             /* Título y separador superior: siempre en el margen fijo, no en SI_MX centrado */
-            draw_text_truncated(ren, f_sm, tr("Menú > Diagnóstico del sistema", "Menu > System Diagnostics"), c_green, 20.0f, 20.0f, SCREEN_W - 190.0f);
             draw_statusbar(ren, f_sm, f_xs, status_time, status_wifi_up, status_battery, status_bt_up, wifi_icon_tex, battery_icon_tex, bt_icon_tex);
+            draw_active_dash_breadcrumbs(ren, f_sm, 20.0f, 25.0f, 2, tr("Diagnóstico del sistema", "System Diagnostics"));
 
             /* Indicador de pagina: encima del footer, alineado a la derecha */
             {
@@ -4433,12 +5038,9 @@ int main(void)
                         if (mt > 0 && ma >= 0) ram_pct = (int)(100 * (mt - ma) / mt);
                     }
                 }
-                int temp_pct = 0;
-                { int td = 0; if (read_sysfs_int("/sys/class/thermal/thermal_zone0/temp",&td)) temp_pct = td/1000; if(temp_pct>100)temp_pct=100; }
-
                 SI_ROW_BAR(SI_RX, y, SI_RX + SI_CW_R, tr("Carga CPU", "CPU Load"),  sysinfo_cpu_usage, sysinfo_cpu_pct); y += SI_ROW_H;
                 SI_ROW_BAR(SI_RX, y, SI_RX + SI_CW_R, tr("Uso de RAM", "RAM Usage"),  dev_ram,           ram_pct);          y += SI_ROW_H;
-                SI_ROW_BAR(SI_RX, y, SI_RX + SI_CW_R, tr("Temp CPU", "CPU Temp"), sysinfo_temp,      temp_pct);         y += SI_ROW_H;
+                SI_ROW_BAR(SI_RX, y, SI_RX + SI_CW_R, tr("Temp CPU", "CPU Temp"), sysinfo_temp,      sysinfo_temp_pct); y += SI_ROW_H;
                 SI_ROW    (SI_RX, y, SI_RX + SI_CW_R, "Uptime",   dev_uptime);                          y += SI_ROW_H;
                 SI_ROW    (SI_RX, y, SI_RX + SI_CW_R, "Load Avg", sysinfo_loadavg);
             }
@@ -4482,11 +5084,13 @@ int main(void)
             si_row_idx = 0;
             SI_BLOCK_TITLE(SI_RX, y, tr("ESPECIFICACIONES", "SPECIFICATIONS"));
             y += 28.0f;
-            SI_ROW(SI_RX, y, SI_RX + SI_CW_R, "CPU",           "Cortex-A53 @1.51GHz"); y += SI_ROW_H;
+            SI_ROW(SI_RX, y, SI_RX + SI_CW_R, "CPU",           "Cortex-A53 @1.42GHz"); y += SI_ROW_H;
             SI_ROW(SI_RX, y, SI_RX + SI_CW_R, "GPU",           "Mali-G31 (Panfrost)"); y += SI_ROW_H;
             SI_ROW(SI_RX, y, SI_RX + SI_CW_R, "RAM",           "1 GB LPDDR4");         y += SI_ROW_H;
             SI_ROW(SI_RX, y, SI_RX + SI_CW_R, tr("Almacenamiento", "Storage"),"microSD");              y += SI_ROW_H;
-            SI_ROW(SI_RX, y, SI_RX + SI_CW_R, tr("Resolución", "Resolution"),    "640x480 @ 60Hz");
+            char sysinfo_resolution[24];
+            snprintf(sysinfo_resolution, sizeof(sysinfo_resolution), "640x480 @ %dHz", refresh_120hz ? 120 : 60);
+            SI_ROW(SI_RX, y, SI_RX + SI_CW_R, tr("Resolución", "Resolution"),    sysinfo_resolution);
             }
 
             /* ── BLOQUE 3 IZQ: SOFTWARE ──────────────────────────────────── */
@@ -4518,12 +5122,12 @@ int main(void)
 #undef SI_ROW_BAR
 
             /* Barra inferior */
-            draw_line(ren, mx, 438.0f, SCREEN_W - 20.0f, 438.0f, c_green);
+            draw_line(ren, mx, 438.0f, SCREEN_W - 20.0f, 438.0f, (SDL_Color){183, 221, 91, 255});
             draw_footer(ren, f_sm, tr("[A] Volver  [L1/R1] Pagina", "[A] Back  [L1/R1] Page"), s_version);
         } else if (state == STATE_UPDATE) {
             const float UX = 20.0f;
-            draw_text_truncated(ren, f_sm, tr("Menú > Actualización de sistema", "Menu > System Update"), c_green, UX, 20.0f, SCREEN_W - 190.0f);
             draw_statusbar(ren, f_sm, f_xs, status_time, status_wifi_up, status_battery, status_bt_up, wifi_icon_tex, battery_icon_tex, bt_icon_tex);
+            draw_active_dash_breadcrumbs(ren, f_sm, UX, 25.0f, 2, tr("Actualización de sistema", "System Update"));
 
             /* Versión actual */
             {
@@ -4571,7 +5175,7 @@ int main(void)
                 draw_text(ren, f_sm, upd_msg,  c_gray, UX, 118.0f);
             }
 
-            draw_line(ren, UX, 438.0f, SCREEN_W - 20.0f, 438.0f, c_green);
+            draw_line(ren, UX, 438.0f, SCREEN_W - 20.0f, 438.0f, (SDL_Color){183, 221, 91, 255});
             if (update_phase != UPD_DOWNLOADING)
                 draw_footer(ren, f_sm, tr("[A] Volver", "[A] Back"), s_version);
             else
@@ -4579,6 +5183,12 @@ int main(void)
 
         } /* end STATE_UPDATE */
 
+        if (screenshot_capture_pending) {
+            SDL_Surface *clean_frame_for_screenshot = SDL_RenderReadPixels(ren, NULL);
+            take_screenshot(ren, SCREEN_W, SCREEN_H, clean_frame_for_screenshot);
+            if (clean_frame_for_screenshot) SDL_DestroySurface(clean_frame_for_screenshot);
+            screenshot_capture_pending = false;
+        }
         /* Flash blanco al hacer screenshot */
         if (screenshot_flash_until > 0 && SDL_GetTicks() < screenshot_flash_until) {
             SDL_SetRenderDrawBlendMode(ren, SDL_BLENDMODE_BLEND);
@@ -4589,12 +5199,21 @@ int main(void)
         } else {
             screenshot_flash_until = 0;
         }
-        if (clean_frame_for_screenshot) {
-            SDL_DestroySurface(clean_frame_for_screenshot);
-            clean_frame_for_screenshot = NULL;
-        }
-        clean_frame_for_screenshot = SDL_RenderReadPixels(ren, NULL);
         draw_screen_corners(ren, SCREEN_W, SCREEN_H, 22.0f);
+        if (show_fps_counter) {
+            fps_frame_count++;
+            Uint64 fps_now_ns = SDL_GetTicksNS();
+            float fps_elapsed = (float)(fps_now_ns - fps_last_update) / 1000000000.0f;
+            if (fps_elapsed >= 0.5f) {
+                fps_display = (float)fps_frame_count / fps_elapsed;
+                fps_frame_count = 0;
+                fps_last_update = fps_now_ns;
+            }
+            char fps_buf[16];
+            snprintf(fps_buf, sizeof(fps_buf), "%.0f FPS", fps_display);
+            SDL_Color c_fps_white = COL_WHITE;
+            draw_text_right(ren, f_sm, fps_buf, c_fps_white, SCREEN_W - 20.0f, 70.0f);
+        }
         SDL_RenderPresent(ren);
         /* VSync activo (SDL_SetRenderVSync) sustituye al SDL_Delay(16):
          * RenderPresent bloquea hasta el siguiente VBlank, 0% CPU en espera. */
@@ -4609,10 +5228,16 @@ int main(void)
         }
     }
 
-    if (clean_frame_for_screenshot) SDL_DestroySurface(clean_frame_for_screenshot);
     if (logo_tex) SDL_DestroyTexture(logo_tex);
     for (int mi = 0; mi < MENU_ICON_COUNT; mi++)
         if (menu_icon_tex[mi]) SDL_DestroyTexture(menu_icon_tex[mi]);
+    if (wifi_icon_tex) SDL_DestroyTexture(wifi_icon_tex);
+    if (bt_icon_tex) SDL_DestroyTexture(bt_icon_tex);
+    if (battery_icon_tex) SDL_DestroyTexture(battery_icon_tex);
+    if (perf_bolt_tex) SDL_DestroyTexture(perf_bolt_tex);
+    if (perf_scale_tex) SDL_DestroyTexture(perf_scale_tex);
+    if (perf_battery_tex) SDL_DestroyTexture(perf_battery_tex);
+    if (arexx_icon_tex) SDL_DestroyTexture(arexx_icon_tex);
     if (joy) SDL_CloseJoystick(joy);
     TTF_CloseFont(f_sm);
     TTF_CloseFont(f_med);
