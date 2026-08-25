@@ -3961,20 +3961,32 @@ int main(void)
         draw_statusbar(ren, f_sm, f_xs, status_time, status_wifi_up, status_battery, status_bt_up, wifi_icon_tex, battery_icon_tex, bt_icon_tex);
         if (bg_update_available) {
             SDL_Color c_lime = {183, 221, 91, 255};
+            SDL_Color c_bg_box = COL_BG;
             const char *upd_txt = tr("ACTUALIZACIÓN DISPONIBLE", "UPDATE AVAILABLE");
             int upd_w = 0, upd_h = 0;
             TTF_GetStringSize(f_sm, upd_txt, 0, &upd_w, &upd_h);
             float upd_icon_size = (float)upd_h * 0.85f;
             float upd_icon_gap = 6.0f;
-            float upd_text_x = SCREEN_W - 20.0f - (float)upd_w;
+            float upd_right_edge = SCREEN_W - 20.0f - 12.0f;
+            float upd_y = 55.0f;
+            float upd_text_x = upd_right_edge - (float)upd_w;
+            float upd_icon_x = upd_text_x - upd_icon_gap - upd_icon_size;
+            float upd_pad_x = 12.0f;
+            float upd_pad_y = 6.0f;
+            float pill_x = upd_icon_x - upd_pad_x;
+            float pill_y = upd_y - upd_pad_y;
+            float pill_w = (upd_right_edge - upd_icon_x) + upd_pad_x * 2.0f;
+            float pill_h = (float)upd_h + upd_pad_y * 2.0f;
+            draw_rounded_rect_outline(ren, pill_x, pill_y, pill_w, pill_h,
+                                       pill_h / 2.0f, 2.0f, c_lime, c_bg_box);
             if (update_icon_tex) {
                 SDL_SetTextureColorMod(update_icon_tex, c_lime.r, c_lime.g, c_lime.b);
-                SDL_FRect upd_icon_dst = {upd_text_x - upd_icon_gap - upd_icon_size,
-                                          50.0f + ((float)upd_h - upd_icon_size) / 2.0f,
+                SDL_FRect upd_icon_dst = {upd_icon_x,
+                                          upd_y + ((float)upd_h - upd_icon_size) / 2.0f,
                                           upd_icon_size, upd_icon_size};
                 SDL_RenderTexture(ren, update_icon_tex, NULL, &upd_icon_dst);
             }
-            draw_text_right(ren, f_sm, upd_txt, c_lime, SCREEN_W - 20.0f, 50.0f);
+            draw_text_right(ren, f_sm, upd_txt, c_lime, upd_right_edge, upd_y);
         }
 
 
