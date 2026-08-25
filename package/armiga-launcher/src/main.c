@@ -1547,21 +1547,30 @@ static void start_arexx_script_async(const char *filename)
 }
 /* Sondea el script en curso: lee lo disponible del pipe sin bloquear y lo
  * anexa a out_buf. Devuelve: 0=en curso, 1=terminado. */
-static int poll_arexx_script(char *out_buf, size_t out_sz)
+/* Crece *buf/*cap segun haga falta (sin techo artificial) y anexa chunk. */
+static void arexx_output_append(char **buf, size_t *len, size_t *cap,
+                                 const char *chunk, size_t n)
+{
+    size_t need = *len + n + 1;
+    if (need > *cap) {
+        size_t newcap = (*cap == 0) ? 4096 : *cap;
+        while (newcap < need) newcap *= 2;
+        char *nb = realloc(*buf, newcap);
+        if (!nb) return; /* sin memoria: se descarta el resto de este chunk */
+        *buf = nb;
+        *cap = newcap;
+    }
+    memcpy(*buf + *len, chunk, n);
+    *len += n;
+    (*buf)[*len] = '\0';
+}
+static int poll_arexx_script(char **buf, size_t *len, size_t *cap)
 {
     if (s_arexx_out_fd >= 0) {
-        char chunk[512];
+        char chunk[4096];
         ssize_t n;
-        while ((n = read(s_arexx_out_fd, chunk, sizeof(chunk) - 1)) > 0) {
-            chunk[n] = '\0';
-            size_t used = strlen(out_buf);
-            size_t room = (used < out_sz - 1) ? (out_sz - 1 - used) : 0;
-            size_t copy_n = ((size_t)n < room) ? (size_t)n : room;
-            if (copy_n > 0) {
-                memcpy(out_buf + used, chunk, copy_n);
-                out_buf[used + copy_n] = '\0';
-            }
-        }
+        while ((n = read(s_arexx_out_fd, chunk, sizeof(chunk))) > 0)
+            arexx_output_append(buf, len, cap, chunk, (size_t)n);
     }
     if (s_arexx_pid <= 0) return 1;
     int status = 0;
@@ -1569,23 +1578,16 @@ static int poll_arexx_script(char *out_buf, size_t out_sz)
     if (r == 0) return 0; /* sigue en curso */
     /* Termino: drenar cualquier resto que quedara en el pipe */
     if (s_arexx_out_fd >= 0) {
-        char chunk[512];
+        char chunk[4096];
         ssize_t n;
-        while ((n = read(s_arexx_out_fd, chunk, sizeof(chunk) - 1)) > 0) {
-            chunk[n] = '\0';
-            size_t used = strlen(out_buf);
-            size_t room = (used < out_sz - 1) ? (out_sz - 1 - used) : 0;
-            size_t copy_n = ((size_t)n < room) ? (size_t)n : room;
-            if (copy_n > 0) {
-                memcpy(out_buf + used, chunk, copy_n);
-                out_buf[used + copy_n] = '\0';
-            }
-        }
+        while ((n = read(s_arexx_out_fd, chunk, sizeof(chunk))) > 0)
+            arexx_output_append(buf, len, cap, chunk, (size_t)n);
         close(s_arexx_out_fd);
         s_arexx_out_fd = -1;
     }
     s_arexx_pid = -1;
-    if (out_buf[0] == '\0') safe_copy(out_buf, "(sin salida)\n", out_sz);
+    if (*len == 0)
+        arexx_output_append(buf, len, cap, "(sin salida)\n", 13);
     return 1;
 }
 static void restore_backup(const char *filename)
@@ -2636,7 +2638,10 @@ int main(void)
     int arexx_selected = 0;
     int arexx_md5_cached_for = -1;
     char arexx_md5[40] = "";
-    char arexx_output[4096] = "";
+    char *arexx_output = NULL;
+    size_t arexx_output_len = 0;
+    size_t arexx_output_cap = 0;
+    int arexx_scroll = 0;
     bool show_fps_counter = false;
     int fps_frame_count = 0;
     float fps_display = 0.0f;
@@ -3183,7 +3188,11 @@ int main(void)
                     }
                     if (ev.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN &&
                         ev.jbutton.button == BTN_SDL_A) {
-                        arexx_output[0] = '\0';
+                        free(arexx_output);
+                        arexx_output = NULL;
+                        arexx_output_len = 0;
+                        arexx_output_cap = 0;
+                        arexx_scroll = 0;
                         start_arexx_script_async(arexx_scripts[arexx_selected].filename);
                         state = STATE_AREXX_RUN;
                     }
@@ -3199,6 +3208,17 @@ int main(void)
                     ((ev.type == SDL_EVENT_KEY_DOWN && ev.key.key == SDLK_RETURN) ||
                      (ev.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN && ev.jbutton.button == BTN_SDL_B)))
                     state = STATE_AREXX_LIST;
+                if (s_arexx_pid <= 0) {
+                    if (ev.type == SDL_EVENT_KEY_DOWN) {
+                        if (ev.key.key == SDLK_UP) arexx_scroll--;
+                        if (ev.key.key == SDLK_DOWN) arexx_scroll++;
+                    }
+                    if (ev.type == SDL_EVENT_JOYSTICK_HAT_MOTION) {
+                        if (ev.jhat.value == SDL_HAT_UP) arexx_scroll--;
+                        else if (ev.jhat.value == SDL_HAT_DOWN) arexx_scroll++;
+                    }
+                    if (arexx_scroll < 0) arexx_scroll = 0;
+                }
             }
             else if (state == STATE_TIMEZONE_CONFIG) {
                 if (ev.type == SDL_EVENT_KEY_DOWN) {
@@ -4614,7 +4634,7 @@ int main(void)
             draw_footer(ren, f_sm, tr("[B] Ejecutar  [A] Volver", "[B] Run  [A] Back"), s_version);
 
         } else if (state == STATE_AREXX_RUN) {
-            int arexx_still_running = (poll_arexx_script(arexx_output, sizeof(arexx_output)) == 0);
+            int arexx_still_running = (poll_arexx_script(&arexx_output, &arexx_output_len, &arexx_output_cap) == 0);
             draw_statusbar(ren, f_sm, f_xs, status_time, status_wifi_up, status_battery, status_bt_up, wifi_icon_tex, battery_icon_tex, bt_icon_tex);
             draw_active_dash_breadcrumbs(ren, f_sm, mx, 25.0f, 3, tr("Ejecutando Script", "Running Script"));
             SDL_Color c_menu_selbg = {183, 221, 91, 255};
@@ -4626,25 +4646,53 @@ int main(void)
             }
             float arxr_y0 = 90.0f;
             float arxr_line_h = 16.0f;
-            char arxr_lines[24][256];
             int arxr_nlines = 0;
-            {
-                char tmp[4096];
-                safe_copy(tmp, arexx_output, sizeof(tmp));
-                char *tok = strtok(tmp, "\n");
-                while (tok && arxr_nlines < 24) {
-                    safe_copy(arxr_lines[arxr_nlines], tok, sizeof(arxr_lines[arxr_nlines]));
-                    arxr_nlines++;
-                    tok = strtok(NULL, "\n");
+            char **arxr_lines = NULL;
+            char *arxr_tmp = NULL;
+            if (arexx_output && arexx_output_len > 0) {
+                arxr_tmp = malloc(arexx_output_len + 1);
+                if (arxr_tmp) {
+                    memcpy(arxr_tmp, arexx_output, arexx_output_len + 1);
+                    int est_lines = 1;
+                    for (size_t k = 0; k < arexx_output_len; k++)
+                        if (arxr_tmp[k] == '\n') est_lines++;
+                    arxr_lines = malloc(sizeof(char *) * (size_t)est_lines);
+                    if (arxr_lines) {
+                        char *tok = strtok(arxr_tmp, "\n");
+                        while (tok && arxr_nlines < est_lines) {
+                            arxr_lines[arxr_nlines++] = tok;
+                            tok = strtok(NULL, "\n");
+                        }
+                    }
                 }
             }
             int arxr_max_visible = (int)((438.0f - arxr_y0) / arxr_line_h);
             if (arxr_max_visible < 1) arxr_max_visible = 1;
-            int arxr_start = (arxr_nlines > arxr_max_visible) ? (arxr_nlines - arxr_max_visible) : 0;
-            for (int i = arxr_start; i < arxr_nlines; i++)
-                draw_text(ren, f_xs, arxr_lines[i], c_gray, mx, arxr_y0 + (i - arxr_start) * arxr_line_h);
+            int arxr_max_scroll = (arxr_nlines <= arxr_max_visible) ? 0 : (arxr_nlines - arxr_max_visible);
+            if (arexx_still_running) {
+                arexx_scroll = arxr_max_scroll;
+            } else if (arexx_scroll > arxr_max_scroll) {
+                arexx_scroll = arxr_max_scroll;
+            }
+            int arxr_start = arexx_scroll;
+            if (arxr_lines)
+                for (int i = arxr_start; i < arxr_nlines && (i - arxr_start) < arxr_max_visible; i++)
+                    draw_text(ren, f_xs, arxr_lines[i], c_gray, mx, arxr_y0 + (i - arxr_start) * arxr_line_h);
+            if (!arexx_still_running && arxr_nlines > arxr_max_visible) {
+                char scroll_info[32];
+                snprintf(scroll_info, sizeof(scroll_info), "%d-%d/%d",
+                         arxr_start + 1,
+                         (arxr_start + arxr_max_visible < arxr_nlines) ? arxr_start + arxr_max_visible : arxr_nlines,
+                         arxr_nlines);
+                draw_text_right(ren, f_xs, scroll_info, c_gray, SCREEN_W - 20.0f, 70.0f);
+            }
+            free(arxr_lines);
+            free(arxr_tmp);
             draw_line(ren, mx, 438.0f, SCREEN_W - 20.0f, 438.0f, (SDL_Color){183, 221, 91, 255});
-            draw_footer(ren, f_sm, tr("[A] Volver", "[A] Back"), s_version);
+            if (!arexx_still_running && arxr_nlines > arxr_max_visible)
+                draw_footer(ren, f_sm, tr("[DPAD] Navegar  [A] Volver", "[DPAD] Scroll  [A] Back"), s_version);
+            else
+                draw_footer(ren, f_sm, tr("[A] Volver", "[A] Back"), s_version);
 
         } else if (state == STATE_WIFI_CONFIG) {
             SDL_Color c_menu_gold  = {27, 39, 8, 255};
@@ -5268,6 +5316,7 @@ int main(void)
     if (perf_scale_tex) SDL_DestroyTexture(perf_scale_tex);
     if (perf_battery_tex) SDL_DestroyTexture(perf_battery_tex);
     if (arexx_icon_tex) SDL_DestroyTexture(arexx_icon_tex);
+    free(arexx_output);
     if (update_icon_tex) SDL_DestroyTexture(update_icon_tex);
     if (joy) SDL_CloseJoystick(joy);
     TTF_CloseFont(f_sm);
