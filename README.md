@@ -19,7 +19,7 @@ ARMIGA is a minimal Linux distribution based on **Buildroot** for the **Anbernic
 
 | Component      | Detail                                          |
 | --------------- | ----------------------------------------------- |
-| SoC             | Allwinner H700 (ARM64, Cortex-A53 x4 @ 1.51GHz) |
+| SoC             | Allwinner H700 (ARM64, Cortex-A53 x4 @ 1.42GHz) |
 | GPU             | Mali-G31 MP2 (Panfrost)                         |
 | RAM             | 1 GB LPDDR4                                     |
 | WiFi/BT         | RTL8821CS (SDIO)                                |
