@@ -77,7 +77,15 @@ for SUB in $SUBDIRS; do
         NOMBRE_ACTUAL=$(basename "$archivo")
         EXT="${NOMBRE_ACTUAL##*.}"
         NOMBRE_CANONICO=""
+        FORCE=""
+        NOMBRE_ACTUAL_SIN_EXT="${NOMBRE_ACTUAL%.*}"
+        if [ -f "$OVERRIDES_FILE" ]; then
+            FORCE=$(grep -F -m 1 "$NOMBRE_ACTUAL_SIN_EXT|" "$OVERRIDES_FILE")
+        fi
 
+        if [ -n "$FORCE" ]; then
+            NOMBRE_CANONICO=$(echo "$FORCE" | cut -d'|' -f2)
+        else
         MATCH=$(grep -F -m 1 "$NOMBRE_ACTUAL|" "$DB_CACHE")
 
         if [ -n "$MATCH" ]; then
@@ -94,6 +102,7 @@ for SUB in $SUBDIRS; do
             if [ -n "$MATCH" ]; then
                 NOMBRE_CANONICO=$(echo "$MATCH" | cut -d'|' -f4)
             fi
+        fi
         fi
 
         if [ -n "$NOMBRE_CANONICO" ] && [ -f "$OVERRIDES_FILE" ]; then

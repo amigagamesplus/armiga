@@ -2642,6 +2642,7 @@ int main(void)
     size_t arexx_output_len = 0;
     size_t arexx_output_cap = 0;
     int arexx_scroll = 0;
+    int arexx_user_scrolled = 0;
     bool show_fps_counter = false;
     int fps_frame_count = 0;
     float fps_display = 0.0f;
@@ -3193,6 +3194,7 @@ int main(void)
                         arexx_output_len = 0;
                         arexx_output_cap = 0;
                         arexx_scroll = 0;
+                        arexx_user_scrolled = 0;
                         start_arexx_script_async(arexx_scripts[arexx_selected].filename);
                         state = STATE_AREXX_RUN;
                     }
@@ -3209,6 +3211,7 @@ int main(void)
                      (ev.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN && ev.jbutton.button == BTN_SDL_B)))
                     state = STATE_AREXX_LIST;
                 if (s_arexx_pid <= 0) {
+                    int arexx_scroll_before = arexx_scroll;
                     if (ev.type == SDL_EVENT_KEY_DOWN) {
                         if (ev.key.key == SDLK_UP) arexx_scroll--;
                         if (ev.key.key == SDLK_DOWN) arexx_scroll++;
@@ -3218,6 +3221,7 @@ int main(void)
                         else if (ev.jhat.value == SDL_HAT_DOWN) arexx_scroll++;
                     }
                     if (arexx_scroll < 0) arexx_scroll = 0;
+                    if (arexx_scroll != arexx_scroll_before) arexx_user_scrolled = 1;
                 }
             }
             else if (state == STATE_TIMEZONE_CONFIG) {
@@ -4669,7 +4673,7 @@ int main(void)
             int arxr_max_visible = (int)((438.0f - arxr_y0) / arxr_line_h);
             if (arxr_max_visible < 1) arxr_max_visible = 1;
             int arxr_max_scroll = (arxr_nlines <= arxr_max_visible) ? 0 : (arxr_nlines - arxr_max_visible);
-            if (arexx_still_running) {
+            if (!arexx_user_scrolled) {
                 arexx_scroll = arxr_max_scroll;
             } else if (arexx_scroll > arxr_max_scroll) {
                 arexx_scroll = arxr_max_scroll;
