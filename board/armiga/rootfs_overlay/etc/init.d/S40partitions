@@ -150,6 +150,10 @@ do_expand_if_needed() {
     if [ ! -f "$AMIGA_DATA_MNT/roms/Commodore - Amiga.dat" ]; then
         cp "/etc/retroarch/Commodore - Amiga.dat" "$AMIGA_DATA_MNT/roms/Commodore - Amiga.dat"
     fi
+    # Copiar overrides de nombres de thumbnail (si difieren del nombre canonico del .dat)
+    if [ ! -f "$AMIGA_DATA_MNT/roms/amiga_thumbnail_overrides.txt" ]; then
+        cp "/etc/retroarch/amiga_thumbnail_overrides.txt" "$AMIGA_DATA_MNT/roms/amiga_thumbnail_overrides.txt"
+    fi
     # Crear wifi.conf de ejemplo si no existe
     if [ ! -f "$AMIGA_DATA_MNT/wifi.conf" ]; then
         printf '# Configuracion WiFi de Armiga\n# Edita este fichero con tu red WiFi\nSSID=nombre_de_tu_red\nPASSWORD=tu_contrasena\n'             > "$AMIGA_DATA_MNT/wifi.conf"
@@ -183,6 +187,9 @@ case "$1" in
             mkdir -p "$AMIGA_DATA_MNT/roms"
             if [ ! -f "$AMIGA_DATA_MNT/roms/Commodore - Amiga.dat" ]; then
                 cp "/etc/retroarch/Commodore - Amiga.dat" "$AMIGA_DATA_MNT/roms/Commodore - Amiga.dat"
+            fi
+            if [ ! -f "$AMIGA_DATA_MNT/roms/amiga_thumbnail_overrides.txt" ]; then
+                cp "/etc/retroarch/amiga_thumbnail_overrides.txt" "$AMIGA_DATA_MNT/roms/amiga_thumbnail_overrides.txt"
             fi
             mkdir -p "$AMIGA_DATA_MNT/kickstarts" \
                      "$AMIGA_DATA_MNT/roms/adf" "$AMIGA_DATA_MNT/roms/ipf" \

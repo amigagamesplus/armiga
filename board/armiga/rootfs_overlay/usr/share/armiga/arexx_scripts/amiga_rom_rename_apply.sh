@@ -5,6 +5,7 @@
 ROMS_BASE="/media/amiga_data/roms"
 DAT_FILE="$ROMS_BASE/Commodore - Amiga.dat"
 DB_CACHE="/tmp/amiga_scraper_db.txt"
+OVERRIDES_FILE="$ROMS_BASE/amiga_thumbnail_overrides.txt"
 MODO_PRUEBA=0
 
 SUBDIRS="adf ipf hdf whdload"
@@ -92,6 +93,13 @@ for SUB in $SUBDIRS; do
             fi
             if [ -n "$MATCH" ]; then
                 NOMBRE_CANONICO=$(echo "$MATCH" | cut -d'|' -f4)
+            fi
+        fi
+
+        if [ -n "$NOMBRE_CANONICO" ] && [ -f "$OVERRIDES_FILE" ]; then
+            OVERRIDE=$(grep -F -m 1 "$NOMBRE_CANONICO|" "$OVERRIDES_FILE")
+            if [ -n "$OVERRIDE" ]; then
+                NOMBRE_CANONICO=$(echo "$OVERRIDE" | cut -d'|' -f2)
             fi
         fi
 
