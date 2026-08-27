@@ -130,6 +130,11 @@ jobs:
           cpu_family = 'aarch64'
           cpu = 'cortex-a53'
           endian = 'little'
+          [built-in options]
+          c_args = ['--sysroot=/sysroot-aarch64', '-mcpu=cortex-a53']
+          c_link_args = ['--sysroot=/sysroot-aarch64']
+          cpp_args = ['--sysroot=/sysroot-aarch64', '-mcpu=cortex-a53']
+          cpp_link_args = ['--sysroot=/sysroot-aarch64']
           CROSSEOF
 
           mkdir -p mesa-${{ env.MESA_VERSION }}/build-target
@@ -156,7 +161,9 @@ jobs:
             -Dgallium-rusticl=false \
             -Dvalgrind=disabled \
             -Dlibunwind=disabled \
-            -Dzstd=disabled
+            -Dzstd=disabled \
+            -Dbuildtype=release \
+            -Db_ndebug=true
           ninja -C mesa-${{ env.MESA_VERSION }}/build-target
 
       - name: Collect artifacts
