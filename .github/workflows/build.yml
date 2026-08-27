@@ -18,7 +18,6 @@ on:
       buildroot_version:
         description: 'Versión de Buildroot'
         required: false
-        default: '2026.05.2'
         type: string
 
 env:
@@ -31,6 +30,8 @@ jobs:
   build:
     runs-on: ubuntu-22.04
     timeout-minutes: 180
+    permissions:
+      contents: write
 
     steps:
       - name: Checkout armiga
@@ -118,18 +119,17 @@ jobs:
           sudo apt-get install -y libgbm-dev
           cp /usr/include/gbm.h "$SYSROOT/usr/include/"
           mkdir -p "$SYSROOT/usr/lib/pkgconfig"
-          printf 'prefix=/usr\nlibdir=${prefix}/lib\nincludedir=${prefix}/include\nName: gbm\nDescription: Mesa GBM library\nVersion: 26.1.3\nLibs: -L${libdir} -lgbm\nCflags: -I${includedir}\n' > "$SYSROOT/usr/lib/pkgconfig/gbm.pc"
-          # Inject nlohmann/json headers into sysroot (descarga release completo)
-          wget -q https://github.com/nlohmann/json/releases/download/v3.11.3/json.hpp -O "$SYSROOT/usr/include/nlohmann/json.hpp" || true
-          wget -q https://github.com/nlohmann/json/archive/refs/tags/v3.11.3.tar.gz -O /tmp/nlohmann.tar.gz
-          tar xf /tmp/nlohmann.tar.gz -C /tmp
-          cp -r /tmp/json-3.11.3/include/nlohmann "$SYSROOT/usr/include/"
+          MESA_PC_VER=$(grep '^MESA_VERSION=' board/armiga/post-build.sh | cut -d= -f2)
+          printf 'prefix=/usr\nlibdir=${prefix}/lib\nincludedir=${prefix}/include\nName: gbm\nDescription: Mesa GBM library\nVersion: %s\nLibs: -L${libdir} -lgbm\nCflags: -I${includedir}\n' "$MESA_PC_VER" > "$SYSROOT/usr/lib/pkgconfig/gbm.pc"
+          # nlohmann/json headers: reusar el paquete apt ya instalado (nlohmann-json3-dev),
+          # sin descargar nada externo de GitHub.
+          mkdir -p "$SYSROOT/usr/include/nlohmann"
+          cp -r /usr/include/nlohmann/. "$SYSROOT/usr/include/nlohmann/"
           echo "GBM staging inject OK"
 
       - name: Build
         run: |
-          make BR2_EXTERNAL="${BR_EXTERNAL}" \
-               BR2_DL_DIR="${BR_DL_DIR}" \
+          make BR2_DL_DIR="${BR_DL_DIR}" \
                -C "${BR_OUTPUT}" \
                -j$(nproc)
 
