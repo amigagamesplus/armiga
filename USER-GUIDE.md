@@ -14,6 +14,16 @@ armiga ships configured for the **Anbernic RG40XX H** by default. It also suppor
 
 > If you skip this step on an RG35XX H, the device may not boot or some hardware (display, buttons) may not work correctly.
 
+### RG35XX H "rev6" panel variant
+
+Some RG35XX H units use a different internal display panel revision (known as "rev6"). There is no way to tell which panel your unit has without opening the device, so if after following the steps above your screen shows garbage, artifacts, or stays blank:
+
+1. Power off the device (long-press power for ~10 seconds).
+2. Open the `boot` partition again.
+3. Delete (or rename) `dtb.img`.
+4. Rename `dtb-rg35xx-h-rev6.img` to `dtb.img`.
+5. Eject the SD card and boot your RG35XX H again.
+
 ## Controls
 
 | Physical button                       | Function                                   |
