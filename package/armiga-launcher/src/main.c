@@ -1235,15 +1235,23 @@ static void save_perf_profile(int profile)
 static void apply_perf_profile(int profile)
 {
     const char *gpu_gov_path = "/sys/class/devfreq/1800000.gpu/governor";
+    const char *boost_path = "/sys/devices/system/cpu/cpufreq/boost";
     if (profile == 0) {
         set_cpu_governor("performance");
         write_sysfs_str(gpu_gov_path, "performance");
+        /* CPU Boost: desbloquea el OPP de 1512MHz (por encima del maximo
+         * normal de 1416MHz) solo en Maximum Performance. Volatil (se
+         * pierde al reiniciar), por eso se reaplica aqui en caliente cada
+         * vez que se selecciona el perfil, igual que el governor. */
+        write_sysfs_str(boost_path, "1");
     } else if (profile == 2) {
         set_cpu_governor("powersave");
         write_sysfs_str(gpu_gov_path, "powersave");
+        write_sysfs_str(boost_path, "0");
     } else {
         set_cpu_governor("schedutil");
         write_sysfs_str(gpu_gov_path, "performance");
+        write_sysfs_str(boost_path, "0");
     }
 }
 
