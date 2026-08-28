@@ -30,7 +30,7 @@ ARMIGA is a minimal Linux distribution based on **Buildroot** for the **Anbernic
 
 ### Working components
 
-- ✅ Boot (U-Boot + kernel 7.2.0-armiga + DTB)
+- ✅ Boot (U-Boot + kernel 7.2.1-armiga + DTB)
 - ✅ **A/B** partition scheme with automatic rollback (see below)
 - ✅ Rootfs on **SquashFS + zstd** (system/system_b, 300MB per slot, ro)
 - ✅ RTL8821CS WiFi (`wpa_supplicant` + `udhcpc`, config generated in `/tmp` — `/etc` is ro)
@@ -39,7 +39,7 @@ ARMIGA is a minimal Linux distribution based on **Buildroot** for the **Anbernic
 - ✅ GPU governor forced to `performance` (fixed 648MHz — `simple_ondemand` didn't scale well under real load)
 - ✅ ZRAM swap (512MB, LZ4, `swappiness=100`)
 - ✅ `amiga_data` partition (exFAT, auto-expands to 100% of the SD card on first boot)
-- ✅ Graphics stack: SDL3 3.4.14 (kmsdrm) + Mesa 26.2.0 (GBM + Panfrost, stripped `.so` in overlay)
+- ✅ Graphics stack: SDL3 3.4.14 (kmsdrm) + Mesa 26.2.1 (GBM + Panfrost, stripped `.so` in overlay)
 - ✅ Custom C/SDL3 launcher (`armiga-launcher`), bilingual **Spanish/English** interface (toggle `L1`, persistent)
 - ✅ RetroArch 1.22.2 + PUAE 2021 core (`puae2021_libretro.so`, build 6636d5f)
 - ✅ OTA update system (GitHub Releases → download → SHA256 verification → flash inactive slot, all async without blocking the UI)
@@ -68,8 +68,8 @@ On boot, `S02bootcheck` compares the active slot (read from `/proc/cmdline`) aga
 ```
 armiga-launcher / RetroArch (PUAE)
     └── SDL3 3.4.14 (backend: kmsdrm)
-        ├── libgbm.so.1.0.0 (Mesa 26.2.0)
-        │   └── dri_gbm.so → libgallium-26.1.6.so (Panfrost)
+        ├── libgbm.so.1.0.0 (Mesa 26.2.1)
+        │   └── dri_gbm.so → libgallium-26.2.1.so (Panfrost)
         ├── libEGL.so.1.0.0
         ├── libGLESv2.so.2.0.0
         └── libdrm
@@ -124,7 +124,7 @@ Estimated time: 30-40 min (~1h+ if `configs/armiga_defconfig` is modified, which
 ### Local build
 
 ```
-make BR2_EXTERNAL=$PWD -C buildroot-2026.02.2 O=$PWD/output armiga_defconfig
+make BR2_EXTERNAL=$PWD -C buildroot-2026.05.2 O=$PWD/output armiga_defconfig
 make -C output -j$(nproc)
 ```
 
