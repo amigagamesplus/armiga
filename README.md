@@ -125,6 +125,8 @@ Estimated time: 30-40 min (~1h+ if `configs/armiga_defconfig` is modified, which
 ### Local build
 
 ```
+wget https://buildroot.org/downloads/buildroot-2026.05.2.tar.xz
+tar xf buildroot-2026.05.2.tar.xz
 make BR2_EXTERNAL=$PWD -C buildroot-2026.05.2 O=$PWD/output armiga_defconfig
 make -C output -j$(nproc)
 ```
