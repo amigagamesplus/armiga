@@ -4,7 +4,7 @@ Welcome to armiga, your Commodore Amiga emulation console.
 
 ## Supported devices
 
-armiga ships configured for the **Anbernic RG40XX H** by default. It also supports the **Anbernic RG35XX H**, but you must manually swap one file after flashing:
+armiga ships configured for the **Anbernic RG40XX H** and **RG40XX V** by default (no extra steps needed for the V). It also supports the **Anbernic RG35XX H** experimentally, but you must manually swap one file after flashing:
 
 1. Flash armiga normally (Rufus/balenaEtcher) to your SD card.
 2. Open the `boot` partition on the SD card from a computer.
