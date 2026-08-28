@@ -29,7 +29,41 @@
 #include <sys/ioctl.h>
 #include <termios.h>
 #include <linux/kd.h>
+#include <linux/fb.h>
+#include <sys/mman.h>
 #include "logo.h"
+
+/* Limpia /dev/fb0 a negro. Necesario porque S05splash pinta el splash
+ * "armiga" en el framebuffer legacy (fbcon) UNA sola vez en el boot y
+ * nunca se vuelve a tocar. Mientras el launcher tiene el DRM master
+ * (SDL) no se ve, pero cada vez que se suelta el master (SDL_Quit()
+ * antes de un execl, y de nuevo cuando el proceso siguiente -p.ej.
+ * RetroArch- hace su propio setup antes de tomar el DRM) el kernel cae
+ * momentaneamente al contenido de fbcon, que sigue siendo el splash
+ * "armiga" del arranque -> parpadeo doble del logo antes de que se
+ * abra RetroArch. Se limpia una vez aqui, justo tras SDL_Quit(), y
+ * queda en negro (persistente en memoria) hasta el proximo boot, que
+ * S05splash lo repinta de nuevo. */
+static void clear_fb0(void)
+{
+    int fd = open("/dev/fb0", O_RDWR);
+    if (fd < 0) return;
+    struct fb_var_screeninfo vinfo;
+    struct fb_fix_screeninfo finfo;
+    if (ioctl(fd, FBIOGET_VSCREENINFO, &vinfo) < 0 ||
+        ioctl(fd, FBIOGET_FSCREENINFO, &finfo) < 0) {
+        close(fd);
+        return;
+    }
+    size_t fbsize = finfo.smem_len;
+    unsigned char *fbmem = mmap(NULL, fbsize, PROT_READ | PROT_WRITE,
+                                 MAP_SHARED, fd, 0);
+    if (fbmem != MAP_FAILED) {
+        memset(fbmem, 0, fbsize);
+        munmap(fbmem, fbsize);
+    }
+    close(fd);
+}
 
 /* strncpy no garantiza null-terminacion si src >= sz; este helper si */
 static void safe_copy(char *dst, const char *src, size_t sz) {
@@ -5331,6 +5365,7 @@ int main(void)
     SDL_DestroyWindow(win);
     TTF_Quit();
     SDL_Quit();
+    clear_fb0();
 
     switch (exec_req) {
         case EXEC_SHELL: {
