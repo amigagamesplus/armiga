@@ -2880,7 +2880,11 @@ int main(void)
                 if (dim_active) {
                     write_brightness(dim_saved_brightness);
                     dim_active = false;
-                    set_cpu_governor("schedutil");
+                    /* Restaura el perfil de rendimiento real del usuario
+                     * (governor + GPU + boost), no un governor fijo — antes
+                     * dejaba siempre schedutil aunque el usuario tuviera
+                     * Maximum Performance activo antes de atenuar. */
+                    apply_perf_profile(perf_selected);
                 }
             }
             if (ev.type == SDL_EVENT_KEY_DOWN && ev.key.key == SDLK_ESCAPE) {
@@ -3368,7 +3372,7 @@ int main(void)
                     if (dim_active) {
                         write_brightness(dim_saved_brightness);
                         dim_active = false;
-                        set_cpu_governor("schedutil");
+                        apply_perf_profile(perf_selected);
                     }
                     last_input_ticks = SDL_GetTicks();
                     state = STATE_SETTINGS;
