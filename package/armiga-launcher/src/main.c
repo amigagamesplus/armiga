@@ -1658,7 +1658,19 @@ static void read_release(char *kernel, char *mesa, char *retroarch, char *sdl3, 
         if (sscanf(line, "%63[^=]=%63s", key, val) == 2) {
             if (!strcmp(key, "KERNEL_VERSION"))    safe_copy(kernel,    val, 32);
             if (!strcmp(key, "MESA_VERSION"))      safe_copy(mesa,      val, 32);
-            if (!strcmp(key, "RETROARCH_VERSION")) safe_copy(retroarch, val, 32);
+            if (!strcmp(key, "RETROARCH_VERSION")) {
+                /* %s de sscanf corta en el primer espacio; RETROARCH_VERSION
+                 * puede llevar uno (ej. "1.22.2-nightly (34c069f)"), asi que
+                 * se relee la linea entera tras el '=' en vez de usar val. */
+                char *eq = strchr(line, '=');
+                if (eq) {
+                    char *full = eq + 1;
+                    full[strcspn(full, "\r\n")] = '\0';
+                    safe_copy(retroarch, full, 32);
+                } else {
+                    safe_copy(retroarch, val, 32);
+                }
+            }
             if (!strcmp(key, "SDL3_VERSION"))      safe_copy(sdl3,      val, 32);
             if (puae_core && !strcmp(key, "PUAE2021_CORE_VERSION")) safe_copy(puae_core, val, 32);
             if (build_date && !strcmp(key, "BUILD_DATE")) safe_copy(build_date, val, 24);
