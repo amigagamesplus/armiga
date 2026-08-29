@@ -20,7 +20,7 @@ ARMIGA is a minimal Linux distribution based on **Buildroot** for the **Anbernic
 | Component      | Detail                                          |
 | --------------- | ----------------------------------------------- |
 | Supported devices | RG40XX H, RG40XX V, RG35XX H (experimental)  |
-| SoC             | Allwinner H700 (ARM64, Cortex-A53 x4 @ 1.42GHz) |
+| SoC             | Allwinner H700 (ARM64, Cortex-A53 x4 @ 1.42GHz, boost to 1.512GHz on Maximum Performance) |
 | GPU             | Mali-G31 MP2 (Panfrost)                         |
 | RAM             | 1 GB LPDDR4                                     |
 | WiFi/BT         | RTL8821CS (SDIO)                                |
@@ -31,7 +31,7 @@ ARMIGA is a minimal Linux distribution based on **Buildroot** for the **Anbernic
 
 ### Working components
 
-- ✅ Boot (U-Boot + kernel 7.2.1-armiga + DTB)
+- ✅ Boot (U-Boot + kernel 7.2.2-armiga + DTB)
 - ✅ **A/B** partition scheme with automatic rollback (see below)
 - ✅ Rootfs on **SquashFS + zstd** (system/system_b, 300MB per slot, ro)
 - ✅ RTL8821CS WiFi (`wpa_supplicant` + `udhcpc`, config generated in `/tmp` — `/etc` is ro)
@@ -42,7 +42,7 @@ ARMIGA is a minimal Linux distribution based on **Buildroot** for the **Anbernic
 - ✅ `amiga_data` partition (exFAT, auto-expands to 100% of the SD card on first boot)
 - ✅ Graphics stack: SDL3 3.4.14 (kmsdrm) + Mesa 26.2.1 (GBM + Panfrost, stripped `.so` in overlay)
 - ✅ Custom C/SDL3 launcher (`armiga-launcher`), bilingual **Spanish/English** interface (toggle `L1`, persistent)
-- ✅ RetroArch 1.22.2 + PUAE 2021 core (`puae2021_libretro.so`, build 6636d5f)
+- ✅ RetroArch 1.22.2-nightly (34c069f) + PUAE 2021 core (`puae2021_libretro.so`, build 6636d5f)
 - ✅ OTA update system (GitHub Releases → download → SHA256 verification → flash inactive slot, all async without blocking the UI)
 - ✅ Automatic A/B rollback on boot failure (attempt counter + slot reversion)
 - ✅ Settings menu: wireless network, backup (create/restore/delete), analog stick RGB LEDs, timezone, screensaver, brightness, performance profiles (maximum/balanced/power saving), SSH, factory reset
@@ -125,6 +125,8 @@ Estimated time: 30-40 min (~1h+ if `configs/armiga_defconfig` is modified, which
 ### Local build
 
 ```
+wget https://buildroot.org/downloads/buildroot-2026.05.2.tar.xz
+tar xf buildroot-2026.05.2.tar.xz
 make BR2_EXTERNAL=$PWD -C buildroot-2026.05.2 O=$PWD/output armiga_defconfig
 make -C output -j$(nproc)
 ```
