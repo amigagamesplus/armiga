@@ -5208,7 +5208,12 @@ int main(void)
             si_row_idx = 0;
             SI_BLOCK_TITLE(SI_RX, y, tr("ESPECIFICACIONES", "SPECIFICATIONS"));
             y += 28.0f;
-            SI_ROW(SI_RX, y, SI_RX + SI_CW_R, "CPU",           "Cortex-A53 @1.42GHz"); y += SI_ROW_H;
+            char sysinfo_cpu[32];
+            int sysinfo_cpu_freq = 0;
+            read_sysfs_int("/sys/devices/system/cpu/cpu0/cpufreq/scaling_cur_freq", &sysinfo_cpu_freq);
+            snprintf(sysinfo_cpu, sizeof(sysinfo_cpu), "Cortex-A53 @%.2fGHz",
+                     sysinfo_cpu_freq > 0 ? sysinfo_cpu_freq / 1000000.0f : 1.42f);
+            SI_ROW(SI_RX, y, SI_RX + SI_CW_R, "CPU",           sysinfo_cpu); y += SI_ROW_H;
             SI_ROW(SI_RX, y, SI_RX + SI_CW_R, "GPU",           "Mali-G31 (Panfrost)"); y += SI_ROW_H;
             SI_ROW(SI_RX, y, SI_RX + SI_CW_R, "RAM",           "1 GB LPDDR4");         y += SI_ROW_H;
             SI_ROW(SI_RX, y, SI_RX + SI_CW_R, tr("Almacenamiento", "Storage"),"microSD");              y += SI_ROW_H;
