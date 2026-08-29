@@ -199,6 +199,28 @@ case "$1" in
         do_expand_if_needed
         if [ -b "$AMIGA_DATA_DEV" ]; then
             mount -t exfat -o noatime "$AMIGA_DATA_DEV" "$AMIGA_DATA_MNT" 2>/dev/null && echo -n "amiga_data "
+            # Copiar retroarch.cfg si falta, o actualizar si el template es
+            # mas nuevo (autorreparacion + sync). Antes solo se comprobaba
+            # dentro de do_expand_if_needed(), que en instalaciones ya
+            # existentes hace "return 0" antes de llegar a este bloque, asi
+            # que retroarch.cfg nunca se actualizaba tras el primer arranque
+            # real. Se replica aqui, igual que PUAE 2021.opt debajo.
+            RA_CFG_VERSION_FILE="$AMIGA_DATA_MNT/retroarch/.armiga_cfg_version"
+            TEMPLATE_VER=$(grep "^# ARMIGA_CFG_VERSION=" /etc/retroarch/retroarch.cfg.template | cut -d= -f2)
+            TEMPLATE_VER=${TEMPLATE_VER:-0}
+            if [ ! -f "$AMIGA_DATA_MNT/retroarch/retroarch.cfg" ]; then
+                cp /etc/retroarch/retroarch.cfg.template "$AMIGA_DATA_MNT/retroarch/retroarch.cfg"
+                echo "$TEMPLATE_VER" > "$RA_CFG_VERSION_FILE"
+            elif [ ! -f "$RA_CFG_VERSION_FILE" ]; then
+                echo "$TEMPLATE_VER" > "$RA_CFG_VERSION_FILE"
+            else
+                INSTALLED_VER=$(cat "$RA_CFG_VERSION_FILE" 2>/dev/null)
+                INSTALLED_VER=${INSTALLED_VER:-0}
+                if [ "$TEMPLATE_VER" -gt "$INSTALLED_VER" ]; then
+                    cp /etc/retroarch/retroarch.cfg.template "$AMIGA_DATA_MNT/retroarch/retroarch.cfg"
+                    echo "$TEMPLATE_VER" > "$RA_CFG_VERSION_FILE"
+                fi
+            fi
             # Copiar PUAE 2021.opt si falta, o actualizar si el template es mas
             # nuevo (autorreparacion + sync). Marcador en fichero aparte,
             # mismo motivo que en do_expand_if_needed.
