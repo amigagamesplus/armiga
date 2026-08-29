@@ -29,7 +29,41 @@
 #include <sys/ioctl.h>
 #include <termios.h>
 #include <linux/kd.h>
+#include <linux/fb.h>
+#include <sys/mman.h>
 #include "logo.h"
+
+/* Limpia /dev/fb0 a negro. Necesario porque S05splash pinta el splash
+ * "armiga" en el framebuffer legacy (fbcon) UNA sola vez en el boot y
+ * nunca se vuelve a tocar. Mientras el launcher tiene el DRM master
+ * (SDL) no se ve, pero cada vez que se suelta el master (SDL_Quit()
+ * antes de un execl, y de nuevo cuando el proceso siguiente -p.ej.
+ * RetroArch- hace su propio setup antes de tomar el DRM) el kernel cae
+ * momentaneamente al contenido de fbcon, que sigue siendo el splash
+ * "armiga" del arranque -> parpadeo doble del logo antes de que se
+ * abra RetroArch. Se limpia una vez aqui, justo tras SDL_Quit(), y
+ * queda en negro (persistente en memoria) hasta el proximo boot, que
+ * S05splash lo repinta de nuevo. */
+static void clear_fb0(void)
+{
+    int fd = open("/dev/fb0", O_RDWR);
+    if (fd < 0) return;
+    struct fb_var_screeninfo vinfo;
+    struct fb_fix_screeninfo finfo;
+    if (ioctl(fd, FBIOGET_VSCREENINFO, &vinfo) < 0 ||
+        ioctl(fd, FBIOGET_FSCREENINFO, &finfo) < 0) {
+        close(fd);
+        return;
+    }
+    size_t fbsize = finfo.smem_len;
+    unsigned char *fbmem = mmap(NULL, fbsize, PROT_READ | PROT_WRITE,
+                                 MAP_SHARED, fd, 0);
+    if (fbmem != MAP_FAILED) {
+        memset(fbmem, 0, fbsize);
+        munmap(fbmem, fbsize);
+    }
+    close(fd);
+}
 
 /* strncpy no garantiza null-terminacion si src >= sz; este helper si */
 static void safe_copy(char *dst, const char *src, size_t sz) {
@@ -1201,15 +1235,23 @@ static void save_perf_profile(int profile)
 static void apply_perf_profile(int profile)
 {
     const char *gpu_gov_path = "/sys/class/devfreq/1800000.gpu/governor";
+    const char *boost_path = "/sys/devices/system/cpu/cpufreq/boost";
     if (profile == 0) {
         set_cpu_governor("performance");
         write_sysfs_str(gpu_gov_path, "performance");
+        /* CPU Boost: desbloquea el OPP de 1512MHz (por encima del maximo
+         * normal de 1416MHz) solo en Maximum Performance. Volatil (se
+         * pierde al reiniciar), por eso se reaplica aqui en caliente cada
+         * vez que se selecciona el perfil, igual que el governor. */
+        write_sysfs_str(boost_path, "1");
     } else if (profile == 2) {
         set_cpu_governor("powersave");
         write_sysfs_str(gpu_gov_path, "powersave");
+        write_sysfs_str(boost_path, "0");
     } else {
         set_cpu_governor("schedutil");
         write_sysfs_str(gpu_gov_path, "performance");
+        write_sysfs_str(boost_path, "0");
     }
 }
 
@@ -1547,21 +1589,30 @@ static void start_arexx_script_async(const char *filename)
 }
 /* Sondea el script en curso: lee lo disponible del pipe sin bloquear y lo
  * anexa a out_buf. Devuelve: 0=en curso, 1=terminado. */
-static int poll_arexx_script(char *out_buf, size_t out_sz)
+/* Crece *buf/*cap segun haga falta (sin techo artificial) y anexa chunk. */
+static void arexx_output_append(char **buf, size_t *len, size_t *cap,
+                                 const char *chunk, size_t n)
+{
+    size_t need = *len + n + 1;
+    if (need > *cap) {
+        size_t newcap = (*cap == 0) ? 4096 : *cap;
+        while (newcap < need) newcap *= 2;
+        char *nb = realloc(*buf, newcap);
+        if (!nb) return; /* sin memoria: se descarta el resto de este chunk */
+        *buf = nb;
+        *cap = newcap;
+    }
+    memcpy(*buf + *len, chunk, n);
+    *len += n;
+    (*buf)[*len] = '\0';
+}
+static int poll_arexx_script(char **buf, size_t *len, size_t *cap)
 {
     if (s_arexx_out_fd >= 0) {
-        char chunk[512];
+        char chunk[4096];
         ssize_t n;
-        while ((n = read(s_arexx_out_fd, chunk, sizeof(chunk) - 1)) > 0) {
-            chunk[n] = '\0';
-            size_t used = strlen(out_buf);
-            size_t room = (used < out_sz - 1) ? (out_sz - 1 - used) : 0;
-            size_t copy_n = ((size_t)n < room) ? (size_t)n : room;
-            if (copy_n > 0) {
-                memcpy(out_buf + used, chunk, copy_n);
-                out_buf[used + copy_n] = '\0';
-            }
-        }
+        while ((n = read(s_arexx_out_fd, chunk, sizeof(chunk))) > 0)
+            arexx_output_append(buf, len, cap, chunk, (size_t)n);
     }
     if (s_arexx_pid <= 0) return 1;
     int status = 0;
@@ -1569,23 +1620,16 @@ static int poll_arexx_script(char *out_buf, size_t out_sz)
     if (r == 0) return 0; /* sigue en curso */
     /* Termino: drenar cualquier resto que quedara en el pipe */
     if (s_arexx_out_fd >= 0) {
-        char chunk[512];
+        char chunk[4096];
         ssize_t n;
-        while ((n = read(s_arexx_out_fd, chunk, sizeof(chunk) - 1)) > 0) {
-            chunk[n] = '\0';
-            size_t used = strlen(out_buf);
-            size_t room = (used < out_sz - 1) ? (out_sz - 1 - used) : 0;
-            size_t copy_n = ((size_t)n < room) ? (size_t)n : room;
-            if (copy_n > 0) {
-                memcpy(out_buf + used, chunk, copy_n);
-                out_buf[used + copy_n] = '\0';
-            }
-        }
+        while ((n = read(s_arexx_out_fd, chunk, sizeof(chunk))) > 0)
+            arexx_output_append(buf, len, cap, chunk, (size_t)n);
         close(s_arexx_out_fd);
         s_arexx_out_fd = -1;
     }
     s_arexx_pid = -1;
-    if (out_buf[0] == '\0') safe_copy(out_buf, "(sin salida)\n", out_sz);
+    if (*len == 0)
+        arexx_output_append(buf, len, cap, "(sin salida)\n", 13);
     return 1;
 }
 static void restore_backup(const char *filename)
@@ -1614,10 +1658,34 @@ static void read_release(char *kernel, char *mesa, char *retroarch, char *sdl3, 
         if (sscanf(line, "%63[^=]=%63s", key, val) == 2) {
             if (!strcmp(key, "KERNEL_VERSION"))    safe_copy(kernel,    val, 32);
             if (!strcmp(key, "MESA_VERSION"))      safe_copy(mesa,      val, 32);
-            if (!strcmp(key, "RETROARCH_VERSION")) safe_copy(retroarch, val, 32);
+            if (!strcmp(key, "RETROARCH_VERSION")) {
+                /* %s de sscanf corta en el primer espacio; RETROARCH_VERSION
+                 * puede llevar uno (ej. "1.22.2-nightly (34c069f)"), asi que
+                 * se relee la linea entera tras el '=' en vez de usar val. */
+                char *eq = strchr(line, '=');
+                if (eq) {
+                    char *full = eq + 1;
+                    full[strcspn(full, "\r\n")] = '\0';
+                    safe_copy(retroarch, full, 32);
+                } else {
+                    safe_copy(retroarch, val, 32);
+                }
+            }
             if (!strcmp(key, "SDL3_VERSION"))      safe_copy(sdl3,      val, 32);
             if (puae_core && !strcmp(key, "PUAE2021_CORE_VERSION")) safe_copy(puae_core, val, 32);
-            if (build_date && !strcmp(key, "BUILD_DATE")) safe_copy(build_date, val, 24);
+            if (build_date && !strcmp(key, "BUILD_DATE")) {
+                /* %s de sscanf corta en el primer espacio; BUILD_DATE
+                 * lleva uno entre fecha y hora ("28/08/2026 16:13"), asi
+                 * que se relee la linea entera tras el '=' en vez de val. */
+                char *eq = strchr(line, '=');
+                if (eq) {
+                    char *full = eq + 1;
+                    full[strcspn(full, "\r\n")] = '\0';
+                    safe_copy(build_date, full, 24);
+                } else {
+                    safe_copy(build_date, val, 24);
+                }
+            }
             if (version && !strcmp(key, "ARMIGA_VERSION")) safe_copy(version, val, 32);
             if (build_number && !strcmp(key, "BUILD_NUMBER")) safe_copy(build_number, val, 16);
         }
@@ -2595,6 +2663,8 @@ int main(void)
     if (perf_battery_tex) SDL_SetTextureScaleMode(perf_battery_tex, SDL_SCALEMODE_LINEAR);
     SDL_Texture *arexx_icon_tex = IMG_LoadTexture(ren, "/usr/share/armiga/icons/script.png");
     if (arexx_icon_tex) SDL_SetTextureScaleMode(arexx_icon_tex, SDL_SCALEMODE_LINEAR);
+    SDL_Texture *update_icon_tex = IMG_LoadTexture(ren, "/usr/share/armiga/icons/arrow-big-up-lines.png");
+    if (update_icon_tex) SDL_SetTextureScaleMode(update_icon_tex, SDL_SCALEMODE_LINEAR);
 
     /* Leer versiones */
     char s_kernel[32], s_mesa[32], s_retroarch[32], s_sdl3[32], s_puae_core[32], s_build_date[24], s_version[32], s_build_number[16];
@@ -2634,7 +2704,11 @@ int main(void)
     int arexx_selected = 0;
     int arexx_md5_cached_for = -1;
     char arexx_md5[40] = "";
-    char arexx_output[4096] = "";
+    char *arexx_output = NULL;
+    size_t arexx_output_len = 0;
+    size_t arexx_output_cap = 0;
+    int arexx_scroll = 0;
+    int arexx_user_scrolled = 0;
     bool show_fps_counter = false;
     int fps_frame_count = 0;
     float fps_display = 0.0f;
@@ -2806,7 +2880,11 @@ int main(void)
                 if (dim_active) {
                     write_brightness(dim_saved_brightness);
                     dim_active = false;
-                    set_cpu_governor("schedutil");
+                    /* Restaura el perfil de rendimiento real del usuario
+                     * (governor + GPU + boost), no un governor fijo — antes
+                     * dejaba siempre schedutil aunque el usuario tuviera
+                     * Maximum Performance activo antes de atenuar. */
+                    apply_perf_profile(perf_selected);
                 }
             }
             if (ev.type == SDL_EVENT_KEY_DOWN && ev.key.key == SDLK_ESCAPE) {
@@ -3181,7 +3259,12 @@ int main(void)
                     }
                     if (ev.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN &&
                         ev.jbutton.button == BTN_SDL_A) {
-                        arexx_output[0] = '\0';
+                        free(arexx_output);
+                        arexx_output = NULL;
+                        arexx_output_len = 0;
+                        arexx_output_cap = 0;
+                        arexx_scroll = 0;
+                        arexx_user_scrolled = 0;
                         start_arexx_script_async(arexx_scripts[arexx_selected].filename);
                         state = STATE_AREXX_RUN;
                     }
@@ -3197,6 +3280,19 @@ int main(void)
                     ((ev.type == SDL_EVENT_KEY_DOWN && ev.key.key == SDLK_RETURN) ||
                      (ev.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN && ev.jbutton.button == BTN_SDL_B)))
                     state = STATE_AREXX_LIST;
+                if (s_arexx_pid <= 0) {
+                    int arexx_scroll_before = arexx_scroll;
+                    if (ev.type == SDL_EVENT_KEY_DOWN) {
+                        if (ev.key.key == SDLK_UP) arexx_scroll--;
+                        if (ev.key.key == SDLK_DOWN) arexx_scroll++;
+                    }
+                    if (ev.type == SDL_EVENT_JOYSTICK_HAT_MOTION) {
+                        if (ev.jhat.value == SDL_HAT_UP) arexx_scroll--;
+                        else if (ev.jhat.value == SDL_HAT_DOWN) arexx_scroll++;
+                    }
+                    if (arexx_scroll < 0) arexx_scroll = 0;
+                    if (arexx_scroll != arexx_scroll_before) arexx_user_scrolled = 1;
+                }
             }
             else if (state == STATE_TIMEZONE_CONFIG) {
                 if (ev.type == SDL_EVENT_KEY_DOWN) {
@@ -3276,7 +3372,7 @@ int main(void)
                     if (dim_active) {
                         write_brightness(dim_saved_brightness);
                         dim_active = false;
-                        set_cpu_governor("schedutil");
+                        apply_perf_profile(perf_selected);
                     }
                     last_input_ticks = SDL_GetTicks();
                     state = STATE_SETTINGS;
@@ -3959,7 +4055,32 @@ int main(void)
         draw_statusbar(ren, f_sm, f_xs, status_time, status_wifi_up, status_battery, status_bt_up, wifi_icon_tex, battery_icon_tex, bt_icon_tex);
         if (bg_update_available) {
             SDL_Color c_lime = {183, 221, 91, 255};
-            draw_text_right(ren, f_sm, tr("ACTUALIZACIÓN DISPONIBLE", "UPDATE AVAILABLE"), c_lime, SCREEN_W - 20.0f, 50.0f);
+            SDL_Color c_bg_box = COL_BG;
+            const char *upd_txt = tr("ACTUALIZACIÓN DISPONIBLE", "UPDATE AVAILABLE");
+            int upd_w = 0, upd_h = 0;
+            TTF_GetStringSize(f_sm, upd_txt, 0, &upd_w, &upd_h);
+            float upd_icon_size = (float)upd_h * 0.85f;
+            float upd_icon_gap = 6.0f;
+            float upd_right_edge = SCREEN_W - 20.0f - 12.0f;
+            float upd_y = 55.0f;
+            float upd_text_x = upd_right_edge - (float)upd_w;
+            float upd_icon_x = upd_text_x - upd_icon_gap - upd_icon_size;
+            float upd_pad_x = 12.0f;
+            float upd_pad_y = 6.0f;
+            float pill_x = upd_icon_x - upd_pad_x;
+            float pill_y = upd_y - upd_pad_y;
+            float pill_w = (upd_right_edge - upd_icon_x) + upd_pad_x * 2.0f;
+            float pill_h = (float)upd_h + upd_pad_y * 2.0f;
+            draw_rounded_rect_outline(ren, pill_x, pill_y, pill_w, pill_h,
+                                       pill_h / 2.0f, 2.0f, c_lime, c_bg_box);
+            if (update_icon_tex) {
+                SDL_SetTextureColorMod(update_icon_tex, c_lime.r, c_lime.g, c_lime.b);
+                SDL_FRect upd_icon_dst = {upd_icon_x,
+                                          upd_y + ((float)upd_h - upd_icon_size) / 2.0f,
+                                          upd_icon_size, upd_icon_size};
+                SDL_RenderTexture(ren, update_icon_tex, NULL, &upd_icon_dst);
+            }
+            draw_text_right(ren, f_sm, upd_txt, c_lime, upd_right_edge, upd_y);
         }
 
 
@@ -4587,7 +4708,7 @@ int main(void)
             draw_footer(ren, f_sm, tr("[B] Ejecutar  [A] Volver", "[B] Run  [A] Back"), s_version);
 
         } else if (state == STATE_AREXX_RUN) {
-            int arexx_still_running = (poll_arexx_script(arexx_output, sizeof(arexx_output)) == 0);
+            int arexx_still_running = (poll_arexx_script(&arexx_output, &arexx_output_len, &arexx_output_cap) == 0);
             draw_statusbar(ren, f_sm, f_xs, status_time, status_wifi_up, status_battery, status_bt_up, wifi_icon_tex, battery_icon_tex, bt_icon_tex);
             draw_active_dash_breadcrumbs(ren, f_sm, mx, 25.0f, 3, tr("Ejecutando Script", "Running Script"));
             SDL_Color c_menu_selbg = {183, 221, 91, 255};
@@ -4599,22 +4720,53 @@ int main(void)
             }
             float arxr_y0 = 90.0f;
             float arxr_line_h = 16.0f;
-            char arxr_lines[24][256];
             int arxr_nlines = 0;
-            {
-                char tmp[4096];
-                safe_copy(tmp, arexx_output, sizeof(tmp));
-                char *tok = strtok(tmp, "\n");
-                while (tok && arxr_nlines < 24) {
-                    safe_copy(arxr_lines[arxr_nlines], tok, sizeof(arxr_lines[arxr_nlines]));
-                    arxr_nlines++;
-                    tok = strtok(NULL, "\n");
+            char **arxr_lines = NULL;
+            char *arxr_tmp = NULL;
+            if (arexx_output && arexx_output_len > 0) {
+                arxr_tmp = malloc(arexx_output_len + 1);
+                if (arxr_tmp) {
+                    memcpy(arxr_tmp, arexx_output, arexx_output_len + 1);
+                    int est_lines = 1;
+                    for (size_t k = 0; k < arexx_output_len; k++)
+                        if (arxr_tmp[k] == '\n') est_lines++;
+                    arxr_lines = malloc(sizeof(char *) * (size_t)est_lines);
+                    if (arxr_lines) {
+                        char *tok = strtok(arxr_tmp, "\n");
+                        while (tok && arxr_nlines < est_lines) {
+                            arxr_lines[arxr_nlines++] = tok;
+                            tok = strtok(NULL, "\n");
+                        }
+                    }
                 }
             }
-            for (int i = 0; i < arxr_nlines; i++)
-                draw_text(ren, f_xs, arxr_lines[i], c_gray, mx, arxr_y0 + i * arxr_line_h);
+            int arxr_max_visible = (int)((438.0f - arxr_y0) / arxr_line_h);
+            if (arxr_max_visible < 1) arxr_max_visible = 1;
+            int arxr_max_scroll = (arxr_nlines <= arxr_max_visible) ? 0 : (arxr_nlines - arxr_max_visible);
+            if (!arexx_user_scrolled) {
+                arexx_scroll = arxr_max_scroll;
+            } else if (arexx_scroll > arxr_max_scroll) {
+                arexx_scroll = arxr_max_scroll;
+            }
+            int arxr_start = arexx_scroll;
+            if (arxr_lines)
+                for (int i = arxr_start; i < arxr_nlines && (i - arxr_start) < arxr_max_visible; i++)
+                    draw_text(ren, f_xs, arxr_lines[i], c_gray, mx, arxr_y0 + (i - arxr_start) * arxr_line_h);
+            if (!arexx_still_running && arxr_nlines > arxr_max_visible) {
+                char scroll_info[32];
+                snprintf(scroll_info, sizeof(scroll_info), "%d-%d/%d",
+                         arxr_start + 1,
+                         (arxr_start + arxr_max_visible < arxr_nlines) ? arxr_start + arxr_max_visible : arxr_nlines,
+                         arxr_nlines);
+                draw_text_right(ren, f_xs, scroll_info, c_gray, SCREEN_W - 20.0f, 70.0f);
+            }
+            free(arxr_lines);
+            free(arxr_tmp);
             draw_line(ren, mx, 438.0f, SCREEN_W - 20.0f, 438.0f, (SDL_Color){183, 221, 91, 255});
-            draw_footer(ren, f_sm, tr("[A] Volver", "[A] Back"), s_version);
+            if (!arexx_still_running && arxr_nlines > arxr_max_visible)
+                draw_footer(ren, f_sm, tr("[DPAD] Navegar  [A] Volver", "[DPAD] Scroll  [A] Back"), s_version);
+            else
+                draw_footer(ren, f_sm, tr("[A] Volver", "[A] Back"), s_version);
 
         } else if (state == STATE_WIFI_CONFIG) {
             SDL_Color c_menu_gold  = {27, 39, 8, 255};
@@ -5084,7 +5236,12 @@ int main(void)
             si_row_idx = 0;
             SI_BLOCK_TITLE(SI_RX, y, tr("ESPECIFICACIONES", "SPECIFICATIONS"));
             y += 28.0f;
-            SI_ROW(SI_RX, y, SI_RX + SI_CW_R, "CPU",           "Cortex-A53 @1.42GHz"); y += SI_ROW_H;
+            char sysinfo_cpu[32];
+            int sysinfo_cpu_freq = 0;
+            read_sysfs_int("/sys/devices/system/cpu/cpu0/cpufreq/scaling_cur_freq", &sysinfo_cpu_freq);
+            snprintf(sysinfo_cpu, sizeof(sysinfo_cpu), "Cortex-A53 @%.2fGHz",
+                     sysinfo_cpu_freq > 0 ? sysinfo_cpu_freq / 1000000.0f : 1.42f);
+            SI_ROW(SI_RX, y, SI_RX + SI_CW_R, "CPU",           sysinfo_cpu); y += SI_ROW_H;
             SI_ROW(SI_RX, y, SI_RX + SI_CW_R, "GPU",           "Mali-G31 (Panfrost)"); y += SI_ROW_H;
             SI_ROW(SI_RX, y, SI_RX + SI_CW_R, "RAM",           "1 GB LPDDR4");         y += SI_ROW_H;
             SI_ROW(SI_RX, y, SI_RX + SI_CW_R, tr("Almacenamiento", "Storage"),"microSD");              y += SI_ROW_H;
@@ -5238,6 +5395,8 @@ int main(void)
     if (perf_scale_tex) SDL_DestroyTexture(perf_scale_tex);
     if (perf_battery_tex) SDL_DestroyTexture(perf_battery_tex);
     if (arexx_icon_tex) SDL_DestroyTexture(arexx_icon_tex);
+    free(arexx_output);
+    if (update_icon_tex) SDL_DestroyTexture(update_icon_tex);
     if (joy) SDL_CloseJoystick(joy);
     TTF_CloseFont(f_sm);
     TTF_CloseFont(f_med);
@@ -5247,6 +5406,7 @@ int main(void)
     SDL_DestroyWindow(win);
     TTF_Quit();
     SDL_Quit();
+    clear_fb0();
 
     switch (exec_req) {
         case EXEC_SHELL: {

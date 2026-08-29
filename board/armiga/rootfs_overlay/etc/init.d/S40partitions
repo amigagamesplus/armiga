@@ -124,27 +124,63 @@ do_expand_if_needed() {
              "$AMIGA_DATA_MNT/retroarch/overlays" "$AMIGA_DATA_MNT/retroarch/assets" \
              "$AMIGA_DATA_MNT/retroarch/cheats" "$AMIGA_DATA_MNT/retroarch/records" \
              "$AMIGA_DATA_MNT/retroarch/records_config" "$AMIGA_DATA_MNT/retroarch/config/autoconfig"
-    # Comparar version del template con la instalada
+    # Comparar version del template con la instalada. El marcador de
+    # version vive en un fichero APARTE (.armiga_cfg_version), no como
+    # comentario dentro de retroarch.cfg: RetroArch reescribe el fichero
+    # entero al guardar (config_save_on_exit), perdiendo los comentarios,
+    # lo que rompia esta comparacion (siempre veia version 0 -> reset
+    # constante en cuanto hubiera un salto de version pendiente).
+    RA_CFG_VERSION_FILE="$AMIGA_DATA_MNT/retroarch/.armiga_cfg_version"
     TEMPLATE_VER=$(grep "^# ARMIGA_CFG_VERSION=" /etc/retroarch/retroarch.cfg.template | cut -d= -f2)
-    INSTALLED_VER=$(grep "^# ARMIGA_CFG_VERSION=" "$AMIGA_DATA_MNT/retroarch/retroarch.cfg" 2>/dev/null | cut -d= -f2)
     TEMPLATE_VER=${TEMPLATE_VER:-0}
-    INSTALLED_VER=${INSTALLED_VER:-0}
-    if [ ! -f "$AMIGA_DATA_MNT/retroarch/retroarch.cfg" ] || [ "$TEMPLATE_VER" -gt "$INSTALLED_VER" ]; then
+    if [ ! -f "$AMIGA_DATA_MNT/retroarch/retroarch.cfg" ]; then
         cp /etc/retroarch/retroarch.cfg.template "$AMIGA_DATA_MNT/retroarch/retroarch.cfg"
+        echo "$TEMPLATE_VER" > "$RA_CFG_VERSION_FILE"
+    elif [ ! -f "$RA_CFG_VERSION_FILE" ]; then
+        # Migracion: ya existe config de usuario pero sin marcador (build
+        # anterior a este fix). Asumir al dia, NO sobrescribir.
+        echo "$TEMPLATE_VER" > "$RA_CFG_VERSION_FILE"
+    else
+        INSTALLED_VER=$(cat "$RA_CFG_VERSION_FILE" 2>/dev/null)
+        INSTALLED_VER=${INSTALLED_VER:-0}
+        if [ "$TEMPLATE_VER" -gt "$INSTALLED_VER" ]; then
+            cp /etc/retroarch/retroarch.cfg.template "$AMIGA_DATA_MNT/retroarch/retroarch.cfg"
+            echo "$TEMPLATE_VER" > "$RA_CFG_VERSION_FILE"
+        fi
     fi
-    # Copiar PUAE 2021.opt si no existe, o actualizar si el template es mas nuevo
+    # Copiar PUAE 2021.opt si no existe, o actualizar si el template es mas
+    # nuevo. Mismo motivo que retroarch.cfg arriba: marcador en fichero
+    # aparte, no en comentario dentro del .opt (libretro reescribe el
+    # fichero al guardar core options desde el Quick Menu).
     mkdir -p "$AMIGA_DATA_MNT/retroarch/config/PUAE 2021"
+    PUAE_VERSION_FILE="$AMIGA_DATA_MNT/retroarch/config/PUAE 2021/.armiga_puae_version"
     PUAE_TEMPLATE_VER=$(grep "^# ARMIGA_CFG_VERSION=" "/etc/retroarch/PUAE 2021.opt" | cut -d= -f2)
-    PUAE_INSTALLED_VER=$(grep "^# ARMIGA_CFG_VERSION=" "$AMIGA_DATA_MNT/retroarch/config/PUAE 2021/PUAE 2021.opt" 2>/dev/null | cut -d= -f2)
     PUAE_TEMPLATE_VER=${PUAE_TEMPLATE_VER:-0}
-    PUAE_INSTALLED_VER=${PUAE_INSTALLED_VER:-0}
-    if [ ! -f "$AMIGA_DATA_MNT/retroarch/config/PUAE 2021/PUAE 2021.opt" ] || [ "$PUAE_TEMPLATE_VER" -gt "$PUAE_INSTALLED_VER" ]; then
+    if [ ! -f "$AMIGA_DATA_MNT/retroarch/config/PUAE 2021/PUAE 2021.opt" ]; then
         cp "/etc/retroarch/PUAE 2021.opt" "$AMIGA_DATA_MNT/retroarch/config/PUAE 2021/PUAE 2021.opt"
+        echo "$PUAE_TEMPLATE_VER" > "$PUAE_VERSION_FILE"
+    elif [ ! -f "$PUAE_VERSION_FILE" ]; then
+        echo "$PUAE_TEMPLATE_VER" > "$PUAE_VERSION_FILE"
+    else
+        PUAE_INSTALLED_VER=$(cat "$PUAE_VERSION_FILE" 2>/dev/null)
+        PUAE_INSTALLED_VER=${PUAE_INSTALLED_VER:-0}
+        if [ "$PUAE_TEMPLATE_VER" -gt "$PUAE_INSTALLED_VER" ]; then
+            cp "/etc/retroarch/PUAE 2021.opt" "$AMIGA_DATA_MNT/retroarch/config/PUAE 2021/PUAE 2021.opt"
+            echo "$PUAE_TEMPLATE_VER" > "$PUAE_VERSION_FILE"
+        fi
     fi
     # Copiar autoconfig de mando si no existe
     if [ ! -f "$AMIGA_DATA_MNT/retroarch/config/autoconfig/H700 Gamepad.cfg" ]; then
         mkdir -p "$AMIGA_DATA_MNT/retroarch/config/autoconfig"
         cp "/etc/retroarch/autoconfig/H700 Gamepad.cfg" "$AMIGA_DATA_MNT/retroarch/config/autoconfig/H700 Gamepad.cfg"
+    fi
+    # Copiar Commodore - Amiga.dat (base de datos para renombrado/scraping) si no existe
+    if [ ! -f "$AMIGA_DATA_MNT/roms/Commodore - Amiga.dat" ]; then
+        cp "/etc/retroarch/Commodore - Amiga.dat" "$AMIGA_DATA_MNT/roms/Commodore - Amiga.dat"
+    fi
+    # Copiar overrides de nombres de thumbnail (si difieren del nombre canonico del .dat)
+    if [ ! -f "$AMIGA_DATA_MNT/roms/amiga_thumbnail_overrides.txt" ]; then
+        cp "/etc/retroarch/amiga_thumbnail_overrides.txt" "$AMIGA_DATA_MNT/roms/amiga_thumbnail_overrides.txt"
     fi
     # Crear wifi.conf de ejemplo si no existe
     if [ ! -f "$AMIGA_DATA_MNT/wifi.conf" ]; then
@@ -163,18 +199,58 @@ case "$1" in
         do_expand_if_needed
         if [ -b "$AMIGA_DATA_DEV" ]; then
             mount -t exfat -o noatime "$AMIGA_DATA_DEV" "$AMIGA_DATA_MNT" 2>/dev/null && echo -n "amiga_data "
-            # Copiar PUAE 2021.opt si falta, o actualizar si el template es mas nuevo (autorreparacion + sync)
+            # Copiar retroarch.cfg si falta, o actualizar si el template es
+            # mas nuevo (autorreparacion + sync). Antes solo se comprobaba
+            # dentro de do_expand_if_needed(), que en instalaciones ya
+            # existentes hace "return 0" antes de llegar a este bloque, asi
+            # que retroarch.cfg nunca se actualizaba tras el primer arranque
+            # real. Se replica aqui, igual que PUAE 2021.opt debajo.
+            RA_CFG_VERSION_FILE="$AMIGA_DATA_MNT/retroarch/.armiga_cfg_version"
+            TEMPLATE_VER=$(grep "^# ARMIGA_CFG_VERSION=" /etc/retroarch/retroarch.cfg.template | cut -d= -f2)
+            TEMPLATE_VER=${TEMPLATE_VER:-0}
+            if [ ! -f "$AMIGA_DATA_MNT/retroarch/retroarch.cfg" ]; then
+                cp /etc/retroarch/retroarch.cfg.template "$AMIGA_DATA_MNT/retroarch/retroarch.cfg"
+                echo "$TEMPLATE_VER" > "$RA_CFG_VERSION_FILE"
+            elif [ ! -f "$RA_CFG_VERSION_FILE" ]; then
+                echo "$TEMPLATE_VER" > "$RA_CFG_VERSION_FILE"
+            else
+                INSTALLED_VER=$(cat "$RA_CFG_VERSION_FILE" 2>/dev/null)
+                INSTALLED_VER=${INSTALLED_VER:-0}
+                if [ "$TEMPLATE_VER" -gt "$INSTALLED_VER" ]; then
+                    cp /etc/retroarch/retroarch.cfg.template "$AMIGA_DATA_MNT/retroarch/retroarch.cfg"
+                    echo "$TEMPLATE_VER" > "$RA_CFG_VERSION_FILE"
+                fi
+            fi
+            # Copiar PUAE 2021.opt si falta, o actualizar si el template es mas
+            # nuevo (autorreparacion + sync). Marcador en fichero aparte,
+            # mismo motivo que en do_expand_if_needed.
             mkdir -p "$AMIGA_DATA_MNT/retroarch/config/PUAE 2021"
+            PUAE_VERSION_FILE="$AMIGA_DATA_MNT/retroarch/config/PUAE 2021/.armiga_puae_version"
             PUAE_TEMPLATE_VER=$(grep "^# ARMIGA_CFG_VERSION=" "/etc/retroarch/PUAE 2021.opt" | cut -d= -f2)
-            PUAE_INSTALLED_VER=$(grep "^# ARMIGA_CFG_VERSION=" "$AMIGA_DATA_MNT/retroarch/config/PUAE 2021/PUAE 2021.opt" 2>/dev/null | cut -d= -f2)
             PUAE_TEMPLATE_VER=${PUAE_TEMPLATE_VER:-0}
-            PUAE_INSTALLED_VER=${PUAE_INSTALLED_VER:-0}
-            if [ ! -f "$AMIGA_DATA_MNT/retroarch/config/PUAE 2021/PUAE 2021.opt" ] || [ "$PUAE_TEMPLATE_VER" -gt "$PUAE_INSTALLED_VER" ]; then
+            if [ ! -f "$AMIGA_DATA_MNT/retroarch/config/PUAE 2021/PUAE 2021.opt" ]; then
                 cp "/etc/retroarch/PUAE 2021.opt" "$AMIGA_DATA_MNT/retroarch/config/PUAE 2021/PUAE 2021.opt"
+                echo "$PUAE_TEMPLATE_VER" > "$PUAE_VERSION_FILE"
+            elif [ ! -f "$PUAE_VERSION_FILE" ]; then
+                echo "$PUAE_TEMPLATE_VER" > "$PUAE_VERSION_FILE"
+            else
+                PUAE_INSTALLED_VER=$(cat "$PUAE_VERSION_FILE" 2>/dev/null)
+                PUAE_INSTALLED_VER=${PUAE_INSTALLED_VER:-0}
+                if [ "$PUAE_TEMPLATE_VER" -gt "$PUAE_INSTALLED_VER" ]; then
+                    cp "/etc/retroarch/PUAE 2021.opt" "$AMIGA_DATA_MNT/retroarch/config/PUAE 2021/PUAE 2021.opt"
+                    echo "$PUAE_TEMPLATE_VER" > "$PUAE_VERSION_FILE"
+                fi
             fi
             if [ ! -f "$AMIGA_DATA_MNT/retroarch/config/autoconfig/H700 Gamepad.cfg" ]; then
                 mkdir -p "$AMIGA_DATA_MNT/retroarch/config/autoconfig"
                 cp "/etc/retroarch/autoconfig/H700 Gamepad.cfg" "$AMIGA_DATA_MNT/retroarch/config/autoconfig/H700 Gamepad.cfg"
+            fi
+            mkdir -p "$AMIGA_DATA_MNT/roms"
+            if [ ! -f "$AMIGA_DATA_MNT/roms/Commodore - Amiga.dat" ]; then
+                cp "/etc/retroarch/Commodore - Amiga.dat" "$AMIGA_DATA_MNT/roms/Commodore - Amiga.dat"
+            fi
+            if [ ! -f "$AMIGA_DATA_MNT/roms/amiga_thumbnail_overrides.txt" ]; then
+                cp "/etc/retroarch/amiga_thumbnail_overrides.txt" "$AMIGA_DATA_MNT/roms/amiga_thumbnail_overrides.txt"
             fi
             mkdir -p "$AMIGA_DATA_MNT/kickstarts" \
                      "$AMIGA_DATA_MNT/roms/adf" "$AMIGA_DATA_MNT/roms/ipf" \
