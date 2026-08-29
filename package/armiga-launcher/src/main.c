@@ -1673,7 +1673,19 @@ static void read_release(char *kernel, char *mesa, char *retroarch, char *sdl3, 
             }
             if (!strcmp(key, "SDL3_VERSION"))      safe_copy(sdl3,      val, 32);
             if (puae_core && !strcmp(key, "PUAE2021_CORE_VERSION")) safe_copy(puae_core, val, 32);
-            if (build_date && !strcmp(key, "BUILD_DATE")) safe_copy(build_date, val, 24);
+            if (build_date && !strcmp(key, "BUILD_DATE")) {
+                /* %s de sscanf corta en el primer espacio; BUILD_DATE
+                 * lleva uno entre fecha y hora ("28/08/2026 16:13"), asi
+                 * que se relee la linea entera tras el '=' en vez de val. */
+                char *eq = strchr(line, '=');
+                if (eq) {
+                    char *full = eq + 1;
+                    full[strcspn(full, "\r\n")] = '\0';
+                    safe_copy(build_date, full, 24);
+                } else {
+                    safe_copy(build_date, val, 24);
+                }
+            }
             if (version && !strcmp(key, "ARMIGA_VERSION")) safe_copy(version, val, 32);
             if (build_number && !strcmp(key, "BUILD_NUMBER")) safe_copy(build_number, val, 16);
         }
