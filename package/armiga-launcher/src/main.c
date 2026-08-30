@@ -5497,7 +5497,7 @@ int main(void)
             }
 
             { SDL_Color joytest_c = COL_SEL_BG;
-              draw_text_right(ren, f_sm, "armiga-joytest v1.0", joytest_c, SCREEN_W - 20.0f, 414.0f); }
+              draw_text_right(ren, f_sm, "armiga-joytest v1.1", joytest_c, SCREEN_W - 20.0f, 414.0f); }
             /* Test de vibracion: mantener L2 (indice 6, confirmado en
              * hardware) dispara un pulso corto de rumble, repetido
              * mientras se mantenga pulsado (50ms por pulso, sin overlap
