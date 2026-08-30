@@ -5408,7 +5408,9 @@ int main(void)
                 if (magL > 1.0f) { normL_x /= magL; normL_y /= magL; }
                 float dotL_x = stickL_cx + normL_x * (stick_r - dot_r);
                 float dotL_y = stickL_cy + normL_y * (stick_r - dot_r);
-                { SDL_Color dot_c = COL_SEL_BG; draw_circle_filled(ren, dotL_x, dotL_y, dot_r, dot_c); }
+                { bool l3_pressed = (SDL_GetNumJoystickButtons(joy) > 11) && SDL_GetJoystickButton(joy, 11);
+                  SDL_Color dot_c = l3_pressed ? (SDL_Color)COL_RED : (SDL_Color)COL_SEL_BG;
+                  draw_circle_filled(ren, dotL_x, dotL_y, dot_r, dot_c); }
                 { char buf[24]; snprintf(buf, sizeof(buf), "X:%d Y:%d", axL_x, axL_y);
                   draw_text_centered(ren, f_xs, buf, c_gray, stickL_cx, stickL_cy + stick_r + 10.0f); }
 
@@ -5425,7 +5427,9 @@ int main(void)
                 if (magR > 1.0f) { normR_x /= magR; normR_y /= magR; }
                 float dotR_x = stickR_cx + normR_x * (stick_r - dot_r);
                 float dotR_y = stickR_cy + normR_y * (stick_r - dot_r);
-                { SDL_Color dot_c = COL_SEL_BG; draw_circle_filled(ren, dotR_x, dotR_y, dot_r, dot_c); }
+                { bool r3_pressed = (SDL_GetNumJoystickButtons(joy) > 12) && SDL_GetJoystickButton(joy, 12);
+                  SDL_Color dot_c = r3_pressed ? (SDL_Color)COL_RED : (SDL_Color)COL_SEL_BG;
+                  draw_circle_filled(ren, dotR_x, dotR_y, dot_r, dot_c); }
                 { char buf[24]; snprintf(buf, sizeof(buf), "X:%d Y:%d", axR_x, axR_y);
                   draw_text_centered(ren, f_xs, buf, c_gray, stickR_cx, stickR_cy + stick_r + 10.0f); }
 
