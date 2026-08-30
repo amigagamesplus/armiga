@@ -23,6 +23,7 @@
 #include <sys/wait.h>
 #include <signal.h>
 #include <sys/stat.h>
+#include <dirent.h>
 #include <sys/statvfs.h>
 #include <ifaddrs.h>
 #include <arpa/inet.h>
@@ -1410,7 +1411,7 @@ static void start_backup_async(char *out_name, size_t out_name_sz)
     char ts[32];
     time_t now = time(NULL);
     struct tm *tm_now = localtime(&now);
-    strftime(ts, sizeof(ts), "%Y%m%d_%H%M%S", tm_now);
+    strftime(ts, sizeof(ts), "%d%m%Y_%H%M%S", tm_now);
     char backup_path[256];
     snprintf(backup_path, sizeof(backup_path), BACKUP_DIR "/backup_%s.tar.gz", ts);
     if (out_name && out_name_sz > 0)
@@ -1470,22 +1471,44 @@ static int poll_backup_progress(void)
     }
     return -1;
 }
+typedef struct { char name[64]; time_t mtime; } BackupEntry;
+static int backup_entry_cmp_desc(const void *a, const void *b)
+{
+    const BackupEntry *ea = (const BackupEntry *)a, *eb = (const BackupEntry *)b;
+    if (eb->mtime > ea->mtime) return 1;
+    if (eb->mtime < ea->mtime) return -1;
+    return 0;
+}
+/* Reemplaza popen("ls -t ...") por opendir/readdir + stat, evitando el
+ * fork()+shell+ls por cada listado. Preserva el mismo orden (mas reciente
+ * primero) via qsort por mtime real, ya que readdir() no garantiza orden. */
 static int list_backups(char names[][64], int max_names)
 {
-    FILE *p = popen("ls -t " BACKUP_DIR "/backup_*.tar.gz 2>/dev/null", "r");
-    if (!p) return 0;
+    DIR *dir = opendir(BACKUP_DIR);
+    if (!dir) return 0;
+    BackupEntry entries[64];
     int n = 0;
-    char line[256];
-    while (n < max_names && fgets(line, sizeof(line), p)) {
-        line[strcspn(line, "\r\n")] = 0;
-        const char *base = strrchr(line, '/');
-        base = base ? base + 1 : line;
-        strncpy(names[n], base, 63);
-        names[n][63] = 0;
+    struct dirent *ent;
+    while (n < 64 && (ent = readdir(dir)) != NULL) {
+        size_t len = strlen(ent->d_name);
+        if (len < 12) continue; /* "backup_X.tar.gz" minimo */
+        if (strncmp(ent->d_name, "backup_", 7) != 0) continue;
+        if (strcmp(ent->d_name + len - 7, ".tar.gz") != 0) continue;
+        char path[288];
+        snprintf(path, sizeof(path), BACKUP_DIR "/%s", ent->d_name);
+        struct stat st;
+        if (stat(path, &st) != 0) continue;
+        safe_copy(entries[n].name, ent->d_name, sizeof(entries[n].name));
+        entries[n].mtime = st.st_mtime;
         n++;
     }
-    pclose(p);
-    return n;
+    closedir(dir);
+    qsort(entries, n, sizeof(BackupEntry), backup_entry_cmp_desc);
+    int out_n = (n < max_names) ? n : max_names;
+    for (int i = 0; i < out_n; i++) {
+        safe_copy(names[i], entries[i].name, 64);
+    }
+    return out_n;
 }
 /* Borra un backup por nombre (sin system(), sin riesgo de inyeccion). */
 static void delete_backup(const char *filename)
@@ -1504,39 +1527,52 @@ typedef struct {
  * cabecera de cada uno buscando lineas "# DESC_ES:"/"# DESC_EN:" entre las
  * primeras 8 lineas del fichero. Si no encuentra cabecera, usa el nombre
  * de fichero como descripcion en ambos idiomas (fallback). */
+static int arexx_filename_cmp(const void *a, const void *b)
+{
+    return strcmp((const char *)a, (const char *)b);
+}
+/* Reemplaza popen("ls *.sh") por opendir/readdir + qsort alfabetico,
+ * evitando el fork()+shell+ls por cada listado. Mismo orden que antes
+ * (ls sin flags = alfabetico ascendente). */
 static int list_arexx_scripts(ArexxScript *scripts, int max_scripts)
 {
-    FILE *p = popen("ls " AREXX_SCRIPTS_DIR "/*.sh 2>/dev/null", "r");
-    if (!p) return 0;
+    DIR *dir = opendir(AREXX_SCRIPTS_DIR);
+    if (!dir) return 0;
+    char names[AREXX_MAX_SCRIPTS][64];
     int n = 0;
-    char line[288];
-    while (n < max_scripts && fgets(line, sizeof(line), p)) {
-        line[strcspn(line, "\r\n")] = 0;
-        const char *base = strrchr(line, '/');
-        base = base ? base + 1 : line;
-        safe_copy(scripts[n].filename, base, sizeof(scripts[n].filename));
-        safe_copy(scripts[n].desc[0], base, sizeof(scripts[n].desc[0]));
-        safe_copy(scripts[n].desc[1], base, sizeof(scripts[n].desc[1]));
-        FILE *sf = fopen(line, "r");
+    struct dirent *ent;
+    while (n < max_scripts && (ent = readdir(dir)) != NULL) {
+        size_t len = strlen(ent->d_name);
+        if (len < 4 || strcmp(ent->d_name + len - 3, ".sh") != 0) continue;
+        safe_copy(names[n], ent->d_name, sizeof(names[n]));
+        n++;
+    }
+    closedir(dir);
+    qsort(names, n, sizeof(names[0]), arexx_filename_cmp);
+    for (int i = 0; i < n; i++) {
+        safe_copy(scripts[i].filename, names[i], sizeof(scripts[i].filename));
+        safe_copy(scripts[i].desc[0], names[i], sizeof(scripts[i].desc[0]));
+        safe_copy(scripts[i].desc[1], names[i], sizeof(scripts[i].desc[1]));
+        char full_path[288];
+        snprintf(full_path, sizeof(full_path), AREXX_SCRIPTS_DIR "/%s", names[i]);
+        FILE *sf = fopen(full_path, "r");
         if (sf) {
             char hline[192];
-            for (int i = 0; i < 8 && fgets(hline, sizeof(hline), sf); i++) {
+            for (int j = 0; j < 8 && fgets(hline, sizeof(hline), sf); j++) {
                 hline[strcspn(hline, "\r\n")] = 0;
                 if (!strncmp(hline, "# DESC_ES:", 10)) {
                     const char *v = hline + 10;
                     while (*v == ' ') v++;
-                    safe_copy(scripts[n].desc[0], v, sizeof(scripts[n].desc[0]));
+                    safe_copy(scripts[i].desc[0], v, sizeof(scripts[i].desc[0]));
                 } else if (!strncmp(hline, "# DESC_EN:", 10)) {
                     const char *v = hline + 10;
                     while (*v == ' ') v++;
-                    safe_copy(scripts[n].desc[1], v, sizeof(scripts[n].desc[1]));
+                    safe_copy(scripts[i].desc[1], v, sizeof(scripts[i].desc[1]));
                 }
             }
             fclose(sf);
         }
-        n++;
     }
-    pclose(p);
     return n;
 }
 /* Calcula el MD5 de un script ARexx (via popen a md5sum, mismo patron que
