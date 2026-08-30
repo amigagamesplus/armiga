@@ -5470,13 +5470,20 @@ int main(void)
                         "DPAD UP", "DPAD DOWN", "DPAD LEFT", "DPAD RIGHT"
                     };
                     int n_names = (int)(sizeof(CTRL_BTN_NAMES) / sizeof(CTRL_BTN_NAMES[0]));
-                    const char *pressed_name = NULL;
+                    char active_btns_str[160] = "";
+                    bool any_pressed = false;
                     for (int b = 0; b < n_btn && b < n_names; b++) {
-                        if (SDL_GetJoystickButton(joy, b)) { pressed_name = CTRL_BTN_NAMES[b]; break; }
+                        if (SDL_GetJoystickButton(joy, b)) {
+                            if (any_pressed && strlen(active_btns_str) < sizeof(active_btns_str) - 24)
+                                strcat(active_btns_str, " + ");
+                            if (strlen(active_btns_str) < sizeof(active_btns_str) - strlen(CTRL_BTN_NAMES[b]) - 1)
+                                strcat(active_btns_str, CTRL_BTN_NAMES[b]);
+                            any_pressed = true;
+                        }
                     }
-                    if (pressed_name) {
+                    if (any_pressed) {
                         SDL_Color name_c = COL_SEL_BG;
-                        draw_text_centered(ren, f_sm, pressed_name, name_c, SCREEN_W / 2.0f, 385.0f);
+                        draw_text_centered(ren, f_sm, active_btns_str, name_c, SCREEN_W / 2.0f, 385.0f);
                     }
                 }
             }
