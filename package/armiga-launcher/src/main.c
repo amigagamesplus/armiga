@@ -5498,8 +5498,16 @@ int main(void)
 
             { SDL_Color joytest_c = COL_SEL_BG;
               draw_text_right(ren, f_sm, "armiga-joytest v1.0", joytest_c, SCREEN_W - 20.0f, 414.0f); }
+            /* Test de vibracion: mantener L2 (indice 6, confirmado en
+             * hardware) dispara un pulso corto de rumble, repetido
+             * mientras se mantenga pulsado (50ms por pulso, sin overlap
+             * agresivo gracias al propio SDL que reemplaza el efecto
+             * activo en cada llamada). */
+            if (joy && SDL_GetNumJoystickButtons(joy) > 6 && SDL_GetJoystickButton(joy, 6)) {
+                SDL_RumbleJoystick(joy, 0x4000, 0x8000, 50);
+            }
             draw_line(ren, CX, 438.0f, SCREEN_W - 20.0f, 438.0f, (SDL_Color){183, 221, 91, 255});
-            draw_footer(ren, f_sm, tr("[SELECT+START] Volver", "[SELECT+START] Back"), s_version);
+            draw_footer(ren, f_sm, tr("[SELECT+START] Volver  [L2] Test vibración", "[SELECT+START] Back  [L2] Vibration Test"), s_version);
         } /* end STATE_CONTROLLER_TEST */
 
         if (screenshot_capture_pending) {
