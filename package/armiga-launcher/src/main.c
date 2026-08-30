@@ -79,6 +79,7 @@ static void safe_copy(char *dst, const char *src, size_t sz) {
 #define FONT_MED     13
 #define FONT_SM      12
 #define FONT_XS      9
+#define FONT_XSM     10
 #define FONT_LG      28
 
 #define COL_BG       {15, 31, 24, 255}
@@ -2617,7 +2618,8 @@ int main(void)
     TTF_Font *f_sm    = TTF_OpenFont(FONT_PATH, FONT_SM);
     TTF_Font *f_lg    = TTF_OpenFont(FONT_PATH, FONT_LG);
     TTF_Font *f_xs    = TTF_OpenFont(FONT_PATH, FONT_XS);
-    if (!f_med || !f_sm || !f_lg || !f_xs) {
+    TTF_Font *f_xsm   = TTF_OpenFont(FONT_PATH, FONT_XSM);
+    if (!f_med || !f_sm || !f_lg || !f_xs || !f_xsm) {
         fprintf(stderr, "TTF_OpenFont: %s\n", SDL_GetError());
         SDL_DestroyRenderer(ren); SDL_DestroyWindow(win);
         TTF_Quit(); SDL_Quit(); return 1;
@@ -5414,7 +5416,7 @@ int main(void)
                   SDL_Color dot_c = l3_pressed ? (SDL_Color)COL_RED : (SDL_Color)COL_SEL_BG;
                   draw_circle_filled(ren, dotL_x, dotL_y, dot_r, dot_c); }
                 { char buf[24]; snprintf(buf, sizeof(buf), "X:%d Y:%d", axL_x, axL_y);
-                  draw_text_centered(ren, f_xs, buf, c_gray, stickL_cx, stickL_cy + stick_r + 10.0f); }
+                  draw_text_centered(ren, f_xsm, buf, c_gray, stickL_cx, stickL_cy + stick_r + 10.0f); }
 
                 /* ── STICK DERECHO (ejes 2,3) ───────────────────────────── */
                 float stickR_cx = 500.0f, stickR_cy = 160.0f;
@@ -5435,7 +5437,7 @@ int main(void)
                   SDL_Color dot_c = r3_pressed ? (SDL_Color)COL_RED : (SDL_Color)COL_SEL_BG;
                   draw_circle_filled(ren, dotR_x, dotR_y, dot_r, dot_c); }
                 { char buf[24]; snprintf(buf, sizeof(buf), "X:%d Y:%d", axR_x, axR_y);
-                  draw_text_centered(ren, f_xs, buf, c_gray, stickR_cx, stickR_cy + stick_r + 10.0f); }
+                  draw_text_centered(ren, f_xsm, buf, c_gray, stickR_cx, stickR_cy + stick_r + 10.0f); }
 
                 /* ── BOTONES (indice SDL crudo, sin asumir nombres no verificados) ── */
                 int n_btn = SDL_GetNumJoystickButtons(joy);
@@ -5572,6 +5574,7 @@ int main(void)
     TTF_CloseFont(f_med);
     TTF_CloseFont(f_lg);
     TTF_CloseFont(f_xs);
+    TTF_CloseFont(f_xsm);
     SDL_DestroyRenderer(ren);
     SDL_DestroyWindow(win);
     TTF_Quit();
