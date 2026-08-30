@@ -107,7 +107,8 @@ typedef enum {
     STATE_PERF_CONFIG,
     STATE_BLUETOOTH_CONFIG,
     STATE_AREXX_LIST,
-    STATE_AREXX_RUN
+    STATE_AREXX_RUN,
+    STATE_CONTROLLER_TEST
 } AppState;
 
 typedef enum {
@@ -217,9 +218,11 @@ static const char *SETTINGS_MENU_ITEMS[][2] = {
     {"Bluetooth",                   "Bluetooth"},
     {"Frecuencia de refresco",       "Refresh Rate"},
     {"Restablecer valores de fábrica", "Factory reset"},
+    {"Test de mando",                "Controller Test"},
 };
-#define SETTINGS_MENU_COUNT 12
+#define SETTINGS_MENU_COUNT 13
 #define SETTINGS_ACTION_FACTORY_RESET 11
+#define SETTINGS_ITEM_CONTROLLER_TEST 12
 
 /* Tiempos de inactividad seleccionables, en segundos. 0 = Nunca. */
 static const int DIM_TIMEOUT_OPTIONS[] = {0, 60, 300, 600, 900, 1800, 3600};
@@ -2892,6 +2895,7 @@ int main(void)
                 else if (state == STATE_CONFIRM) state = STATE_DEVMODE;
                 else if (state == STATE_DEVMODE) state = STATE_MENU;
                 else if (state == STATE_SYSINFO) state = STATE_MENU;
+                else if (state == STATE_CONTROLLER_TEST) state = STATE_SETTINGS;
                 else if (state == STATE_UPDATE) { if (update_phase != UPD_DOWNLOADING && update_phase != UPD_CONFIRM) state = STATE_MENU; }
                 else if (state == STATE_SETTINGS) state = STATE_MENU;
             }
@@ -3037,6 +3041,9 @@ int main(void)
                         confirm_return_state = STATE_SETTINGS;
                         state = STATE_CONFIRM;
                     }
+                    if (ev.key.key == SDLK_RETURN && settings_selected == SETTINGS_ITEM_CONTROLLER_TEST) {
+                        state = STATE_CONTROLLER_TEST;
+                    }
                 }
                 if (ev.type == SDL_EVENT_JOYSTICK_HAT_MOTION) {
                     if (ev.jhat.value == SDL_HAT_UP)
@@ -3116,6 +3123,10 @@ int main(void)
                     confirm_target = SETTINGS_ACTION_FACTORY_RESET;
                     confirm_return_state = STATE_SETTINGS;
                     state = STATE_CONFIRM;
+                }
+                if (ev.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN &&
+                    ev.jbutton.button == BTN_SDL_A && settings_selected == SETTINGS_ITEM_CONTROLLER_TEST) {
+                    state = STATE_CONTROLLER_TEST;
                 }
                 if (ev.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN &&
                     ev.jbutton.button == BTN_SDL_B)
@@ -3652,6 +3663,18 @@ int main(void)
                     ev.jbutton.button == BTN_SDL_B &&
                     update_phase != UPD_DOWNLOADING)
                     state = STATE_MENU;
+            }
+            else if (state == STATE_CONTROLLER_TEST) {
+                /* Salida via combo SELECT+START (no via un boton individual,
+                 * ya que esta pantalla existe precisamente para testear
+                 * TODOS los botones, incluido B). */
+                if (ev.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN &&
+                    (ev.jbutton.button == BTN_SDL_SELECT || ev.jbutton.button == BTN_SDL_START) &&
+                    SDL_GetJoystickButton(joy, BTN_SDL_SELECT) &&
+                    SDL_GetJoystickButton(joy, BTN_SDL_START))
+                    state = STATE_SETTINGS;
+                if (ev.type == SDL_EVENT_KEY_DOWN && ev.key.key == SDLK_ESCAPE)
+                    state = STATE_SETTINGS;
             }
         }
 
@@ -5339,6 +5362,77 @@ int main(void)
                 draw_footer(ren, f_sm, "", s_version);
 
         } /* end STATE_UPDATE */
+        else if (state == STATE_CONTROLLER_TEST) {
+            const float CX = 20.0f;
+            draw_statusbar(ren, f_sm, f_xs, status_time, status_wifi_up, status_battery, status_bt_up, wifi_icon_tex, battery_icon_tex, bt_icon_tex);
+            draw_active_dash_breadcrumbs(ren, f_sm, CX, 25.0f, 3, tr("Test de mando", "Controller Test"));
+
+            if (!joy) {
+                draw_text(ren, f_sm, tr("No se detecta ningún mando.", "No controller detected."), c_gray, CX, 100.0f);
+            } else {
+                /* ── D-PAD (hat) ────────────────────────────────────────── */
+                float dpad_cx = 140.0f, dpad_cy = 160.0f, dpad_sz = 26.0f, dpad_gap = 4.0f;
+                Uint8 hat = SDL_GetJoystickHat(joy, 0);
+                draw_text(ren, f_sm, "D-Pad", c_gray, dpad_cx - 24.0f, dpad_cy - 70.0f);
+                SDL_Color dpad_up_c    = (hat & SDL_HAT_UP)    ? (SDL_Color)COL_SEL_BG : (SDL_Color)COL_KEY_BG;
+                SDL_Color dpad_down_c  = (hat & SDL_HAT_DOWN)  ? (SDL_Color)COL_SEL_BG : (SDL_Color)COL_KEY_BG;
+                SDL_Color dpad_left_c  = (hat & SDL_HAT_LEFT)  ? (SDL_Color)COL_SEL_BG : (SDL_Color)COL_KEY_BG;
+                SDL_Color dpad_right_c = (hat & SDL_HAT_RIGHT) ? (SDL_Color)COL_SEL_BG : (SDL_Color)COL_KEY_BG;
+                draw_rounded_rect_filled(ren, dpad_cx - dpad_sz/2, dpad_cy - dpad_sz - dpad_gap, dpad_sz, dpad_sz, 4.0f, dpad_up_c);
+                draw_rounded_rect_filled(ren, dpad_cx - dpad_sz/2, dpad_cy + dpad_gap,            dpad_sz, dpad_sz, 4.0f, dpad_down_c);
+                draw_rounded_rect_filled(ren, dpad_cx - dpad_sz - dpad_gap - dpad_sz/2, dpad_cy - dpad_sz/2, dpad_sz, dpad_sz, 4.0f, dpad_left_c);
+                draw_rounded_rect_filled(ren, dpad_cx + dpad_gap + dpad_sz/2,           dpad_cy - dpad_sz/2, dpad_sz, dpad_sz, 4.0f, dpad_right_c);
+
+                /* ── STICK IZQUIERDO (ejes 0,1) ─────────────────────────── */
+                float stickL_cx = 320.0f, stickL_cy = 160.0f, stick_r = 45.0f, dot_r = 8.0f;
+                draw_text(ren, f_sm, tr("Stick Izq.", "Left Stick"), c_gray, stickL_cx - 40.0f, stickL_cy - 70.0f);
+                { SDL_Color ring_c = COL_KEY_BG; SDL_Color bg_c = COL_BG;
+                  draw_rounded_rect_outline(ren, stickL_cx - stick_r, stickL_cy - stick_r, stick_r*2, stick_r*2, stick_r, 2.0f, ring_c, bg_c); }
+                Sint16 axL_x = SDL_GetJoystickAxis(joy, 0);
+                Sint16 axL_y = SDL_GetJoystickAxis(joy, 1);
+                float dotL_x = stickL_cx + ((float)axL_x / 32767.0f) * (stick_r - dot_r);
+                float dotL_y = stickL_cy + ((float)axL_y / 32767.0f) * (stick_r - dot_r);
+                { SDL_Color dot_c = COL_SEL_BG; draw_circle_filled(ren, dotL_x, dotL_y, dot_r, dot_c); }
+                { char buf[24]; snprintf(buf, sizeof(buf), "X:%d Y:%d", axL_x, axL_y);
+                  draw_text(ren, f_xs, buf, c_gray, stickL_cx - 34.0f, stickL_cy + stick_r + 10.0f); }
+
+                /* ── STICK DERECHO (ejes 2,3) ───────────────────────────── */
+                float stickR_cx = 500.0f, stickR_cy = 160.0f;
+                draw_text(ren, f_sm, tr("Stick Dcho.", "Right Stick"), c_gray, stickR_cx - 42.0f, stickR_cy - 70.0f);
+                { SDL_Color ring_c = COL_KEY_BG; SDL_Color bg_c = COL_BG;
+                  draw_rounded_rect_outline(ren, stickR_cx - stick_r, stickR_cy - stick_r, stick_r*2, stick_r*2, stick_r, 2.0f, ring_c, bg_c); }
+                Sint16 axR_x = SDL_GetJoystickAxis(joy, 2);
+                Sint16 axR_y = SDL_GetJoystickAxis(joy, 3);
+                float dotR_x = stickR_cx + ((float)axR_x / 32767.0f) * (stick_r - dot_r);
+                float dotR_y = stickR_cy + ((float)axR_y / 32767.0f) * (stick_r - dot_r);
+                { SDL_Color dot_c = COL_SEL_BG; draw_circle_filled(ren, dotR_x, dotR_y, dot_r, dot_c); }
+                { char buf[24]; snprintf(buf, sizeof(buf), "X:%d Y:%d", axR_x, axR_y);
+                  draw_text(ren, f_xs, buf, c_gray, stickR_cx - 34.0f, stickR_cy + stick_r + 10.0f); }
+
+                /* ── BOTONES (indice SDL crudo, sin asumir nombres no verificados) ── */
+                int n_btn = SDL_GetNumJoystickButtons(joy);
+                draw_text_centered(ren, f_sm, tr("Botones", "Buttons"), c_gray, SCREEN_W / 2.0f, 260.0f);
+                float btn_y0 = 285.0f, btn_w = 44.0f, btn_h = 30.0f, btn_gap = 6.0f;
+                int btn_per_row = 10;
+                int btn_rows = (n_btn + btn_per_row - 1) / btn_per_row;
+                for (int b = 0; b < n_btn; b++) {
+                    int row = b / btn_per_row, col = b % btn_per_row;
+                    int items_this_row = (row == btn_rows - 1) ? (n_btn - row * btn_per_row) : btn_per_row;
+                    float row_w = items_this_row * btn_w + (items_this_row - 1) * btn_gap;
+                    float btn_x0 = (SCREEN_W - row_w) / 2.0f;
+                    float bx = btn_x0 + col * (btn_w + btn_gap);
+                    float by = btn_y0 + row * (btn_h + btn_gap);
+                    bool pressed = SDL_GetJoystickButton(joy, b);
+                    SDL_Color bc = pressed ? (SDL_Color)COL_SEL_BG : (SDL_Color)COL_KEY_BG;
+                    draw_rounded_rect_filled(ren, bx, by, btn_w, btn_h, 6.0f, bc);
+                    char bl[4]; snprintf(bl, sizeof(bl), "%d", b);
+                    draw_text_centered(ren, f_xs, bl, c_white, bx + btn_w/2.0f, by + btn_h/2.0f);
+                }
+            }
+
+            draw_line(ren, CX, 438.0f, SCREEN_W - 20.0f, 438.0f, (SDL_Color){183, 221, 91, 255});
+            draw_footer(ren, f_sm, tr("[SELECT+START] Volver", "[SELECT+START] Back"), s_version);
+        } /* end STATE_CONTROLLER_TEST */
 
         if (screenshot_capture_pending) {
             SDL_Surface *clean_frame_for_screenshot = SDL_RenderReadPixels(ren, NULL);
