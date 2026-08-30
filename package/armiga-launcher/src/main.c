@@ -5373,20 +5373,30 @@ int main(void)
                 /* ── D-PAD (hat) ────────────────────────────────────────── */
                 float dpad_cx = 140.0f, dpad_cy = 160.0f, dpad_sz = 26.0f, dpad_gap = 4.0f;
                 Uint8 hat = SDL_GetJoystickHat(joy, 0);
-                draw_text(ren, f_sm, "D-Pad", c_gray, dpad_cx - 24.0f, dpad_cy - 70.0f);
-                SDL_Color dpad_up_c    = (hat & SDL_HAT_UP)    ? (SDL_Color)COL_SEL_BG : (SDL_Color)COL_KEY_BG;
-                SDL_Color dpad_down_c  = (hat & SDL_HAT_DOWN)  ? (SDL_Color)COL_SEL_BG : (SDL_Color)COL_KEY_BG;
-                SDL_Color dpad_left_c  = (hat & SDL_HAT_LEFT)  ? (SDL_Color)COL_SEL_BG : (SDL_Color)COL_KEY_BG;
-                SDL_Color dpad_right_c = (hat & SDL_HAT_RIGHT) ? (SDL_Color)COL_SEL_BG : (SDL_Color)COL_KEY_BG;
-                draw_rounded_rect_filled(ren, dpad_cx - dpad_sz/2, dpad_cy - dpad_sz - dpad_gap, dpad_sz, dpad_sz, 4.0f, dpad_up_c);
-                draw_rounded_rect_filled(ren, dpad_cx - dpad_sz/2, dpad_cy + dpad_gap,            dpad_sz, dpad_sz, 4.0f, dpad_down_c);
-                draw_rounded_rect_filled(ren, dpad_cx - dpad_sz - dpad_gap - dpad_sz/2, dpad_cy - dpad_sz/2, dpad_sz, dpad_sz, 4.0f, dpad_left_c);
-                draw_rounded_rect_filled(ren, dpad_cx + dpad_gap + dpad_sz/2,           dpad_cy - dpad_sz/2, dpad_sz, dpad_sz, 4.0f, dpad_right_c);
+                draw_text_centered(ren, f_sm, "D-Pad", c_gray, dpad_cx, dpad_cy - 70.0f);
+                bool dpad_up_p    = hat & SDL_HAT_UP;
+                bool dpad_down_p  = hat & SDL_HAT_DOWN;
+                bool dpad_left_p  = hat & SDL_HAT_LEFT;
+                bool dpad_right_p = hat & SDL_HAT_RIGHT;
+                float dp_up_x = dpad_cx - dpad_sz/2, dp_up_y = dpad_cy - dpad_sz - dpad_gap;
+                float dp_down_x = dpad_cx - dpad_sz/2, dp_down_y = dpad_cy + dpad_gap;
+                float dp_left_x = dpad_cx - dpad_sz - dpad_gap - dpad_sz/2, dp_left_y = dpad_cy - dpad_sz/2;
+                float dp_right_x = dpad_cx + dpad_gap + dpad_sz/2, dp_right_y = dpad_cy - dpad_sz/2;
+                { SDL_Color border_c = COL_SEL_BG, bg_c = COL_KEY_BG;
+                  if (dpad_up_p)    draw_rounded_rect_filled(ren, dp_up_x, dp_up_y, dpad_sz, dpad_sz, 4.0f, border_c);
+                  else              draw_rounded_rect_outline(ren, dp_up_x, dp_up_y, dpad_sz, dpad_sz, 4.0f, 2.0f, border_c, bg_c);
+                  if (dpad_down_p)  draw_rounded_rect_filled(ren, dp_down_x, dp_down_y, dpad_sz, dpad_sz, 4.0f, border_c);
+                  else              draw_rounded_rect_outline(ren, dp_down_x, dp_down_y, dpad_sz, dpad_sz, 4.0f, 2.0f, border_c, bg_c);
+                  if (dpad_left_p)  draw_rounded_rect_filled(ren, dp_left_x, dp_left_y, dpad_sz, dpad_sz, 4.0f, border_c);
+                  else              draw_rounded_rect_outline(ren, dp_left_x, dp_left_y, dpad_sz, dpad_sz, 4.0f, 2.0f, border_c, bg_c);
+                  if (dpad_right_p) draw_rounded_rect_filled(ren, dp_right_x, dp_right_y, dpad_sz, dpad_sz, 4.0f, border_c);
+                  else              draw_rounded_rect_outline(ren, dp_right_x, dp_right_y, dpad_sz, dpad_sz, 4.0f, 2.0f, border_c, bg_c);
+                }
 
                 /* ── STICK IZQUIERDO (ejes 0,1) ─────────────────────────── */
                 float stickL_cx = 320.0f, stickL_cy = 160.0f, stick_r = 45.0f, dot_r = 8.0f;
-                draw_text(ren, f_sm, tr("Stick Izq.", "Left Stick"), c_gray, stickL_cx - 40.0f, stickL_cy - 70.0f);
-                { SDL_Color ring_c = COL_KEY_BG; SDL_Color bg_c = COL_BG;
+                draw_text_centered(ren, f_sm, tr("Stick Izq.", "Left Stick"), c_gray, stickL_cx, stickL_cy - 70.0f);
+                { SDL_Color ring_c = COL_SEL_BG; SDL_Color bg_c = COL_BG;
                   draw_rounded_rect_outline(ren, stickL_cx - stick_r, stickL_cy - stick_r, stick_r*2, stick_r*2, stick_r, 2.0f, ring_c, bg_c); }
                 Sint16 axL_x = SDL_GetJoystickAxis(joy, 0);
                 Sint16 axL_y = SDL_GetJoystickAxis(joy, 1);
@@ -5394,12 +5404,12 @@ int main(void)
                 float dotL_y = stickL_cy + ((float)axL_y / 32767.0f) * (stick_r - dot_r);
                 { SDL_Color dot_c = COL_SEL_BG; draw_circle_filled(ren, dotL_x, dotL_y, dot_r, dot_c); }
                 { char buf[24]; snprintf(buf, sizeof(buf), "X:%d Y:%d", axL_x, axL_y);
-                  draw_text(ren, f_xs, buf, c_gray, stickL_cx - 34.0f, stickL_cy + stick_r + 10.0f); }
+                  draw_text_centered(ren, f_xs, buf, c_gray, stickL_cx, stickL_cy + stick_r + 10.0f); }
 
                 /* ── STICK DERECHO (ejes 2,3) ───────────────────────────── */
                 float stickR_cx = 500.0f, stickR_cy = 160.0f;
-                draw_text(ren, f_sm, tr("Stick Dcho.", "Right Stick"), c_gray, stickR_cx - 42.0f, stickR_cy - 70.0f);
-                { SDL_Color ring_c = COL_KEY_BG; SDL_Color bg_c = COL_BG;
+                draw_text_centered(ren, f_sm, tr("Stick Dcho.", "Right Stick"), c_gray, stickR_cx, stickR_cy - 70.0f);
+                { SDL_Color ring_c = COL_SEL_BG; SDL_Color bg_c = COL_BG;
                   draw_rounded_rect_outline(ren, stickR_cx - stick_r, stickR_cy - stick_r, stick_r*2, stick_r*2, stick_r, 2.0f, ring_c, bg_c); }
                 Sint16 axR_x = SDL_GetJoystickAxis(joy, 2);
                 Sint16 axR_y = SDL_GetJoystickAxis(joy, 3);
@@ -5407,12 +5417,12 @@ int main(void)
                 float dotR_y = stickR_cy + ((float)axR_y / 32767.0f) * (stick_r - dot_r);
                 { SDL_Color dot_c = COL_SEL_BG; draw_circle_filled(ren, dotR_x, dotR_y, dot_r, dot_c); }
                 { char buf[24]; snprintf(buf, sizeof(buf), "X:%d Y:%d", axR_x, axR_y);
-                  draw_text(ren, f_xs, buf, c_gray, stickR_cx - 34.0f, stickR_cy + stick_r + 10.0f); }
+                  draw_text_centered(ren, f_xs, buf, c_gray, stickR_cx, stickR_cy + stick_r + 10.0f); }
 
                 /* ── BOTONES (indice SDL crudo, sin asumir nombres no verificados) ── */
                 int n_btn = SDL_GetNumJoystickButtons(joy);
                 draw_text_centered(ren, f_sm, tr("Botones", "Buttons"), c_gray, SCREEN_W / 2.0f, 260.0f);
-                float btn_y0 = 285.0f, btn_w = 44.0f, btn_h = 30.0f, btn_gap = 6.0f;
+                float btn_y0 = 285.0f, btn_w = 36.0f, btn_h = 36.0f, btn_gap = 8.0f;
                 int btn_per_row = 10;
                 int btn_rows = (n_btn + btn_per_row - 1) / btn_per_row;
                 for (int b = 0; b < n_btn; b++) {
@@ -5423,13 +5433,46 @@ int main(void)
                     float bx = btn_x0 + col * (btn_w + btn_gap);
                     float by = btn_y0 + row * (btn_h + btn_gap);
                     bool pressed = SDL_GetJoystickButton(joy, b);
-                    SDL_Color bc = pressed ? (SDL_Color)COL_SEL_BG : (SDL_Color)COL_KEY_BG;
-                    draw_rounded_rect_filled(ren, bx, by, btn_w, btn_h, 6.0f, bc);
+                    if (pressed) {
+                        SDL_Color bc = COL_SEL_BG;
+                        draw_rounded_rect_filled(ren, bx, by, btn_w, btn_h, 6.0f, bc);
+                    } else {
+                        SDL_Color border_c = COL_SEL_BG, bg_c = COL_KEY_BG;
+                        draw_rounded_rect_outline(ren, bx, by, btn_w, btn_h, 6.0f, 2.0f, border_c, bg_c);
+                    }
                     char bl[4]; snprintf(bl, sizeof(bl), "%d", b);
-                    draw_text_centered(ren, f_xs, bl, c_white, bx + btn_w/2.0f, by + btn_h/2.0f);
+                    int tw = 0, th = 0;
+                    TTF_GetStringSize(f_med, bl, 0, &tw, &th);
+                    SDL_Color txt_c = pressed ? (SDL_Color){0,0,0,255} : (SDL_Color)COL_SEL_BG;
+                    draw_text(ren, f_med, bl, txt_c, bx + btn_w/2.0f - (float)tw/2.0f, by + btn_h/2.0f - (float)th/2.0f);
+                }
+
+                /* Nombre del boton pulsado, segun orden estandar evdev/SDL
+                 * (indices 0,1,3,4,5,8,9 confirmados via constantes
+                 * BTN_SDL_* ya existentes; el resto inferido por orden de
+                 * aparicion en evtest, autoverificable en esta pantalla). */
+                {
+                    static const char *CTRL_BTN_NAMES[] = {
+                        "B (SOUTH)", "A (EAST)", "Y (WEST)", "X (NORTH)",
+                        "L1", "R1", "L2", "R2",
+                        "SELECT", "START", "MODE",
+                        "L3", "R3",
+                        "DPAD UP", "DPAD DOWN", "DPAD LEFT", "DPAD RIGHT"
+                    };
+                    int n_names = (int)(sizeof(CTRL_BTN_NAMES) / sizeof(CTRL_BTN_NAMES[0]));
+                    const char *pressed_name = NULL;
+                    for (int b = 0; b < n_btn && b < n_names; b++) {
+                        if (SDL_GetJoystickButton(joy, b)) { pressed_name = CTRL_BTN_NAMES[b]; break; }
+                    }
+                    if (pressed_name) {
+                        SDL_Color name_c = COL_SEL_BG;
+                        draw_text_centered(ren, f_sm, pressed_name, name_c, SCREEN_W / 2.0f, 385.0f);
+                    }
                 }
             }
 
+            { SDL_Color joytest_c = COL_SEL_BG;
+              draw_text_right(ren, f_sm, "armiga-joytest v1.0", joytest_c, SCREEN_W - 20.0f, 414.0f); }
             draw_line(ren, CX, 438.0f, SCREEN_W - 20.0f, 438.0f, (SDL_Color){183, 221, 91, 255});
             draw_footer(ren, f_sm, tr("[SELECT+START] Volver", "[SELECT+START] Back"), s_version);
         } /* end STATE_CONTROLLER_TEST */
