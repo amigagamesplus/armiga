@@ -3712,8 +3712,10 @@ int main(void)
             devmode_hold_start = 0;
         }
 
-        /* Combo screenshot: SELECT + R1 pulsados simultaneamente (cualquier estado) */
-        if (joy) {
+        /* Combo screenshot: SELECT + R1 pulsados simultaneamente (cualquier
+         * estado excepto Controller Test, donde R1 debe poder probarse sin
+         * disparar una captura de pantalla). */
+        if (joy && state != STATE_CONTROLLER_TEST) {
             bool sel = SDL_GetJoystickButton(joy, BTN_SDL_SELECT);
             bool r1  = SDL_GetJoystickButton(joy, BTN_SDL_R1);
             if (sel && r1) {
