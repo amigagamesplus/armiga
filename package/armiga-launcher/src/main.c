@@ -5402,8 +5402,12 @@ int main(void)
                   draw_rounded_rect_outline(ren, stickL_cx - stick_r, stickL_cy - stick_r, stick_r*2, stick_r*2, stick_r, 2.0f, ring_c, bg_c); }
                 Sint16 axL_x = SDL_GetJoystickAxis(joy, 0);
                 Sint16 axL_y = SDL_GetJoystickAxis(joy, 1);
-                float dotL_x = stickL_cx + ((float)axL_x / 32767.0f) * (stick_r - dot_r);
-                float dotL_y = stickL_cy + ((float)axL_y / 32767.0f) * (stick_r - dot_r);
+                float normL_x = (float)axL_x / 32767.0f;
+                float normL_y = (float)axL_y / 32767.0f;
+                float magL = SDL_sqrtf(normL_x * normL_x + normL_y * normL_y);
+                if (magL > 1.0f) { normL_x /= magL; normL_y /= magL; }
+                float dotL_x = stickL_cx + normL_x * (stick_r - dot_r);
+                float dotL_y = stickL_cy + normL_y * (stick_r - dot_r);
                 { SDL_Color dot_c = COL_SEL_BG; draw_circle_filled(ren, dotL_x, dotL_y, dot_r, dot_c); }
                 { char buf[24]; snprintf(buf, sizeof(buf), "X:%d Y:%d", axL_x, axL_y);
                   draw_text_centered(ren, f_xs, buf, c_gray, stickL_cx, stickL_cy + stick_r + 10.0f); }
@@ -5415,8 +5419,12 @@ int main(void)
                   draw_rounded_rect_outline(ren, stickR_cx - stick_r, stickR_cy - stick_r, stick_r*2, stick_r*2, stick_r, 2.0f, ring_c, bg_c); }
                 Sint16 axR_x = SDL_GetJoystickAxis(joy, 2);
                 Sint16 axR_y = SDL_GetJoystickAxis(joy, 3);
-                float dotR_x = stickR_cx + ((float)axR_x / 32767.0f) * (stick_r - dot_r);
-                float dotR_y = stickR_cy + ((float)axR_y / 32767.0f) * (stick_r - dot_r);
+                float normR_x = (float)axR_x / 32767.0f;
+                float normR_y = (float)axR_y / 32767.0f;
+                float magR = SDL_sqrtf(normR_x * normR_x + normR_y * normR_y);
+                if (magR > 1.0f) { normR_x /= magR; normR_y /= magR; }
+                float dotR_x = stickR_cx + normR_x * (stick_r - dot_r);
+                float dotR_y = stickR_cy + normR_y * (stick_r - dot_r);
                 { SDL_Color dot_c = COL_SEL_BG; draw_circle_filled(ren, dotR_x, dotR_y, dot_r, dot_c); }
                 { char buf[24]; snprintf(buf, sizeof(buf), "X:%d Y:%d", axR_x, axR_y);
                   draw_text_centered(ren, f_xs, buf, c_gray, stickR_cx, stickR_cy + stick_r + 10.0f); }
