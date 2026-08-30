@@ -5400,6 +5400,8 @@ int main(void)
                 draw_text_centered(ren, f_sm, tr("Stick Izq.", "Left Stick"), c_gray, stickL_cx, stickL_cy - 70.0f);
                 { SDL_Color ring_c = COL_SEL_BG; SDL_Color bg_c = COL_BG;
                   draw_rounded_rect_outline(ren, stickL_cx - stick_r, stickL_cy - stick_r, stick_r*2, stick_r*2, stick_r, 2.0f, ring_c, bg_c); }
+                { SDL_Color deadzone_c = {40, 65, 50, 255};
+                  draw_circle_filled(ren, stickL_cx, stickL_cy, stick_r * 0.10f, deadzone_c); }
                 Sint16 axL_x = SDL_GetJoystickAxis(joy, 0);
                 Sint16 axL_y = SDL_GetJoystickAxis(joy, 1);
                 float normL_x = (float)axL_x / 32767.0f;
@@ -5419,6 +5421,8 @@ int main(void)
                 draw_text_centered(ren, f_sm, tr("Stick Dcho.", "Right Stick"), c_gray, stickR_cx, stickR_cy - 70.0f);
                 { SDL_Color ring_c = COL_SEL_BG; SDL_Color bg_c = COL_BG;
                   draw_rounded_rect_outline(ren, stickR_cx - stick_r, stickR_cy - stick_r, stick_r*2, stick_r*2, stick_r, 2.0f, ring_c, bg_c); }
+                { SDL_Color deadzone_c = {40, 65, 50, 255};
+                  draw_circle_filled(ren, stickR_cx, stickR_cy, stick_r * 0.10f, deadzone_c); }
                 Sint16 axR_x = SDL_GetJoystickAxis(joy, 2);
                 Sint16 axR_y = SDL_GetJoystickAxis(joy, 3);
                 float normR_x = (float)axR_x / 32767.0f;
