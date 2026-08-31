@@ -58,13 +58,15 @@ jobs:
                   ;;
                 *)
                   echo "Applying $name..."
-                  patch -p1 < "$patch"
+                  if ! patch -p1 < "$patch"; then
+                    echo "=== Reject files after $name ==="
+                    find . -name "*.rej" -exec echo "--- {} ---" \; -exec cat {} \;
+                    exit 1
+                  fi
                   ;;
               esac
             fi
           done
-          echo "=== Reject files (if any) ==="
-          find . -name "*.rej" -exec echo "--- {} ---" \; -exec cat {} \;
 
       - name: Copy custom DTS
         run: |
