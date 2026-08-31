@@ -721,29 +721,50 @@ static void apply_timezone(void)
     }
     fclose(f);
 }
-/* Guarda el idioma actual en armiga.cfg, preservando el resto de claves
- * (ej. TZ) linea a linea. */
-static void save_lang_config(void)
+/* Escritura atomica generica de N claves en ARMIGA_CONFIG_PATH,
+ * preservando el resto de lineas. Reemplaza el patron duplicado de las
+ * 9 funciones save_*_config. Fichero temporal + fsync + rename evita
+ * corrupcion de armiga.cfg si la consola se apaga a mitad de guardado. */
+static void config_set_kv_multi(const char *keys[], const char *vals[], int count)
 {
     char lines[32][128];
     int n = 0;
     FILE *f = fopen(ARMIGA_CONFIG_PATH, "r");
     if (f) {
         while (n < 32 && fgets(lines[n], sizeof(lines[n]), f)) {
-            char key[32], val[96];
-            if (sscanf(lines[n], "%31[^=]=%95s", key, val) == 2 &&
-                !strcmp(key, "LANG")) {
-                continue; /* se reescribe al final, no duplicar */
+            char line_key[32], line_val[96];
+            bool skip = false;
+            if (sscanf(lines[n], "%31[^=]=%95s", line_key, line_val) == 2) {
+                for (int i = 0; i < count; i++) {
+                    if (!strcmp(line_key, keys[i])) { skip = true; break; }
+                }
             }
+            if (skip) continue;
             n++;
         }
         fclose(f);
     }
-    f = fopen(ARMIGA_CONFIG_PATH, "w");
+    char tmp_path[160];
+    snprintf(tmp_path, sizeof(tmp_path), "%s.tmp", ARMIGA_CONFIG_PATH);
+    f = fopen(tmp_path, "w");
     if (!f) return;
     for (int i = 0; i < n; i++) fputs(lines[i], f);
-    fprintf(f, "LANG=%s\n", (current_lang == LANG_EN) ? "EN" : "ES");
+    for (int i = 0; i < count; i++) fprintf(f, "%s=%s\n", keys[i], vals[i]);
+    fflush(f);
+    fsync(fileno(f));
     fclose(f);
+    rename(tmp_path, ARMIGA_CONFIG_PATH);
+}
+static void config_set_kv(const char *key, const char *val)
+{
+    const char *keys[1] = { key };
+    const char *vals[1] = { val };
+    config_set_kv_multi(keys, vals, 1);
+}
+/* Guarda el idioma actual en armiga.cfg. */
+static void save_lang_config(void)
+{
+    config_set_kv("LANG", (current_lang == LANG_EN) ? "EN" : "ES");
 }
 /* Lee el valor TZ actual de armiga.cfg (sin aplicarlo, solo para saber
  * cual esta activo, ej. al abrir el selector de zona horaria). */
@@ -763,29 +784,10 @@ static void read_current_tz(char *tz_name, size_t tz_sz)
     }
     fclose(f);
 }
-/* Guarda TZ en armiga.cfg, preservando el resto de claves (ej. LANG),
- * mismo patron que save_lang_config. */
+/* Guarda TZ en armiga.cfg. */
 static void save_timezone_config(const char *tz_name)
 {
-    char lines[32][128];
-    int n = 0;
-    FILE *f = fopen(ARMIGA_CONFIG_PATH, "r");
-    if (f) {
-        while (n < 32 && fgets(lines[n], sizeof(lines[n]), f)) {
-            char key[32], val[96];
-            if (sscanf(lines[n], "%31[^=]=%95s", key, val) == 2 &&
-                !strcmp(key, "TZ")) {
-                continue; /* se reescribe al final, no duplicar */
-            }
-            n++;
-        }
-        fclose(f);
-    }
-    f = fopen(ARMIGA_CONFIG_PATH, "w");
-    if (!f) return;
-    for (int i = 0; i < n; i++) fputs(lines[i], f);
-    fprintf(f, "TZ=%s\n", tz_name);
-    fclose(f);
+    config_set_kv("TZ", tz_name);
 }
 
 static bool read_sysfs_str(const char *path, char *buf, size_t bufsize)
@@ -919,29 +921,16 @@ static void read_dim_config(int *timeout_sec, int *dim_percent)
     }
     fclose(f);
 }
-/* Guarda DIM_TIMEOUT y DIM_PERCENT en armiga.cfg, preservando otras claves
- * (TZ, LANG), mismo patron que save_timezone_config/save_lang_config. */
+/* Guarda DIM_TIMEOUT y DIM_PERCENT en armiga.cfg, una unica escritura
+ * atomica (ambas claves juntas). */
 static void save_dim_config(int timeout_sec, int dim_percent)
 {
-    char lines[32][128];
-    int n = 0;
-    FILE *f = fopen(ARMIGA_CONFIG_PATH, "r");
-    if (f) {
-        while (n < 32 && fgets(lines[n], sizeof(lines[n]), f)) {
-            char key[32], val[96];
-            if (sscanf(lines[n], "%31[^=]=%95s", key, val) == 2 &&
-                (!strcmp(key, "DIM_TIMEOUT") || !strcmp(key, "DIM_PERCENT"))) {
-                continue; /* se reescriben al final, no duplicar */
-            }
-            n++;
-        }
-        fclose(f);
-    }
-    f = fopen(ARMIGA_CONFIG_PATH, "w");
-    if (!f) return;
-    for (int i = 0; i < n; i++) fputs(lines[i], f);
-    fprintf(f, "DIM_TIMEOUT=%d\nDIM_PERCENT=%d\n", timeout_sec, dim_percent);
-    fclose(f);
+    char v1[16], v2[16];
+    snprintf(v1, sizeof(v1), "%d", timeout_sec);
+    snprintf(v2, sizeof(v2), "%d", dim_percent);
+    const char *keys[2] = { "DIM_TIMEOUT", "DIM_PERCENT" };
+    const char *vals[2] = { v1, v2 };
+    config_set_kv_multi(keys, vals, 2);
 }
 /* Lee BRIGHTNESS_PCT de armiga.cfg. Default: 80%. */
 static int read_brightness_config(void)
@@ -961,29 +950,12 @@ static int read_brightness_config(void)
     if (pct > 100) pct = 100;
     return pct;
 }
-/* Guarda BRIGHTNESS_PCT en armiga.cfg, preservando otras claves,
- * mismo patron que save_dim_config/save_timezone_config. */
+/* Guarda BRIGHTNESS_PCT en armiga.cfg. */
 static void save_brightness_config(int pct)
 {
-    char lines[32][128];
-    int n = 0;
-    FILE *f = fopen(ARMIGA_CONFIG_PATH, "r");
-    if (f) {
-        while (n < 32 && fgets(lines[n], sizeof(lines[n]), f)) {
-            char key[32], val[96];
-            if (sscanf(lines[n], "%31[^=]=%95s", key, val) == 2 &&
-                !strcmp(key, "BRIGHTNESS_PCT")) {
-                continue; /* se reescribe al final, no duplicar */
-            }
-            n++;
-        }
-        fclose(f);
-    }
-    f = fopen(ARMIGA_CONFIG_PATH, "w");
-    if (!f) return;
-    for (int i = 0; i < n; i++) fputs(lines[i], f);
-    fprintf(f, "BRIGHTNESS_PCT=%d\n", pct);
-    fclose(f);
+    char v[16];
+    snprintf(v, sizeof(v), "%d", pct);
+    config_set_kv("BRIGHTNESS_PCT", v);
 }
 /* Lee REFRESH_120HZ de armiga.cfg. Default: desactivado (0, = 60Hz). */
 static int read_refresh_120hz(void)
@@ -1005,49 +977,12 @@ static int read_refresh_120hz(void)
  * mismo patron que save_ssh_enabled. */
 static void save_refresh_120hz(int enabled)
 {
-    char lines[32][128];
-    int n = 0;
-    FILE *f = fopen(ARMIGA_CONFIG_PATH, "r");
-    if (f) {
-        while (n < 32 && fgets(lines[n], sizeof(lines[n]), f)) {
-            char key[32], val[96];
-            if (sscanf(lines[n], "%31[^=]=%95s", key, val) == 2 &&
-                !strcmp(key, "REFRESH_120HZ")) {
-                continue;
-            }
-            n++;
-        }
-        fclose(f);
-    }
-    f = fopen(ARMIGA_CONFIG_PATH, "w");
-    if (!f) return;
-    for (int i = 0; i < n; i++) fputs(lines[i], f);
-    fprintf(f, "REFRESH_120HZ=%d\n", enabled ? 1 : 0);
-    fclose(f);
+    config_set_kv("REFRESH_120HZ", enabled ? "1" : "0");
 }
-/* Guarda SSH_ENABLED en armiga.cfg, preservando otras claves,
- * mismo patron que save_brightness_config. */
+/* Guarda SSH_ENABLED en armiga.cfg. */
 static void save_ssh_enabled(int enabled)
 {
-    char lines[32][128];
-    int n = 0;
-    FILE *f = fopen(ARMIGA_CONFIG_PATH, "r");
-    if (f) {
-        while (n < 32 && fgets(lines[n], sizeof(lines[n]), f)) {
-            char key[32], val[96];
-            if (sscanf(lines[n], "%31[^=]=%95s", key, val) == 2 &&
-                !strcmp(key, "SSH_ENABLED")) {
-                continue; /* se reescribe al final, no duplicar */
-            }
-            n++;
-        }
-        fclose(f);
-    }
-    f = fopen(ARMIGA_CONFIG_PATH, "w");
-    if (!f) return;
-    for (int i = 0; i < n; i++) fputs(lines[i], f);
-    fprintf(f, "SSH_ENABLED=%d\n", enabled ? 1 : 0);
-    fclose(f);
+    config_set_kv("SSH_ENABLED", enabled ? "1" : "0");
     g_cfg.ssh_enabled = enabled ? 1 : 0;
 }
 /* Aplica el estado SSH en caliente, sin reiniciar. */
@@ -1088,28 +1023,10 @@ static int read_bt_enabled(void)
     fclose(f);
     return enabled ? 1 : 0;
 }
-/* Guarda BT_ENABLED en armiga.cfg, preservando otras claves. */
+/* Guarda BT_ENABLED en armiga.cfg. */
 static void save_bt_enabled(int enabled)
 {
-    char lines[32][128];
-    int n = 0;
-    FILE *f = fopen(ARMIGA_CONFIG_PATH, "r");
-    if (f) {
-        while (n < 32 && fgets(lines[n], sizeof(lines[n]), f)) {
-            char key[32], val[96];
-            if (sscanf(lines[n], "%31[^=]=%95s", key, val) == 2 &&
-                !strcmp(key, "BT_ENABLED")) {
-                continue;
-            }
-            n++;
-        }
-        fclose(f);
-    }
-    f = fopen(ARMIGA_CONFIG_PATH, "w");
-    if (!f) return;
-    for (int i = 0; i < n; i++) fputs(lines[i], f);
-    fprintf(f, "BT_ENABLED=%d\n", enabled ? 1 : 0);
-    fclose(f);
+    config_set_kv("BT_ENABLED", enabled ? "1" : "0");
 }
 /* Fija (o revierte a altavoz) el audio_device de RetroArch para que el
  * audio del emulador salga por el Bluetooth conectado. mac==NULL o vacio
@@ -1215,25 +1132,9 @@ static void read_bt_connected(char *mac_out, size_t mac_sz, char *name_out, size
 }
 static void save_perf_profile(int profile)
 {
-    char lines[32][128];
-    int n = 0;
-    FILE *f = fopen(ARMIGA_CONFIG_PATH, "r");
-    if (f) {
-        while (n < 32 && fgets(lines[n], sizeof(lines[n]), f)) {
-            char key[32], val[96];
-            if (sscanf(lines[n], "%31[^=]=%95s", key, val) == 2 &&
-                !strcmp(key, "PERF_PROFILE")) {
-                continue;
-            }
-            n++;
-        }
-        fclose(f);
-    }
-    f = fopen(ARMIGA_CONFIG_PATH, "w");
-    if (!f) return;
-    for (int i = 0; i < n; i++) fputs(lines[i], f);
-    fprintf(f, "PERF_PROFILE=%d\n", profile);
-    fclose(f);
+    char v[16];
+    snprintf(v, sizeof(v), "%d", profile);
+    config_set_kv("PERF_PROFILE", v);
     g_cfg.perf_profile = profile;
 }
 /* Aplica el perfil en caliente: CPU governor + GPU devfreq governor. */
@@ -1277,29 +1178,10 @@ static int read_samba_enabled(void)
     return enabled ? 1 : 0;
 }
 
-/* Guarda SAMBA_ENABLED en armiga.cfg, preservando otras claves,
- * mismo patron que save_ssh_enabled. */
+/* Guarda SAMBA_ENABLED en armiga.cfg. */
 static void save_samba_enabled(int enabled)
 {
-    char lines[32][128];
-    int n = 0;
-    FILE *f = fopen(ARMIGA_CONFIG_PATH, "r");
-    if (f) {
-        while (n < 32 && fgets(lines[n], sizeof(lines[n]), f)) {
-            char key[32], val[96];
-            if (sscanf(lines[n], "%31[^=]=%95s", key, val) == 2 &&
-                !strcmp(key, "SAMBA_ENABLED")) {
-                continue; /* se reescribe al final, no duplicar */
-            }
-            n++;
-        }
-        fclose(f);
-    }
-    f = fopen(ARMIGA_CONFIG_PATH, "w");
-    if (!f) return;
-    for (int i = 0; i < n; i++) fputs(lines[i], f);
-    fprintf(f, "SAMBA_ENABLED=%d\n", enabled ? 1 : 0);
-    fclose(f);
+    config_set_kv("SAMBA_ENABLED", enabled ? "1" : "0");
 }
 
 /* Aplica el estado Samba en caliente, sin reiniciar. */
