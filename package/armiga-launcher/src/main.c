@@ -1230,15 +1230,15 @@ static bool save_led_conf(int r_right, int g_right, int b_right,
 }
 #define LED_SERIAL_DEV "/dev/ttyS2"
 #define LED_LEDS_PER_STICK 8
-static void send_led_payload(int brightness,
-                              int r_right, int g_right, int b_right,
-                              int r_left, int g_left, int b_left)
+/* Pauta 3: fd de LED_SERIAL_DEV cacheado en vez de abrir/cerrar en cada
+ * llamada (hasta 16/s durante repeat-hold en LED_CONFIG). O_CLOEXEC evita
+ * que el fd se filtre a execl(retroarch/shell/btop). */
+static int s_led_fd = -1;
+static int get_led_fd(void)
 {
-    write_sysfs_str("/sys/class/leds/rgb:kbd_backlight/brightness", "1");
-
-    int fd = open(LED_SERIAL_DEV, O_WRONLY | O_NOCTTY);
-    if (fd < 0) return;
-
+    if (s_led_fd >= 0) return s_led_fd;
+    int fd = open(LED_SERIAL_DEV, O_WRONLY | O_NOCTTY | O_CLOEXEC);
+    if (fd < 0) return -1;
     struct termios tio;
     if (tcgetattr(fd, &tio) == 0) {
         cfmakeraw(&tio);
@@ -1246,6 +1246,17 @@ static void send_led_payload(int brightness,
         cfsetospeed(&tio, B115200);
         tcsetattr(fd, TCSANOW, &tio);
     }
+    s_led_fd = fd;
+    return fd;
+}
+static void send_led_payload(int brightness,
+                              int r_right, int g_right, int b_right,
+                              int r_left, int g_left, int b_left)
+{
+    write_sysfs_str("/sys/class/leds/rgb:kbd_backlight/brightness", "1");
+
+    int fd = get_led_fd();
+    if (fd < 0) return;
 
     unsigned char payload[2 + LED_LEDS_PER_STICK * 3 * 2 + 1];
     int idx = 0;
@@ -1267,7 +1278,6 @@ static void send_led_payload(int brightness,
     payload[idx] = (unsigned char)(sum & 0xFF); idx++;
 
     write(fd, payload, idx);
-    close(fd);
 }
 static void factory_reset(void)
 {
