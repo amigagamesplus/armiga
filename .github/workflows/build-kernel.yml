@@ -63,6 +63,8 @@ jobs:
               esac
             fi
           done
+          echo "=== Reject files (if any) ==="
+          find . -name "*.rej" -exec echo "--- {} ---" \; -exec cat {} \;
 
       - name: Copy custom DTS
         run: |
