@@ -2637,6 +2637,18 @@ int main(void)
     int arexx_selected = 0;
     int arexx_md5_cached_for = -1;
     char arexx_md5[40] = "";
+    /* Pauta 4: cache de wrap de descripcion ARexx, evita recalcular
+     * TTF_GetStringSize palabra a palabra en cada frame si la seleccion
+     * y el idioma no han cambiado. */
+    int arexx_desc_cached_for = -1;
+    int arexx_desc_cached_lang = -1;
+    int arexx_desc_lines_cached = 0;
+    float arexx_desc_max_line_w_cached = 0.0f;
+    /* Cache de wrap de descripciones de perfil (Maximum/Balanced/Battery):
+     * contenido fijo, solo depende del idioma, no de la seleccion. */
+    int perf_desc_cached_lang = -1;
+    int perf_desc_lines_cached[3] = {0, 0, 0};
+    float perf_desc_max_line_w_cached[3] = {0.0f, 0.0f, 0.0f};
     char *arexx_output = NULL;
     size_t arexx_output_len = 0;
     size_t arexx_output_cap = 0;
@@ -4228,8 +4240,17 @@ int main(void)
                 for (char *p = desc_flat; *p; p++) if (*p == '\n') *p = ' ';
                 int tw = 0, th = 0;
                 TTF_GetStringSize(f_med, perf_opts[i].title[current_lang], 0, &tw, &th);
-                float desc_max_line_w = 0.0f;
-                int desc_line_count = measure_text_wrapped(f_sm, desc_flat, perf_w - 30.0f, &desc_max_line_w);
+                if (perf_desc_cached_lang != current_lang) {
+                    for (int pj = 0; pj < 3; pj++) {
+                        char desc_flat_pj[128];
+                        snprintf(desc_flat_pj, sizeof(desc_flat_pj), "%s", perf_opts[pj].desc[current_lang]);
+                        for (char *p = desc_flat_pj; *p; p++) if (*p == '\n') *p = ' ';
+                        perf_desc_lines_cached[pj] = measure_text_wrapped(f_sm, desc_flat_pj, perf_w - 30.0f, &perf_desc_max_line_w_cached[pj]);
+                    }
+                    perf_desc_cached_lang = current_lang;
+                }
+                float desc_max_line_w = perf_desc_max_line_w_cached[i];
+                int desc_line_count = perf_desc_lines_cached[i];
                 float content_w = (tw > desc_max_line_w) ? (float)tw : desc_max_line_w;
                 /* Geometria real: texto arranca en perf_x+38, pill arranca en perf_x-10 */
                 float text_left_pad = 38.0f - (-10.0f); /* = 48: desde el borde del pill hasta el texto */
@@ -4647,7 +4668,13 @@ int main(void)
                 float desc_max_w = box_w - box_pad * 2.0f;
                 float desc_line_h = 16.0f;
                 float desc_max_line_w = 0.0f;
-                int desc_lines = measure_text_wrapped(f_sm, desc_line, desc_max_w, &desc_max_line_w);
+                if (arexx_desc_cached_for != arexx_selected || arexx_desc_cached_lang != current_lang) {
+                    arexx_desc_lines_cached = measure_text_wrapped(f_sm, desc_line, desc_max_w, &arexx_desc_max_line_w_cached);
+                    arexx_desc_cached_for = arexx_selected;
+                    arexx_desc_cached_lang = current_lang;
+                }
+                int desc_lines = arexx_desc_lines_cached;
+                desc_max_line_w = arexx_desc_max_line_w_cached;
                 float box_h = box_pad + (float)desc_lines * desc_line_h + 6.0f + (float)md5_h + box_pad;
                 float box_x = SCREEN_W - mx - box_w;
                 float box_y = 438.0f - 12.0f - box_h;
