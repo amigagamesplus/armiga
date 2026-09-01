@@ -1514,6 +1514,11 @@ MODULE_AUTHOR("ROCKNIX");
 MODULE_DESCRIPTION("ROCKNIX singleadc joypad driver");
 MODULE_LICENSE("GPL");
 MODULE_ALIAS("platform:" DRV_NAME);
+/* Requerido desde el kernel que hace obligatoria la importacion del
+ * namespace IIO_CONSUMER para devm_iio_channel_get/iio_get_channel_type/
+ * iio_read_channel_raw (visto por primera vez en 7.3-rc1; inofensivo en
+ * kernels anteriores donde el namespace existe pero no se exigia import). */
+MODULE_IMPORT_NS("IIO_CONSUMER");
 MODULE_INFO(intree, "Y");
 
 /*----------------------------------------------------------------------------*/
