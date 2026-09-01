@@ -28,6 +28,16 @@ Some RG35XX H units use a different internal display panel. There's no way to te
 4. Rename `dtb-rg35xx-h-rev6.img` to `dtb.img`.
 5. Eject the SD card and boot your RG35XX H again.
 
+### RG40XX H "v2" panel variant
+
+Some RG40XX H units use a newer internal display panel revision ("v2"). There's no way to tell which one your unit has without opening it up, so if your screen shows garbage, artifacts, or stays blank on first boot:
+
+1. Power off the device (long-press power for ~10 seconds).
+2. Open the `boot` partition on the SD card from a computer.
+3. Delete (or rename) `dtb.img`.
+4. Rename `dtb-rg40xx-h-v2.img` to `dtb.img`.
+5. Eject the SD card and boot your RG40XX H again.
+
 ## Controls
 
 | Physical button                   | Function                           |
