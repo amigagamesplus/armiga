@@ -23,6 +23,7 @@
 #include <sys/wait.h>
 #include <signal.h>
 #include <sys/stat.h>
+#include <dirent.h>
 #include <sys/statvfs.h>
 #include <ifaddrs.h>
 #include <arpa/inet.h>
@@ -79,6 +80,7 @@ static void safe_copy(char *dst, const char *src, size_t sz) {
 #define FONT_MED     13
 #define FONT_SM      12
 #define FONT_XS      9
+#define FONT_XSM     10
 #define FONT_LG      28
 
 #define COL_BG       {15, 31, 24, 255}
@@ -107,7 +109,8 @@ typedef enum {
     STATE_PERF_CONFIG,
     STATE_BLUETOOTH_CONFIG,
     STATE_AREXX_LIST,
-    STATE_AREXX_RUN
+    STATE_AREXX_RUN,
+    STATE_CONTROLLER_TEST
 } AppState;
 
 typedef enum {
@@ -217,9 +220,11 @@ static const char *SETTINGS_MENU_ITEMS[][2] = {
     {"Bluetooth",                   "Bluetooth"},
     {"Frecuencia de refresco",       "Refresh Rate"},
     {"Restablecer valores de fábrica", "Factory reset"},
+    {"Test de mando",                "Controller Test"},
 };
-#define SETTINGS_MENU_COUNT 12
+#define SETTINGS_MENU_COUNT 13
 #define SETTINGS_ACTION_FACTORY_RESET 11
+#define SETTINGS_ITEM_CONTROLLER_TEST 12
 
 /* Tiempos de inactividad seleccionables, en segundos. 0 = Nunca. */
 static const int DIM_TIMEOUT_OPTIONS[] = {0, 60, 300, 600, 900, 1800, 3600};
@@ -716,29 +721,50 @@ static void apply_timezone(void)
     }
     fclose(f);
 }
-/* Guarda el idioma actual en armiga.cfg, preservando el resto de claves
- * (ej. TZ) linea a linea. */
-static void save_lang_config(void)
+/* Escritura atomica generica de N claves en ARMIGA_CONFIG_PATH,
+ * preservando el resto de lineas. Reemplaza el patron duplicado de las
+ * 9 funciones save_*_config. Fichero temporal + fsync + rename evita
+ * corrupcion de armiga.cfg si la consola se apaga a mitad de guardado. */
+static void config_set_kv_multi(const char *keys[], const char *vals[], int count)
 {
     char lines[32][128];
     int n = 0;
     FILE *f = fopen(ARMIGA_CONFIG_PATH, "r");
     if (f) {
         while (n < 32 && fgets(lines[n], sizeof(lines[n]), f)) {
-            char key[32], val[96];
-            if (sscanf(lines[n], "%31[^=]=%95s", key, val) == 2 &&
-                !strcmp(key, "LANG")) {
-                continue; /* se reescribe al final, no duplicar */
+            char line_key[32], line_val[96];
+            bool skip = false;
+            if (sscanf(lines[n], "%31[^=]=%95s", line_key, line_val) == 2) {
+                for (int i = 0; i < count; i++) {
+                    if (!strcmp(line_key, keys[i])) { skip = true; break; }
+                }
             }
+            if (skip) continue;
             n++;
         }
         fclose(f);
     }
-    f = fopen(ARMIGA_CONFIG_PATH, "w");
+    char tmp_path[160];
+    snprintf(tmp_path, sizeof(tmp_path), "%s.tmp", ARMIGA_CONFIG_PATH);
+    f = fopen(tmp_path, "w");
     if (!f) return;
     for (int i = 0; i < n; i++) fputs(lines[i], f);
-    fprintf(f, "LANG=%s\n", (current_lang == LANG_EN) ? "EN" : "ES");
+    for (int i = 0; i < count; i++) fprintf(f, "%s=%s\n", keys[i], vals[i]);
+    fflush(f);
+    fsync(fileno(f));
     fclose(f);
+    rename(tmp_path, ARMIGA_CONFIG_PATH);
+}
+static void config_set_kv(const char *key, const char *val)
+{
+    const char *keys[1] = { key };
+    const char *vals[1] = { val };
+    config_set_kv_multi(keys, vals, 1);
+}
+/* Guarda el idioma actual en armiga.cfg. */
+static void save_lang_config(void)
+{
+    config_set_kv("LANG", (current_lang == LANG_EN) ? "EN" : "ES");
 }
 /* Lee el valor TZ actual de armiga.cfg (sin aplicarlo, solo para saber
  * cual esta activo, ej. al abrir el selector de zona horaria). */
@@ -758,29 +784,10 @@ static void read_current_tz(char *tz_name, size_t tz_sz)
     }
     fclose(f);
 }
-/* Guarda TZ en armiga.cfg, preservando el resto de claves (ej. LANG),
- * mismo patron que save_lang_config. */
+/* Guarda TZ en armiga.cfg. */
 static void save_timezone_config(const char *tz_name)
 {
-    char lines[32][128];
-    int n = 0;
-    FILE *f = fopen(ARMIGA_CONFIG_PATH, "r");
-    if (f) {
-        while (n < 32 && fgets(lines[n], sizeof(lines[n]), f)) {
-            char key[32], val[96];
-            if (sscanf(lines[n], "%31[^=]=%95s", key, val) == 2 &&
-                !strcmp(key, "TZ")) {
-                continue; /* se reescribe al final, no duplicar */
-            }
-            n++;
-        }
-        fclose(f);
-    }
-    f = fopen(ARMIGA_CONFIG_PATH, "w");
-    if (!f) return;
-    for (int i = 0; i < n; i++) fputs(lines[i], f);
-    fprintf(f, "TZ=%s\n", tz_name);
-    fclose(f);
+    config_set_kv("TZ", tz_name);
 }
 
 static bool read_sysfs_str(const char *path, char *buf, size_t bufsize)
@@ -914,29 +921,16 @@ static void read_dim_config(int *timeout_sec, int *dim_percent)
     }
     fclose(f);
 }
-/* Guarda DIM_TIMEOUT y DIM_PERCENT en armiga.cfg, preservando otras claves
- * (TZ, LANG), mismo patron que save_timezone_config/save_lang_config. */
+/* Guarda DIM_TIMEOUT y DIM_PERCENT en armiga.cfg, una unica escritura
+ * atomica (ambas claves juntas). */
 static void save_dim_config(int timeout_sec, int dim_percent)
 {
-    char lines[32][128];
-    int n = 0;
-    FILE *f = fopen(ARMIGA_CONFIG_PATH, "r");
-    if (f) {
-        while (n < 32 && fgets(lines[n], sizeof(lines[n]), f)) {
-            char key[32], val[96];
-            if (sscanf(lines[n], "%31[^=]=%95s", key, val) == 2 &&
-                (!strcmp(key, "DIM_TIMEOUT") || !strcmp(key, "DIM_PERCENT"))) {
-                continue; /* se reescriben al final, no duplicar */
-            }
-            n++;
-        }
-        fclose(f);
-    }
-    f = fopen(ARMIGA_CONFIG_PATH, "w");
-    if (!f) return;
-    for (int i = 0; i < n; i++) fputs(lines[i], f);
-    fprintf(f, "DIM_TIMEOUT=%d\nDIM_PERCENT=%d\n", timeout_sec, dim_percent);
-    fclose(f);
+    char v1[16], v2[16];
+    snprintf(v1, sizeof(v1), "%d", timeout_sec);
+    snprintf(v2, sizeof(v2), "%d", dim_percent);
+    const char *keys[2] = { "DIM_TIMEOUT", "DIM_PERCENT" };
+    const char *vals[2] = { v1, v2 };
+    config_set_kv_multi(keys, vals, 2);
 }
 /* Lee BRIGHTNESS_PCT de armiga.cfg. Default: 80%. */
 static int read_brightness_config(void)
@@ -956,29 +950,12 @@ static int read_brightness_config(void)
     if (pct > 100) pct = 100;
     return pct;
 }
-/* Guarda BRIGHTNESS_PCT en armiga.cfg, preservando otras claves,
- * mismo patron que save_dim_config/save_timezone_config. */
+/* Guarda BRIGHTNESS_PCT en armiga.cfg. */
 static void save_brightness_config(int pct)
 {
-    char lines[32][128];
-    int n = 0;
-    FILE *f = fopen(ARMIGA_CONFIG_PATH, "r");
-    if (f) {
-        while (n < 32 && fgets(lines[n], sizeof(lines[n]), f)) {
-            char key[32], val[96];
-            if (sscanf(lines[n], "%31[^=]=%95s", key, val) == 2 &&
-                !strcmp(key, "BRIGHTNESS_PCT")) {
-                continue; /* se reescribe al final, no duplicar */
-            }
-            n++;
-        }
-        fclose(f);
-    }
-    f = fopen(ARMIGA_CONFIG_PATH, "w");
-    if (!f) return;
-    for (int i = 0; i < n; i++) fputs(lines[i], f);
-    fprintf(f, "BRIGHTNESS_PCT=%d\n", pct);
-    fclose(f);
+    char v[16];
+    snprintf(v, sizeof(v), "%d", pct);
+    config_set_kv("BRIGHTNESS_PCT", v);
 }
 /* Lee REFRESH_120HZ de armiga.cfg. Default: desactivado (0, = 60Hz). */
 static int read_refresh_120hz(void)
@@ -1000,49 +977,12 @@ static int read_refresh_120hz(void)
  * mismo patron que save_ssh_enabled. */
 static void save_refresh_120hz(int enabled)
 {
-    char lines[32][128];
-    int n = 0;
-    FILE *f = fopen(ARMIGA_CONFIG_PATH, "r");
-    if (f) {
-        while (n < 32 && fgets(lines[n], sizeof(lines[n]), f)) {
-            char key[32], val[96];
-            if (sscanf(lines[n], "%31[^=]=%95s", key, val) == 2 &&
-                !strcmp(key, "REFRESH_120HZ")) {
-                continue;
-            }
-            n++;
-        }
-        fclose(f);
-    }
-    f = fopen(ARMIGA_CONFIG_PATH, "w");
-    if (!f) return;
-    for (int i = 0; i < n; i++) fputs(lines[i], f);
-    fprintf(f, "REFRESH_120HZ=%d\n", enabled ? 1 : 0);
-    fclose(f);
+    config_set_kv("REFRESH_120HZ", enabled ? "1" : "0");
 }
-/* Guarda SSH_ENABLED en armiga.cfg, preservando otras claves,
- * mismo patron que save_brightness_config. */
+/* Guarda SSH_ENABLED en armiga.cfg. */
 static void save_ssh_enabled(int enabled)
 {
-    char lines[32][128];
-    int n = 0;
-    FILE *f = fopen(ARMIGA_CONFIG_PATH, "r");
-    if (f) {
-        while (n < 32 && fgets(lines[n], sizeof(lines[n]), f)) {
-            char key[32], val[96];
-            if (sscanf(lines[n], "%31[^=]=%95s", key, val) == 2 &&
-                !strcmp(key, "SSH_ENABLED")) {
-                continue; /* se reescribe al final, no duplicar */
-            }
-            n++;
-        }
-        fclose(f);
-    }
-    f = fopen(ARMIGA_CONFIG_PATH, "w");
-    if (!f) return;
-    for (int i = 0; i < n; i++) fputs(lines[i], f);
-    fprintf(f, "SSH_ENABLED=%d\n", enabled ? 1 : 0);
-    fclose(f);
+    config_set_kv("SSH_ENABLED", enabled ? "1" : "0");
     g_cfg.ssh_enabled = enabled ? 1 : 0;
 }
 /* Aplica el estado SSH en caliente, sin reiniciar. */
@@ -1083,28 +1023,10 @@ static int read_bt_enabled(void)
     fclose(f);
     return enabled ? 1 : 0;
 }
-/* Guarda BT_ENABLED en armiga.cfg, preservando otras claves. */
+/* Guarda BT_ENABLED en armiga.cfg. */
 static void save_bt_enabled(int enabled)
 {
-    char lines[32][128];
-    int n = 0;
-    FILE *f = fopen(ARMIGA_CONFIG_PATH, "r");
-    if (f) {
-        while (n < 32 && fgets(lines[n], sizeof(lines[n]), f)) {
-            char key[32], val[96];
-            if (sscanf(lines[n], "%31[^=]=%95s", key, val) == 2 &&
-                !strcmp(key, "BT_ENABLED")) {
-                continue;
-            }
-            n++;
-        }
-        fclose(f);
-    }
-    f = fopen(ARMIGA_CONFIG_PATH, "w");
-    if (!f) return;
-    for (int i = 0; i < n; i++) fputs(lines[i], f);
-    fprintf(f, "BT_ENABLED=%d\n", enabled ? 1 : 0);
-    fclose(f);
+    config_set_kv("BT_ENABLED", enabled ? "1" : "0");
 }
 /* Fija (o revierte a altavoz) el audio_device de RetroArch para que el
  * audio del emulador salga por el Bluetooth conectado. mac==NULL o vacio
@@ -1210,25 +1132,9 @@ static void read_bt_connected(char *mac_out, size_t mac_sz, char *name_out, size
 }
 static void save_perf_profile(int profile)
 {
-    char lines[32][128];
-    int n = 0;
-    FILE *f = fopen(ARMIGA_CONFIG_PATH, "r");
-    if (f) {
-        while (n < 32 && fgets(lines[n], sizeof(lines[n]), f)) {
-            char key[32], val[96];
-            if (sscanf(lines[n], "%31[^=]=%95s", key, val) == 2 &&
-                !strcmp(key, "PERF_PROFILE")) {
-                continue;
-            }
-            n++;
-        }
-        fclose(f);
-    }
-    f = fopen(ARMIGA_CONFIG_PATH, "w");
-    if (!f) return;
-    for (int i = 0; i < n; i++) fputs(lines[i], f);
-    fprintf(f, "PERF_PROFILE=%d\n", profile);
-    fclose(f);
+    char v[16];
+    snprintf(v, sizeof(v), "%d", profile);
+    config_set_kv("PERF_PROFILE", v);
     g_cfg.perf_profile = profile;
 }
 /* Aplica el perfil en caliente: CPU governor + GPU devfreq governor. */
@@ -1272,29 +1178,10 @@ static int read_samba_enabled(void)
     return enabled ? 1 : 0;
 }
 
-/* Guarda SAMBA_ENABLED en armiga.cfg, preservando otras claves,
- * mismo patron que save_ssh_enabled. */
+/* Guarda SAMBA_ENABLED en armiga.cfg. */
 static void save_samba_enabled(int enabled)
 {
-    char lines[32][128];
-    int n = 0;
-    FILE *f = fopen(ARMIGA_CONFIG_PATH, "r");
-    if (f) {
-        while (n < 32 && fgets(lines[n], sizeof(lines[n]), f)) {
-            char key[32], val[96];
-            if (sscanf(lines[n], "%31[^=]=%95s", key, val) == 2 &&
-                !strcmp(key, "SAMBA_ENABLED")) {
-                continue; /* se reescribe al final, no duplicar */
-            }
-            n++;
-        }
-        fclose(f);
-    }
-    f = fopen(ARMIGA_CONFIG_PATH, "w");
-    if (!f) return;
-    for (int i = 0; i < n; i++) fputs(lines[i], f);
-    fprintf(f, "SAMBA_ENABLED=%d\n", enabled ? 1 : 0);
-    fclose(f);
+    config_set_kv("SAMBA_ENABLED", enabled ? "1" : "0");
 }
 
 /* Aplica el estado Samba en caliente, sin reiniciar. */
@@ -1343,15 +1230,15 @@ static bool save_led_conf(int r_right, int g_right, int b_right,
 }
 #define LED_SERIAL_DEV "/dev/ttyS2"
 #define LED_LEDS_PER_STICK 8
-static void send_led_payload(int brightness,
-                              int r_right, int g_right, int b_right,
-                              int r_left, int g_left, int b_left)
+/* Pauta 3: fd de LED_SERIAL_DEV cacheado en vez de abrir/cerrar en cada
+ * llamada (hasta 16/s durante repeat-hold en LED_CONFIG). O_CLOEXEC evita
+ * que el fd se filtre a execl(retroarch/shell/btop). */
+static int s_led_fd = -1;
+static int get_led_fd(void)
 {
-    write_sysfs_str("/sys/class/leds/rgb:kbd_backlight/brightness", "1");
-
-    int fd = open(LED_SERIAL_DEV, O_WRONLY | O_NOCTTY);
-    if (fd < 0) return;
-
+    if (s_led_fd >= 0) return s_led_fd;
+    int fd = open(LED_SERIAL_DEV, O_WRONLY | O_NOCTTY | O_CLOEXEC);
+    if (fd < 0) return -1;
     struct termios tio;
     if (tcgetattr(fd, &tio) == 0) {
         cfmakeraw(&tio);
@@ -1359,6 +1246,17 @@ static void send_led_payload(int brightness,
         cfsetospeed(&tio, B115200);
         tcsetattr(fd, TCSANOW, &tio);
     }
+    s_led_fd = fd;
+    return fd;
+}
+static void send_led_payload(int brightness,
+                              int r_right, int g_right, int b_right,
+                              int r_left, int g_left, int b_left)
+{
+    write_sysfs_str("/sys/class/leds/rgb:kbd_backlight/brightness", "1");
+
+    int fd = get_led_fd();
+    if (fd < 0) return;
 
     unsigned char payload[2 + LED_LEDS_PER_STICK * 3 * 2 + 1];
     int idx = 0;
@@ -1380,7 +1278,6 @@ static void send_led_payload(int brightness,
     payload[idx] = (unsigned char)(sum & 0xFF); idx++;
 
     write(fd, payload, idx);
-    close(fd);
 }
 static void factory_reset(void)
 {
@@ -1406,7 +1303,7 @@ static void start_backup_async(char *out_name, size_t out_name_sz)
     char ts[32];
     time_t now = time(NULL);
     struct tm *tm_now = localtime(&now);
-    strftime(ts, sizeof(ts), "%Y%m%d_%H%M%S", tm_now);
+    strftime(ts, sizeof(ts), "%d%m%Y_%H%M%S", tm_now);
     char backup_path[256];
     snprintf(backup_path, sizeof(backup_path), BACKUP_DIR "/backup_%s.tar.gz", ts);
     if (out_name && out_name_sz > 0)
@@ -1466,22 +1363,44 @@ static int poll_backup_progress(void)
     }
     return -1;
 }
+typedef struct { char name[64]; time_t mtime; } BackupEntry;
+static int backup_entry_cmp_desc(const void *a, const void *b)
+{
+    const BackupEntry *ea = (const BackupEntry *)a, *eb = (const BackupEntry *)b;
+    if (eb->mtime > ea->mtime) return 1;
+    if (eb->mtime < ea->mtime) return -1;
+    return 0;
+}
+/* Reemplaza popen("ls -t ...") por opendir/readdir + stat, evitando el
+ * fork()+shell+ls por cada listado. Preserva el mismo orden (mas reciente
+ * primero) via qsort por mtime real, ya que readdir() no garantiza orden. */
 static int list_backups(char names[][64], int max_names)
 {
-    FILE *p = popen("ls -t " BACKUP_DIR "/backup_*.tar.gz 2>/dev/null", "r");
-    if (!p) return 0;
+    DIR *dir = opendir(BACKUP_DIR);
+    if (!dir) return 0;
+    BackupEntry entries[64];
     int n = 0;
-    char line[256];
-    while (n < max_names && fgets(line, sizeof(line), p)) {
-        line[strcspn(line, "\r\n")] = 0;
-        const char *base = strrchr(line, '/');
-        base = base ? base + 1 : line;
-        strncpy(names[n], base, 63);
-        names[n][63] = 0;
+    struct dirent *ent;
+    while (n < 64 && (ent = readdir(dir)) != NULL) {
+        size_t len = strlen(ent->d_name);
+        if (len < 12) continue; /* "backup_X.tar.gz" minimo */
+        if (strncmp(ent->d_name, "backup_", 7) != 0) continue;
+        if (strcmp(ent->d_name + len - 7, ".tar.gz") != 0) continue;
+        char path[288];
+        snprintf(path, sizeof(path), BACKUP_DIR "/%s", ent->d_name);
+        struct stat st;
+        if (stat(path, &st) != 0) continue;
+        safe_copy(entries[n].name, ent->d_name, sizeof(entries[n].name));
+        entries[n].mtime = st.st_mtime;
         n++;
     }
-    pclose(p);
-    return n;
+    closedir(dir);
+    qsort(entries, n, sizeof(BackupEntry), backup_entry_cmp_desc);
+    int out_n = (n < max_names) ? n : max_names;
+    for (int i = 0; i < out_n; i++) {
+        safe_copy(names[i], entries[i].name, 64);
+    }
+    return out_n;
 }
 /* Borra un backup por nombre (sin system(), sin riesgo de inyeccion). */
 static void delete_backup(const char *filename)
@@ -1500,39 +1419,52 @@ typedef struct {
  * cabecera de cada uno buscando lineas "# DESC_ES:"/"# DESC_EN:" entre las
  * primeras 8 lineas del fichero. Si no encuentra cabecera, usa el nombre
  * de fichero como descripcion en ambos idiomas (fallback). */
+static int arexx_filename_cmp(const void *a, const void *b)
+{
+    return strcmp((const char *)a, (const char *)b);
+}
+/* Reemplaza popen("ls *.sh") por opendir/readdir + qsort alfabetico,
+ * evitando el fork()+shell+ls por cada listado. Mismo orden que antes
+ * (ls sin flags = alfabetico ascendente). */
 static int list_arexx_scripts(ArexxScript *scripts, int max_scripts)
 {
-    FILE *p = popen("ls " AREXX_SCRIPTS_DIR "/*.sh 2>/dev/null", "r");
-    if (!p) return 0;
+    DIR *dir = opendir(AREXX_SCRIPTS_DIR);
+    if (!dir) return 0;
+    char names[AREXX_MAX_SCRIPTS][64];
     int n = 0;
-    char line[288];
-    while (n < max_scripts && fgets(line, sizeof(line), p)) {
-        line[strcspn(line, "\r\n")] = 0;
-        const char *base = strrchr(line, '/');
-        base = base ? base + 1 : line;
-        safe_copy(scripts[n].filename, base, sizeof(scripts[n].filename));
-        safe_copy(scripts[n].desc[0], base, sizeof(scripts[n].desc[0]));
-        safe_copy(scripts[n].desc[1], base, sizeof(scripts[n].desc[1]));
-        FILE *sf = fopen(line, "r");
+    struct dirent *ent;
+    while (n < max_scripts && (ent = readdir(dir)) != NULL) {
+        size_t len = strlen(ent->d_name);
+        if (len < 4 || strcmp(ent->d_name + len - 3, ".sh") != 0) continue;
+        safe_copy(names[n], ent->d_name, sizeof(names[n]));
+        n++;
+    }
+    closedir(dir);
+    qsort(names, n, sizeof(names[0]), arexx_filename_cmp);
+    for (int i = 0; i < n; i++) {
+        safe_copy(scripts[i].filename, names[i], sizeof(scripts[i].filename));
+        safe_copy(scripts[i].desc[0], names[i], sizeof(scripts[i].desc[0]));
+        safe_copy(scripts[i].desc[1], names[i], sizeof(scripts[i].desc[1]));
+        char full_path[288];
+        snprintf(full_path, sizeof(full_path), AREXX_SCRIPTS_DIR "/%s", names[i]);
+        FILE *sf = fopen(full_path, "r");
         if (sf) {
             char hline[192];
-            for (int i = 0; i < 8 && fgets(hline, sizeof(hline), sf); i++) {
+            for (int j = 0; j < 8 && fgets(hline, sizeof(hline), sf); j++) {
                 hline[strcspn(hline, "\r\n")] = 0;
                 if (!strncmp(hline, "# DESC_ES:", 10)) {
                     const char *v = hline + 10;
                     while (*v == ' ') v++;
-                    safe_copy(scripts[n].desc[0], v, sizeof(scripts[n].desc[0]));
+                    safe_copy(scripts[i].desc[0], v, sizeof(scripts[i].desc[0]));
                 } else if (!strncmp(hline, "# DESC_EN:", 10)) {
                     const char *v = hline + 10;
                     while (*v == ' ') v++;
-                    safe_copy(scripts[n].desc[1], v, sizeof(scripts[n].desc[1]));
+                    safe_copy(scripts[i].desc[1], v, sizeof(scripts[i].desc[1]));
                 }
             }
             fclose(sf);
         }
-        n++;
     }
-    pclose(p);
     return n;
 }
 /* Calcula el MD5 de un script ARexx (via popen a md5sum, mismo patron que
@@ -2614,7 +2546,8 @@ int main(void)
     TTF_Font *f_sm    = TTF_OpenFont(FONT_PATH, FONT_SM);
     TTF_Font *f_lg    = TTF_OpenFont(FONT_PATH, FONT_LG);
     TTF_Font *f_xs    = TTF_OpenFont(FONT_PATH, FONT_XS);
-    if (!f_med || !f_sm || !f_lg || !f_xs) {
+    TTF_Font *f_xsm   = TTF_OpenFont(FONT_PATH, FONT_XSM);
+    if (!f_med || !f_sm || !f_lg || !f_xs || !f_xsm) {
         fprintf(stderr, "TTF_OpenFont: %s\n", SDL_GetError());
         SDL_DestroyRenderer(ren); SDL_DestroyWindow(win);
         TTF_Quit(); SDL_Quit(); return 1;
@@ -2704,6 +2637,18 @@ int main(void)
     int arexx_selected = 0;
     int arexx_md5_cached_for = -1;
     char arexx_md5[40] = "";
+    /* Pauta 4: cache de wrap de descripcion ARexx, evita recalcular
+     * TTF_GetStringSize palabra a palabra en cada frame si la seleccion
+     * y el idioma no han cambiado. */
+    int arexx_desc_cached_for = -1;
+    int arexx_desc_cached_lang = -1;
+    int arexx_desc_lines_cached = 0;
+    float arexx_desc_max_line_w_cached = 0.0f;
+    /* Cache de wrap de descripciones de perfil (Maximum/Balanced/Battery):
+     * contenido fijo, solo depende del idioma, no de la seleccion. */
+    int perf_desc_cached_lang = -1;
+    int perf_desc_lines_cached[3] = {0, 0, 0};
+    float perf_desc_max_line_w_cached[3] = {0.0f, 0.0f, 0.0f};
     char *arexx_output = NULL;
     size_t arexx_output_len = 0;
     size_t arexx_output_cap = 0;
@@ -2892,6 +2837,7 @@ int main(void)
                 else if (state == STATE_CONFIRM) state = STATE_DEVMODE;
                 else if (state == STATE_DEVMODE) state = STATE_MENU;
                 else if (state == STATE_SYSINFO) state = STATE_MENU;
+                else if (state == STATE_CONTROLLER_TEST) state = STATE_SETTINGS;
                 else if (state == STATE_UPDATE) { if (update_phase != UPD_DOWNLOADING && update_phase != UPD_CONFIRM) state = STATE_MENU; }
                 else if (state == STATE_SETTINGS) state = STATE_MENU;
             }
@@ -3037,6 +2983,9 @@ int main(void)
                         confirm_return_state = STATE_SETTINGS;
                         state = STATE_CONFIRM;
                     }
+                    if (ev.key.key == SDLK_RETURN && settings_selected == SETTINGS_ITEM_CONTROLLER_TEST) {
+                        state = STATE_CONTROLLER_TEST;
+                    }
                 }
                 if (ev.type == SDL_EVENT_JOYSTICK_HAT_MOTION) {
                     if (ev.jhat.value == SDL_HAT_UP)
@@ -3116,6 +3065,10 @@ int main(void)
                     confirm_target = SETTINGS_ACTION_FACTORY_RESET;
                     confirm_return_state = STATE_SETTINGS;
                     state = STATE_CONFIRM;
+                }
+                if (ev.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN &&
+                    ev.jbutton.button == BTN_SDL_A && settings_selected == SETTINGS_ITEM_CONTROLLER_TEST) {
+                    state = STATE_CONTROLLER_TEST;
                 }
                 if (ev.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN &&
                     ev.jbutton.button == BTN_SDL_B)
@@ -3653,6 +3606,18 @@ int main(void)
                     update_phase != UPD_DOWNLOADING)
                     state = STATE_MENU;
             }
+            else if (state == STATE_CONTROLLER_TEST) {
+                /* Salida via combo SELECT+START (no via un boton individual,
+                 * ya que esta pantalla existe precisamente para testear
+                 * TODOS los botones, incluido B). */
+                if (ev.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN &&
+                    (ev.jbutton.button == BTN_SDL_SELECT || ev.jbutton.button == BTN_SDL_START) &&
+                    SDL_GetJoystickButton(joy, BTN_SDL_SELECT) &&
+                    SDL_GetJoystickButton(joy, BTN_SDL_START))
+                    state = STATE_SETTINGS;
+                if (ev.type == SDL_EVENT_KEY_DOWN && ev.key.key == SDLK_ESCAPE)
+                    state = STATE_SETTINGS;
+            }
         }
 
         if (state == STATE_MENU && prev_state != STATE_MENU)
@@ -3689,8 +3654,10 @@ int main(void)
             devmode_hold_start = 0;
         }
 
-        /* Combo screenshot: SELECT + R1 pulsados simultaneamente (cualquier estado) */
-        if (joy) {
+        /* Combo screenshot: SELECT + R1 pulsados simultaneamente (cualquier
+         * estado excepto Controller Test, donde R1 debe poder probarse sin
+         * disparar una captura de pantalla). */
+        if (joy && state != STATE_CONTROLLER_TEST) {
             bool sel = SDL_GetJoystickButton(joy, BTN_SDL_SELECT);
             bool r1  = SDL_GetJoystickButton(joy, BTN_SDL_R1);
             if (sel && r1) {
@@ -4273,8 +4240,17 @@ int main(void)
                 for (char *p = desc_flat; *p; p++) if (*p == '\n') *p = ' ';
                 int tw = 0, th = 0;
                 TTF_GetStringSize(f_med, perf_opts[i].title[current_lang], 0, &tw, &th);
-                float desc_max_line_w = 0.0f;
-                int desc_line_count = measure_text_wrapped(f_sm, desc_flat, perf_w - 30.0f, &desc_max_line_w);
+                if (perf_desc_cached_lang != current_lang) {
+                    for (int pj = 0; pj < 3; pj++) {
+                        char desc_flat_pj[128];
+                        snprintf(desc_flat_pj, sizeof(desc_flat_pj), "%s", perf_opts[pj].desc[current_lang]);
+                        for (char *p = desc_flat_pj; *p; p++) if (*p == '\n') *p = ' ';
+                        perf_desc_lines_cached[pj] = measure_text_wrapped(f_sm, desc_flat_pj, perf_w - 30.0f, &perf_desc_max_line_w_cached[pj]);
+                    }
+                    perf_desc_cached_lang = current_lang;
+                }
+                float desc_max_line_w = perf_desc_max_line_w_cached[i];
+                int desc_line_count = perf_desc_lines_cached[i];
                 float content_w = (tw > desc_max_line_w) ? (float)tw : desc_max_line_w;
                 /* Geometria real: texto arranca en perf_x+38, pill arranca en perf_x-10 */
                 float text_left_pad = 38.0f - (-10.0f); /* = 48: desde el borde del pill hasta el texto */
@@ -4692,7 +4668,13 @@ int main(void)
                 float desc_max_w = box_w - box_pad * 2.0f;
                 float desc_line_h = 16.0f;
                 float desc_max_line_w = 0.0f;
-                int desc_lines = measure_text_wrapped(f_sm, desc_line, desc_max_w, &desc_max_line_w);
+                if (arexx_desc_cached_for != arexx_selected || arexx_desc_cached_lang != current_lang) {
+                    arexx_desc_lines_cached = measure_text_wrapped(f_sm, desc_line, desc_max_w, &arexx_desc_max_line_w_cached);
+                    arexx_desc_cached_for = arexx_selected;
+                    arexx_desc_cached_lang = current_lang;
+                }
+                int desc_lines = arexx_desc_lines_cached;
+                desc_max_line_w = arexx_desc_max_line_w_cached;
                 float box_h = box_pad + (float)desc_lines * desc_line_h + 6.0f + (float)md5_h + box_pad;
                 float box_x = SCREEN_W - mx - box_w;
                 float box_y = 438.0f - 12.0f - box_h;
@@ -5339,6 +5321,151 @@ int main(void)
                 draw_footer(ren, f_sm, "", s_version);
 
         } /* end STATE_UPDATE */
+        else if (state == STATE_CONTROLLER_TEST) {
+            const float CX = 20.0f;
+            draw_statusbar(ren, f_sm, f_xs, status_time, status_wifi_up, status_battery, status_bt_up, wifi_icon_tex, battery_icon_tex, bt_icon_tex);
+            draw_active_dash_breadcrumbs(ren, f_sm, CX, 25.0f, 3, tr("Test de mando", "Controller Test"));
+
+            if (!joy) {
+                draw_text(ren, f_sm, tr("No se detecta ningún mando.", "No controller detected."), c_gray, CX, 100.0f);
+            } else {
+                /* ── D-PAD (hat) ────────────────────────────────────────── */
+                float dpad_cx = 140.0f, dpad_cy = 160.0f, dpad_sz = 26.0f, dpad_gap = 4.0f;
+                Uint8 hat = SDL_GetJoystickHat(joy, 0);
+                draw_text_centered(ren, f_sm, "D-Pad", c_gray, dpad_cx, dpad_cy - 70.0f);
+                bool dpad_up_p    = hat & SDL_HAT_UP;
+                bool dpad_down_p  = hat & SDL_HAT_DOWN;
+                bool dpad_left_p  = hat & SDL_HAT_LEFT;
+                bool dpad_right_p = hat & SDL_HAT_RIGHT;
+                float dp_up_x = dpad_cx - dpad_sz/2, dp_up_y = dpad_cy - dpad_sz - dpad_gap;
+                float dp_down_x = dpad_cx - dpad_sz/2, dp_down_y = dpad_cy + dpad_gap;
+                float dp_left_x = dpad_cx - dpad_sz - dpad_gap - dpad_sz/2, dp_left_y = dpad_cy - dpad_sz/2;
+                float dp_right_x = dpad_cx + dpad_gap + dpad_sz/2, dp_right_y = dpad_cy - dpad_sz/2;
+                { SDL_Color border_c = COL_SEL_BG, bg_c = COL_KEY_BG;
+                  if (dpad_up_p)    draw_rounded_rect_filled(ren, dp_up_x, dp_up_y, dpad_sz, dpad_sz, 4.0f, border_c);
+                  else              draw_rounded_rect_outline(ren, dp_up_x, dp_up_y, dpad_sz, dpad_sz, 4.0f, 2.0f, border_c, bg_c);
+                  if (dpad_down_p)  draw_rounded_rect_filled(ren, dp_down_x, dp_down_y, dpad_sz, dpad_sz, 4.0f, border_c);
+                  else              draw_rounded_rect_outline(ren, dp_down_x, dp_down_y, dpad_sz, dpad_sz, 4.0f, 2.0f, border_c, bg_c);
+                  if (dpad_left_p)  draw_rounded_rect_filled(ren, dp_left_x, dp_left_y, dpad_sz, dpad_sz, 4.0f, border_c);
+                  else              draw_rounded_rect_outline(ren, dp_left_x, dp_left_y, dpad_sz, dpad_sz, 4.0f, 2.0f, border_c, bg_c);
+                  if (dpad_right_p) draw_rounded_rect_filled(ren, dp_right_x, dp_right_y, dpad_sz, dpad_sz, 4.0f, border_c);
+                  else              draw_rounded_rect_outline(ren, dp_right_x, dp_right_y, dpad_sz, dpad_sz, 4.0f, 2.0f, border_c, bg_c);
+                }
+
+                /* ── STICK IZQUIERDO (ejes 0,1) ─────────────────────────── */
+                float stickL_cx = 320.0f, stickL_cy = 160.0f, stick_r = 45.0f, dot_r = 8.0f;
+                draw_text_centered(ren, f_sm, tr("Stick Izq.", "Left Stick"), c_gray, stickL_cx, stickL_cy - 70.0f);
+                { SDL_Color ring_c = COL_SEL_BG; SDL_Color bg_c = COL_BG;
+                  draw_rounded_rect_outline(ren, stickL_cx - stick_r, stickL_cy - stick_r, stick_r*2, stick_r*2, stick_r, 2.0f, ring_c, bg_c); }
+                { SDL_Color deadzone_c = {40, 65, 50, 255};
+                  draw_circle_filled(ren, stickL_cx, stickL_cy, stick_r * 0.10f, deadzone_c); }
+                Sint16 axL_x = SDL_GetJoystickAxis(joy, 0);
+                Sint16 axL_y = SDL_GetJoystickAxis(joy, 1);
+                float normL_x = (float)axL_x / 32767.0f;
+                float normL_y = (float)axL_y / 32767.0f;
+                float magL = SDL_sqrtf(normL_x * normL_x + normL_y * normL_y);
+                if (magL > 1.0f) { normL_x /= magL; normL_y /= magL; }
+                float dotL_x = stickL_cx + normL_x * (stick_r - dot_r);
+                float dotL_y = stickL_cy + normL_y * (stick_r - dot_r);
+                { bool l3_pressed = (SDL_GetNumJoystickButtons(joy) > 11) && SDL_GetJoystickButton(joy, 11);
+                  SDL_Color dot_c = l3_pressed ? (SDL_Color)COL_RED : (SDL_Color)COL_SEL_BG;
+                  draw_circle_filled(ren, dotL_x, dotL_y, dot_r, dot_c); }
+                { char buf[24]; snprintf(buf, sizeof(buf), "X:%d Y:%d", axL_x, axL_y);
+                  draw_text_centered(ren, f_xsm, buf, c_gray, stickL_cx, stickL_cy + stick_r + 10.0f); }
+
+                /* ── STICK DERECHO (ejes 2,3) ───────────────────────────── */
+                float stickR_cx = 500.0f, stickR_cy = 160.0f;
+                draw_text_centered(ren, f_sm, tr("Stick Dcho.", "Right Stick"), c_gray, stickR_cx, stickR_cy - 70.0f);
+                { SDL_Color ring_c = COL_SEL_BG; SDL_Color bg_c = COL_BG;
+                  draw_rounded_rect_outline(ren, stickR_cx - stick_r, stickR_cy - stick_r, stick_r*2, stick_r*2, stick_r, 2.0f, ring_c, bg_c); }
+                { SDL_Color deadzone_c = {40, 65, 50, 255};
+                  draw_circle_filled(ren, stickR_cx, stickR_cy, stick_r * 0.10f, deadzone_c); }
+                Sint16 axR_x = SDL_GetJoystickAxis(joy, 2);
+                Sint16 axR_y = SDL_GetJoystickAxis(joy, 3);
+                float normR_x = (float)axR_x / 32767.0f;
+                float normR_y = (float)axR_y / 32767.0f;
+                float magR = SDL_sqrtf(normR_x * normR_x + normR_y * normR_y);
+                if (magR > 1.0f) { normR_x /= magR; normR_y /= magR; }
+                float dotR_x = stickR_cx + normR_x * (stick_r - dot_r);
+                float dotR_y = stickR_cy + normR_y * (stick_r - dot_r);
+                { bool r3_pressed = (SDL_GetNumJoystickButtons(joy) > 12) && SDL_GetJoystickButton(joy, 12);
+                  SDL_Color dot_c = r3_pressed ? (SDL_Color)COL_RED : (SDL_Color)COL_SEL_BG;
+                  draw_circle_filled(ren, dotR_x, dotR_y, dot_r, dot_c); }
+                { char buf[24]; snprintf(buf, sizeof(buf), "X:%d Y:%d", axR_x, axR_y);
+                  draw_text_centered(ren, f_xsm, buf, c_gray, stickR_cx, stickR_cy + stick_r + 10.0f); }
+
+                /* ── BOTONES (indice SDL crudo, sin asumir nombres no verificados) ── */
+                int n_btn = SDL_GetNumJoystickButtons(joy);
+                draw_text_centered(ren, f_sm, tr("Botones", "Buttons"), c_gray, SCREEN_W / 2.0f, 260.0f);
+                float btn_y0 = 285.0f, btn_w = 36.0f, btn_h = 36.0f, btn_gap = 8.0f;
+                int btn_per_row = 10;
+                int btn_rows = (n_btn + btn_per_row - 1) / btn_per_row;
+                for (int b = 0; b < n_btn; b++) {
+                    int row = b / btn_per_row, col = b % btn_per_row;
+                    int items_this_row = (row == btn_rows - 1) ? (n_btn - row * btn_per_row) : btn_per_row;
+                    float row_w = items_this_row * btn_w + (items_this_row - 1) * btn_gap;
+                    float btn_x0 = (SCREEN_W - row_w) / 2.0f;
+                    float bx = btn_x0 + col * (btn_w + btn_gap);
+                    float by = btn_y0 + row * (btn_h + btn_gap);
+                    bool pressed = SDL_GetJoystickButton(joy, b);
+                    if (pressed) {
+                        SDL_Color bc = COL_SEL_BG;
+                        draw_rounded_rect_filled(ren, bx, by, btn_w, btn_h, 6.0f, bc);
+                    } else {
+                        SDL_Color border_c = COL_SEL_BG, bg_c = COL_KEY_BG;
+                        draw_rounded_rect_outline(ren, bx, by, btn_w, btn_h, 6.0f, 2.0f, border_c, bg_c);
+                    }
+                    char bl[4]; snprintf(bl, sizeof(bl), "%d", b);
+                    int tw = 0, th = 0;
+                    TTF_GetStringSize(f_med, bl, 0, &tw, &th);
+                    SDL_Color txt_c = pressed ? (SDL_Color){0,0,0,255} : (SDL_Color)COL_SEL_BG;
+                    draw_text(ren, f_med, bl, txt_c, bx + btn_w/2.0f - (float)tw/2.0f, by + btn_h/2.0f - (float)th/2.0f);
+                }
+
+                /* Nombre del boton pulsado, segun orden estandar evdev/SDL
+                 * (indices 0,1,3,4,5,8,9 confirmados via constantes
+                 * BTN_SDL_* ya existentes; el resto inferido por orden de
+                 * aparicion en evtest, autoverificable en esta pantalla). */
+                {
+                    static const char *CTRL_BTN_NAMES[] = {
+                        "B (SOUTH)", "A (EAST)", "Y (WEST)", "X (NORTH)",
+                        "L1", "R1", "L2", "R2",
+                        "SELECT", "START", "MODE",
+                        "L3", "R3",
+                        "DPAD UP", "DPAD DOWN", "DPAD LEFT", "DPAD RIGHT"
+                    };
+                    int n_names = (int)(sizeof(CTRL_BTN_NAMES) / sizeof(CTRL_BTN_NAMES[0]));
+                    char active_btns_str[160] = "";
+                    bool any_pressed = false;
+                    for (int b = 0; b < n_btn && b < n_names; b++) {
+                        if (SDL_GetJoystickButton(joy, b)) {
+                            if (any_pressed && strlen(active_btns_str) < sizeof(active_btns_str) - 24)
+                                strcat(active_btns_str, " + ");
+                            if (strlen(active_btns_str) < sizeof(active_btns_str) - strlen(CTRL_BTN_NAMES[b]) - 1)
+                                strcat(active_btns_str, CTRL_BTN_NAMES[b]);
+                            any_pressed = true;
+                        }
+                    }
+                    if (any_pressed) {
+                        SDL_Color name_c = COL_SEL_BG;
+                        draw_text_centered(ren, f_sm, active_btns_str, name_c, SCREEN_W / 2.0f, 385.0f);
+                    }
+                }
+            }
+
+            { SDL_Color joytest_c = COL_SEL_BG;
+              draw_text_right(ren, f_sm, "armiga-joytest v1.1", joytest_c, SCREEN_W - 20.0f, 414.0f); }
+            /* Test de vibracion: mantener L2 (indice 6, confirmado en
+             * hardware) dispara un pulso corto de rumble, repetido
+             * mientras se mantenga pulsado (50ms por pulso, sin overlap
+             * agresivo gracias al propio SDL que reemplaza el efecto
+             * activo en cada llamada). */
+            if (joy && SDL_GetNumJoystickButtons(joy) > 6 && SDL_GetJoystickButton(joy, 6)) {
+                SDL_RumbleJoystick(joy, 0x4000, 0x8000, 50);
+            }
+            draw_line(ren, CX, 438.0f, SCREEN_W - 20.0f, 438.0f, (SDL_Color){183, 221, 91, 255});
+            draw_footer(ren, f_sm, tr("[SELECT+START] Volver  [L2] Test vibración", "[SELECT+START] Back  [L2] Vibration Test"), s_version);
+        } /* end STATE_CONTROLLER_TEST */
 
         if (screenshot_capture_pending) {
             SDL_Surface *clean_frame_for_screenshot = SDL_RenderReadPixels(ren, NULL);
@@ -5402,6 +5529,7 @@ int main(void)
     TTF_CloseFont(f_med);
     TTF_CloseFont(f_lg);
     TTF_CloseFont(f_xs);
+    TTF_CloseFont(f_xsm);
     SDL_DestroyRenderer(ren);
     SDL_DestroyWindow(win);
     TTF_Quit();

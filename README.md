@@ -31,7 +31,7 @@ ARMIGA is a minimal Linux distribution based on **Buildroot** for the **Anbernic
 
 ### Working components
 
-- ✅ Boot (U-Boot + kernel 7.2.2-armiga + DTB)
+- ✅ Boot (U-Boot + kernel 7.3.0-rc1-armiga + DTB)
 - ✅ **A/B** partition scheme with automatic rollback (see below)
 - ✅ Rootfs on **SquashFS + zstd** (system/system_b, 300MB per slot, ro)
 - ✅ RTL8821CS WiFi (`wpa_supplicant` + `udhcpc`, config generated in `/tmp` — `/etc` is ro)
@@ -42,7 +42,7 @@ ARMIGA is a minimal Linux distribution based on **Buildroot** for the **Anbernic
 - ✅ `amiga_data` partition (exFAT, auto-expands to 100% of the SD card on first boot)
 - ✅ Graphics stack: SDL3 3.4.14 (kmsdrm) + Mesa 26.2.1 (GBM + Panfrost, stripped `.so` in overlay)
 - ✅ Custom C/SDL3 launcher (`armiga-launcher`), bilingual **Spanish/English** interface (toggle `L1`, persistent)
-- ✅ RetroArch 1.22.2-nightly (34c069f) + PUAE 2021 core (`puae2021_libretro.so`, build 6636d5f)
+- ✅ RetroArch 1.22.2-nightly (34c069f) + PUAE 2021 core (`puae2021_libretro.so`, 2.6.1 68332b1)
 - ✅ OTA update system (GitHub Releases → download → SHA256 verification → flash inactive slot, all async without blocking the UI)
 - ✅ Automatic A/B rollback on boot failure (attempt counter + slot reversion)
 - ✅ Settings menu: wireless network, backup (create/restore/delete), analog stick RGB LEDs, timezone, screensaver, brightness, performance profiles (maximum/balanced/power saving), SSH, factory reset

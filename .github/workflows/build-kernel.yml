@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       kernel_version:
-        description: 'Kernel version to build against (e.g. 7.1.8)'
+        description: 'Kernel version to build against (e.g. 7.1.8, or a release-candidate like 7.3-rc1)'
         required: true
         default: '7.1.8'
 
@@ -28,13 +28,22 @@ jobs:
       - name: Download kernel source
         run: |
           KV="${{ github.event.inputs.kernel_version }}"
-          wget -q https://cdn.kernel.org/pub/linux/kernel/v7.x/linux-${KV}.tar.xz
-          tar xf linux-${KV}.tar.xz
+          if [[ "$KV" == *-rc* ]]; then
+            ARCHIVE="linux-${KV}.tar.gz"
+            echo "Release candidate detected, using git.kernel.org: $ARCHIVE"
+            wget -q "https://git.kernel.org/torvalds/t/${ARCHIVE}"
+          else
+            ARCHIVE="linux-${KV}.tar.xz"
+            wget -q "https://cdn.kernel.org/pub/linux/kernel/v7.x/${ARCHIVE}"
+          fi
+          tar xf "$ARCHIVE"
+          KDIR="$(tar tf "$ARCHIVE" | head -1 | cut -f1 -d/)"
+          echo "Extracted kernel dir: $KDIR"
+          echo "KDIR=${KDIR}" >> "$GITHUB_ENV"
 
       - name: Apply Armiga kernel patches
         run: |
-          KV="${{ github.event.inputs.kernel_version }}"
-          cd linux-${KV}
+          cd "$KDIR"
           for patch in "${GITHUB_WORKSPACE}"/board/armiga/linux/patches/*.patch; do
             if [ -f "$patch" ]; then
               name="$(basename "$patch")"
@@ -47,9 +56,21 @@ jobs:
                     echo "Skipping $name (not applicable to this kernel version)"
                   fi
                   ;;
+                0003-Update-sun8i_tcon_top.c.patch)
+                  echo "Applying $name (fuzz 3, context shifted in newer kernels)..."
+                  if ! patch -p1 --fuzz=3 < "$patch"; then
+                    echo "=== Reject files after $name ==="
+                    find . -name "*.rej" -exec echo "--- {} ---" \; -exec cat {} \;
+                    exit 1
+                  fi
+                  ;;
                 *)
                   echo "Applying $name..."
-                  patch -p1 < "$patch"
+                  if ! patch -p1 < "$patch"; then
+                    echo "=== Reject files after $name ==="
+                    find . -name "*.rej" -exec echo "--- {} ---" \; -exec cat {} \;
+                    exit 1
+                  fi
                   ;;
               esac
             fi
@@ -57,8 +78,7 @@ jobs:
 
       - name: Copy custom DTS
         run: |
-          KV="${{ github.event.inputs.kernel_version }}"
-          cd linux-${KV}
+          cd "$KDIR"
           for dts in "${GITHUB_WORKSPACE}"/board/armiga/linux/dts/*.dts; do
             if [ -f "$dts" ]; then
               cp "$dts" arch/arm64/boot/dts/allwinner/
@@ -72,31 +92,27 @@ jobs:
 
       - name: Adapt kernel config
         run: |
-          KV="${{ github.event.inputs.kernel_version }}"
-          cp "${GITHUB_WORKSPACE}/board/armiga/linux/linux.aarch64.conf" linux-${KV}/.config
+          cp "${GITHUB_WORKSPACE}/board/armiga/linux/linux.aarch64.conf" "${GITHUB_WORKSPACE}/${KDIR}/.config"
           cd "${GITHUB_WORKSPACE}/board/armiga/linux"
           bash adapt_config.sh
-          cp linux.aarch64.conf "${GITHUB_WORKSPACE}/linux-${KV}/.config"
+          cp linux.aarch64.conf "${GITHUB_WORKSPACE}/${KDIR}/.config"
 
       - name: Build kernel (Image, dtbs, modules)
         run: |
-          KV="${{ github.event.inputs.kernel_version }}"
-          cd linux-${KV}
+          cd "$KDIR"
           make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- olddefconfig
           make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- -j$(nproc) Image dtbs modules
 
       - name: Install in-tree kernel modules
         run: |
-          KV="${{ github.event.inputs.kernel_version }}"
-          cd linux-${KV}
+          cd "$KDIR"
           make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- INSTALL_MOD_PATH="${GITHUB_WORKSPACE}/modules_out" modules_install
           echo "=== Installed modules ==="
           find "${GITHUB_WORKSPACE}/modules_out/lib/modules" -name "*.ko" | wc -l
 
       - name: Build vendored joypad module (rocknix-singleadc-joypad.c, DEVICE=H700)
         run: |
-          KV="${{ github.event.inputs.kernel_version }}"
-          KERNEL_SRC="${GITHUB_WORKSPACE}/linux-${KV}"
+          KERNEL_SRC="${GITHUB_WORKSPACE}/${KDIR}"
           cd "${GITHUB_WORKSPACE}/board/armiga/linux/rocknix-joypad"
           make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- \
                DEVICE=H700 \
@@ -108,18 +124,22 @@ jobs:
         run: |
           KV="${{ github.event.inputs.kernel_version }}"
           mkdir -p kernel-artifacts
-          cp "${GITHUB_WORKSPACE}/linux-${KV}/arch/arm64/boot/Image" kernel-artifacts/KERNEL
-          DTB_FILE="${GITHUB_WORKSPACE}/linux-${KV}/arch/arm64/boot/dts/allwinner/sun50i-h700-anbernic-rg40xx-h.dtb"
+          cp "${GITHUB_WORKSPACE}/${KDIR}/arch/arm64/boot/Image" kernel-artifacts/KERNEL
+          DTB_FILE="${GITHUB_WORKSPACE}/${KDIR}/arch/arm64/boot/dts/allwinner/sun50i-h700-anbernic-rg40xx-h.dtb"
           if [ -f "$DTB_FILE" ]; then
             cp "$DTB_FILE" kernel-artifacts/dtb.img
           fi
-          DTB_RG35XX_H_REV6="${GITHUB_WORKSPACE}/linux-${KV}/arch/arm64/boot/dts/allwinner/sun50i-h700-anbernic-rg35xx-h-rev6-panel.dtb"
+          DTB_RG35XX_H_REV6="${GITHUB_WORKSPACE}/${KDIR}/arch/arm64/boot/dts/allwinner/sun50i-h700-anbernic-rg35xx-h-rev6-panel.dtb"
           if [ -f "$DTB_RG35XX_H_REV6" ]; then
             cp "$DTB_RG35XX_H_REV6" kernel-artifacts/dtb-rg35xx-h-rev6.img
           fi
-          DTB_RG35XX="${GITHUB_WORKSPACE}/linux-${KV}/arch/arm64/boot/dts/allwinner/sun50i-h700-anbernic-rg35xx-h.dtb"
+          DTB_RG35XX="${GITHUB_WORKSPACE}/${KDIR}/arch/arm64/boot/dts/allwinner/sun50i-h700-anbernic-rg35xx-h.dtb"
           if [ -f "$DTB_RG35XX" ]; then
             cp "$DTB_RG35XX" kernel-artifacts/dtb-rg35xx-h.img
+          fi
+          DTB_RG40XX_H_V2="${GITHUB_WORKSPACE}/${KDIR}/arch/arm64/boot/dts/allwinner/sun50i-h700-anbernic-rg40xx-h-v2-panel.dtb"
+          if [ -f "$DTB_RG40XX_H_V2" ]; then
+            cp "$DTB_RG40XX_H_V2" kernel-artifacts/dtb-rg40xx-h-v2.img
           fi
           KO="${GITHUB_WORKSPACE}/board/armiga/linux/rocknix-joypad/rocknix-singleadc-joypad.ko"
           cp "$KO" kernel-artifacts/
@@ -132,7 +152,7 @@ jobs:
           depmod -a -b "${GITHUB_WORKSPACE}/modules_out" "${REAL_KVER}"
           echo "=== modules.dep entries for joypad ==="
           grep -i joypad "${MODULES_LIB}/${REAL_KVER}/modules.dep" || echo "WARNING: joypad not found in modules.dep"
-          tar czf kernel-artifacts/modules-${KV}.tar.gz -C "${GITHUB_WORKSPACE}/modules_out/lib" modules
+          tar czf "kernel-artifacts/modules-${KV}.tar.gz" -C "${GITHUB_WORKSPACE}/modules_out/lib" modules
           echo "=== In-tree modules packaged ==="
           find "$MODULES_LIB" -name "*.ko" | wc -l
           echo "kernel_version=${KV}" > kernel-artifacts/BUILD_INFO.txt
