@@ -56,6 +56,14 @@ jobs:
                     echo "Skipping $name (not applicable to this kernel version)"
                   fi
                   ;;
+                0003-Update-sun8i_tcon_top.c.patch)
+                  echo "Applying $name (fuzz 3, context shifted in newer kernels)..."
+                  if ! patch -p1 --fuzz=3 < "$patch"; then
+                    echo "=== Reject files after $name ==="
+                    find . -name "*.rej" -exec echo "--- {} ---" \; -exec cat {} \;
+                    exit 1
+                  fi
+                  ;;
                 *)
                   echo "Applying $name..."
                   if ! patch -p1 < "$patch"; then
