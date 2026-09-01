@@ -137,6 +137,10 @@ jobs:
           if [ -f "$DTB_RG35XX" ]; then
             cp "$DTB_RG35XX" kernel-artifacts/dtb-rg35xx-h.img
           fi
+          DTB_RG40XX_H_V2="${GITHUB_WORKSPACE}/${KDIR}/arch/arm64/boot/dts/allwinner/sun50i-h700-anbernic-rg40xx-h-v2-panel.dtb"
+          if [ -f "$DTB_RG40XX_H_V2" ]; then
+            cp "$DTB_RG40XX_H_V2" kernel-artifacts/dtb-rg40xx-h-v2.img
+          fi
           KO="${GITHUB_WORKSPACE}/board/armiga/linux/rocknix-joypad/rocknix-singleadc-joypad.ko"
           cp "$KO" kernel-artifacts/
           MODULES_LIB="${GITHUB_WORKSPACE}/modules_out/lib/modules"
