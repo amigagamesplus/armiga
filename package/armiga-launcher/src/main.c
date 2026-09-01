@@ -633,15 +633,29 @@ static int finish_check_update(const char *json_path, const char *current_ver,
 }
 
 /* Descarga el .img.gz con progreso. Ejecuta curl en background y
- * monitoriza el fichero destino para actualizar la barra. */
+ * monitoriza el fichero destino para actualizar la barra.
+ *
+ * Tolerancia a red inestable (WiFi de mano, cortes frecuentes):
+ * - Si la URL coincide con el ultimo intento, NO se borra el .img.gz
+ *   parcial: curl -C - retoma desde el byte ya descargado en vez de
+ *   volver a empezar de 0. Solo se borra al cambiar de version/URL
+ *   (nueva actualizacion) o tras verificar SHA256 con exito.
+ * - --retry/--retry-delay/--connect-timeout dan margen a curl para
+ *   recuperarse de cortes breves sin abortar el proceso entero. */
 /* PID real del hijo curl (no via fichero, evita reciclado de PID). */
 static pid_t s_curl_pid = -1;
+static char s_last_download_url[512] = "";
 static int download_update(const char *url, float *progress_out)
 {
     mkdir(UPDATE_DIR, 0755);
-    /* Limpiar ficheros de descarga anterior */
-    unlink(UPDATE_IMG);
-    unlink(UPDATE_SHA256);
+    bool same_target = (strcmp(url, s_last_download_url) == 0);
+    if (!same_target) {
+        /* Nueva version/URL distinta a la del ultimo intento: descartar
+         * cualquier descarga parcial previa, no es reanudable. */
+        unlink(UPDATE_IMG);
+        unlink(UPDATE_SHA256);
+        safe_copy(s_last_download_url, url, sizeof(s_last_download_url));
+    }
     s_curl_pid = -1;
 
     pid_t pid = fork();
@@ -652,7 +666,9 @@ static int download_update(const char *url, float *progress_out)
          * inyeccion de comandos (B01). */
         int fd = open("/tmp/curl_progress", O_WRONLY | O_CREAT | O_TRUNC, 0644);
         if (fd >= 0) { dup2(fd, STDOUT_FILENO); dup2(fd, STDERR_FILENO); close(fd); }
-        execlp("curl", "curl", "-s", "--max-time", "300", "-L",
+        execlp("curl", "curl", "-s", "-C", "-",
+               "--retry", "3", "--retry-delay", "2",
+               "--connect-timeout", "15", "--max-time", "300", "-L",
                "-o", UPDATE_IMG, url, (char *)NULL);
         _exit(127); /* solo si execlp falla */
     }
@@ -3892,6 +3908,7 @@ int main(void)
                                 safe_copy(upd_msg, tr("Error de verificación SHA256.", "SHA256 verification error."), sizeof(upd_msg));
                                 unlink(UPDATE_IMG);
                                 unlink(UPDATE_SHA256);
+                                s_last_download_url[0] = '\0';
                             }
                         }
                     }
@@ -3905,6 +3922,7 @@ int main(void)
                         safe_copy(upd_msg, tr("Error de verificación SHA256.", "SHA256 verification error."), sizeof(upd_msg));
                         unlink(UPDATE_IMG);
                         unlink(UPDATE_SHA256);
+                        s_last_download_url[0] = '\0';
                     }
                 }
             }
