@@ -830,6 +830,7 @@ static bool read_sysfs_int(const char *path, int *out)
     return true;
 }
 
+static bool s_status_charging = false;
 static void update_status(char *time_str, size_t time_str_sz,
                           bool *wifi_up, int *battery_pct)
 {
@@ -845,6 +846,10 @@ static void update_status(char *time_str, size_t time_str_sz,
     int cap = -1;
     read_sysfs_int("/sys/class/power_supply/battery/capacity", &cap);
     *battery_pct = cap;
+
+    char chg_status[16] = {0};
+    s_status_charging = read_sysfs_str("/sys/class/power_supply/battery/status", chg_status, sizeof(chg_status))
+                         && (strcmp(chg_status, "Charging") == 0 || strcmp(chg_status, "Full") == 0);
 }
 
 #define WIFI_CONF_PATH "/media/amiga_data/wifi.conf"
@@ -2389,12 +2394,17 @@ static float draw_statusbar(SDL_Renderer *ren, TTF_Font *f, TTF_Font *f_ampm,
     float y     = 25.0f;
     float gap   = 9.0f;
 
-    char batt_buf[8];
+    char batt_buf[12];
     SDL_Color batt_fg = c_gold;
     if (battery >= 0) {
-        snprintf(batt_buf, sizeof(batt_buf), "%d%%", battery);
-        if (battery <= 20) batt_fg = c_red;
-        else                batt_fg = c_gold;
+        if (s_status_charging) {
+            snprintf(batt_buf, sizeof(batt_buf), "%d%% +", battery);
+            batt_fg = c_gold;
+        } else {
+            snprintf(batt_buf, sizeof(batt_buf), "%d%%", battery);
+            if (battery <= 20) batt_fg = c_red;
+            else                batt_fg = c_gold;
+        }
     } else {
         strncpy(batt_buf, "--", sizeof(batt_buf));
     }
