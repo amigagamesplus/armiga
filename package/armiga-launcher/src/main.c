@@ -3885,8 +3885,7 @@ int main(void)
                 if (pulse) {
                     send_led_payload(led_brightness, 255, 0, 0, 255, 0, 0);
                 } else {
-                    send_led_payload(led_brightness, led_r_right, led_g_right, led_b_right,
-                                      led_r_left, led_g_left, led_b_left);
+                    send_led_payload(0, 0, 0, 0, 0, 0, 0);
                 }
                 led_lowbat_timer = now_ticks;
             }
