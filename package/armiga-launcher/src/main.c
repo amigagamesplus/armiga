@@ -3011,16 +3011,23 @@ int main(void)
             }
             else if (state == STATE_DEVMODE) {
                 if (ev.type == SDL_EVENT_KEY_DOWN) {
-                    if (ev.key.key == SDLK_UP)
+                    if (ev.key.key == SDLK_UP) {
                         dev_selected = (dev_selected - 1 + DEV_MENU_COUNT) % DEV_MENU_COUNT;
-                    if (ev.key.key == SDLK_DOWN)
+                        play_ui_click();
+                    }
+                    if (ev.key.key == SDLK_DOWN) {
                         dev_selected = (dev_selected + 1) % DEV_MENU_COUNT;
+                        play_ui_click();
+                    }
                 }
                 if (ev.type == SDL_EVENT_JOYSTICK_HAT_MOTION) {
-                    if (ev.jhat.value == SDL_HAT_UP)
+                    if (ev.jhat.value == SDL_HAT_UP) {
                         dev_selected = (dev_selected - 1 + DEV_MENU_COUNT) % DEV_MENU_COUNT;
-                    else if (ev.jhat.value == SDL_HAT_DOWN)
+                        play_ui_click();
+                    } else if (ev.jhat.value == SDL_HAT_DOWN) {
                         dev_selected = (dev_selected + 1) % DEV_MENU_COUNT;
+                        play_ui_click();
+                    }
                 }
                 if ((ev.type == SDL_EVENT_KEY_DOWN && ev.key.key == SDLK_RETURN) ||
                     (ev.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN &&
@@ -3047,10 +3054,14 @@ int main(void)
             }
             else if (state == STATE_SETTINGS) {
                 if (ev.type == SDL_EVENT_KEY_DOWN) {
-                    if (ev.key.key == SDLK_UP)
+                    if (ev.key.key == SDLK_UP) {
                         settings_selected = (settings_selected - 1 + SETTINGS_MENU_COUNT) % SETTINGS_MENU_COUNT;
-                    if (ev.key.key == SDLK_DOWN)
+                        play_ui_click();
+                    }
+                    if (ev.key.key == SDLK_DOWN) {
                         settings_selected = (settings_selected + 1) % SETTINGS_MENU_COUNT;
+                        play_ui_click();
+                    }
                     if (ev.key.key == SDLK_RETURN && settings_selected == 0) {
                         read_wifi_conf(wifi_ssid, sizeof(wifi_ssid), wifi_password, sizeof(wifi_password));
                         wifi_field_selected = 0;
@@ -3117,10 +3128,13 @@ int main(void)
                     }
                 }
                 if (ev.type == SDL_EVENT_JOYSTICK_HAT_MOTION) {
-                    if (ev.jhat.value == SDL_HAT_UP)
+                    if (ev.jhat.value == SDL_HAT_UP) {
                         settings_selected = (settings_selected - 1 + SETTINGS_MENU_COUNT) % SETTINGS_MENU_COUNT;
-                    else if (ev.jhat.value == SDL_HAT_DOWN)
+                        play_ui_click();
+                    } else if (ev.jhat.value == SDL_HAT_DOWN) {
                         settings_selected = (settings_selected + 1) % SETTINGS_MENU_COUNT;
+                        play_ui_click();
+                    }
                 }
                 if (ev.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN &&
                     ev.jbutton.button == BTN_SDL_A && settings_selected == 0) {
@@ -3297,16 +3311,23 @@ int main(void)
                 }
                 if (!bt_connecting && bt_device_count > 0) {
                     if (ev.type == SDL_EVENT_KEY_DOWN) {
-                        if (ev.key.key == SDLK_UP)
+                        if (ev.key.key == SDLK_UP) {
                             bt_selected = (bt_selected - 1 + bt_device_count) % bt_device_count;
-                        if (ev.key.key == SDLK_DOWN)
+                            play_ui_click();
+                        }
+                        if (ev.key.key == SDLK_DOWN) {
                             bt_selected = (bt_selected + 1) % bt_device_count;
+                            play_ui_click();
+                        }
                     }
                     if (ev.type == SDL_EVENT_JOYSTICK_HAT_MOTION) {
-                        if (ev.jhat.value == SDL_HAT_UP)
+                        if (ev.jhat.value == SDL_HAT_UP) {
                             bt_selected = (bt_selected - 1 + bt_device_count) % bt_device_count;
-                        else if (ev.jhat.value == SDL_HAT_DOWN)
+                            play_ui_click();
+                        } else if (ev.jhat.value == SDL_HAT_DOWN) {
                             bt_selected = (bt_selected + 1) % bt_device_count;
+                            play_ui_click();
+                        }
                     }
                     if (ev.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN &&
                         ev.jbutton.button == BTN_SDL_A) {
@@ -3328,16 +3349,23 @@ int main(void)
             else if (state == STATE_AREXX_LIST) {
                 if (arexx_count > 0) {
                     if (ev.type == SDL_EVENT_KEY_DOWN) {
-                        if (ev.key.key == SDLK_UP)
+                        if (ev.key.key == SDLK_UP) {
                             arexx_selected = (arexx_selected - 1 + arexx_count) % arexx_count;
-                        if (ev.key.key == SDLK_DOWN)
+                            play_ui_click();
+                        }
+                        if (ev.key.key == SDLK_DOWN) {
                             arexx_selected = (arexx_selected + 1) % arexx_count;
+                            play_ui_click();
+                        }
                     }
                     if (ev.type == SDL_EVENT_JOYSTICK_HAT_MOTION) {
-                        if (ev.jhat.value == SDL_HAT_UP)
+                        if (ev.jhat.value == SDL_HAT_UP) {
                             arexx_selected = (arexx_selected - 1 + arexx_count) % arexx_count;
-                        else if (ev.jhat.value == SDL_HAT_DOWN)
+                            play_ui_click();
+                        } else if (ev.jhat.value == SDL_HAT_DOWN) {
                             arexx_selected = (arexx_selected + 1) % arexx_count;
+                            play_ui_click();
+                        }
                     }
                     if (ev.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN &&
                         ev.jbutton.button == BTN_SDL_A) {
@@ -3378,16 +3406,23 @@ int main(void)
             }
             else if (state == STATE_TIMEZONE_CONFIG) {
                 if (ev.type == SDL_EVENT_KEY_DOWN) {
-                    if (ev.key.key == SDLK_UP)
+                    if (ev.key.key == SDLK_UP) {
                         timezone_selected = (timezone_selected - 1 + TIMEZONE_LIST_COUNT) % TIMEZONE_LIST_COUNT;
-                    if (ev.key.key == SDLK_DOWN)
+                        play_ui_click();
+                    }
+                    if (ev.key.key == SDLK_DOWN) {
                         timezone_selected = (timezone_selected + 1) % TIMEZONE_LIST_COUNT;
+                        play_ui_click();
+                    }
                 }
                 if (ev.type == SDL_EVENT_JOYSTICK_HAT_MOTION) {
-                    if (ev.jhat.value == SDL_HAT_UP)
+                    if (ev.jhat.value == SDL_HAT_UP) {
                         timezone_selected = (timezone_selected - 1 + TIMEZONE_LIST_COUNT) % TIMEZONE_LIST_COUNT;
-                    else if (ev.jhat.value == SDL_HAT_DOWN)
+                        play_ui_click();
+                    } else if (ev.jhat.value == SDL_HAT_DOWN) {
                         timezone_selected = (timezone_selected + 1) % TIMEZONE_LIST_COUNT;
+                        play_ui_click();
+                    }
                 }
                 if ((ev.type == SDL_EVENT_KEY_DOWN && ev.key.key == SDLK_RETURN) ||
                     (ev.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN && ev.jbutton.button == BTN_SDL_A)) {
@@ -3465,16 +3500,23 @@ int main(void)
             }
             else if (state == STATE_BACKUP_MENU) {
                 if (ev.type == SDL_EVENT_KEY_DOWN) {
-                    if (ev.key.key == SDLK_UP)
+                    if (ev.key.key == SDLK_UP) {
                         backup_selected = (backup_selected - 1 + BACKUP_MENU_COUNT) % BACKUP_MENU_COUNT;
-                    if (ev.key.key == SDLK_DOWN)
+                        play_ui_click();
+                    }
+                    if (ev.key.key == SDLK_DOWN) {
                         backup_selected = (backup_selected + 1) % BACKUP_MENU_COUNT;
+                        play_ui_click();
+                    }
                 }
                 if (ev.type == SDL_EVENT_JOYSTICK_HAT_MOTION) {
-                    if (ev.jhat.value == SDL_HAT_UP)
+                    if (ev.jhat.value == SDL_HAT_UP) {
                         backup_selected = (backup_selected - 1 + BACKUP_MENU_COUNT) % BACKUP_MENU_COUNT;
-                    else if (ev.jhat.value == SDL_HAT_DOWN)
+                        play_ui_click();
+                    } else if (ev.jhat.value == SDL_HAT_DOWN) {
                         backup_selected = (backup_selected + 1) % BACKUP_MENU_COUNT;
+                        play_ui_click();
+                    }
                 }
                 if (ev.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN &&
                     ev.jbutton.button == BTN_SDL_A && backup_selected == 0 && !backup_creating) {
@@ -3499,10 +3541,14 @@ int main(void)
                 };
                 bool led_dirty = false;
                 if (ev.type == SDL_EVENT_KEY_DOWN) {
-                    if (ev.key.key == SDLK_UP)
+                    if (ev.key.key == SDLK_UP) {
                         led_selected = (led_selected - 1 + LED_SLIDER_COUNT) % LED_SLIDER_COUNT;
-                    if (ev.key.key == SDLK_DOWN)
+                        play_ui_click();
+                    }
+                    if (ev.key.key == SDLK_DOWN) {
                         led_selected = (led_selected + 1) % LED_SLIDER_COUNT;
+                        play_ui_click();
+                    }
                     if (ev.key.key == SDLK_LEFT) {
                         *led_vals[led_selected] -= 5;
                         if (*led_vals[led_selected] < 0) *led_vals[led_selected] = 0;
@@ -3523,11 +3569,13 @@ int main(void)
                     led_repeat_dir = 0;
                 }
                 if (ev.type == SDL_EVENT_JOYSTICK_HAT_MOTION) {
-                    if (ev.jhat.value == SDL_HAT_UP)
+                    if (ev.jhat.value == SDL_HAT_UP) {
                         led_selected = (led_selected - 1 + LED_SLIDER_COUNT) % LED_SLIDER_COUNT;
-                    else if (ev.jhat.value == SDL_HAT_DOWN)
+                        play_ui_click();
+                    } else if (ev.jhat.value == SDL_HAT_DOWN) {
                         led_selected = (led_selected + 1) % LED_SLIDER_COUNT;
-                    else if (ev.jhat.value == SDL_HAT_LEFT) {
+                        play_ui_click();
+                    } else if (ev.jhat.value == SDL_HAT_LEFT) {
                         *led_vals[led_selected] -= 5;
                         if (*led_vals[led_selected] < 0) *led_vals[led_selected] = 0;
                         led_dirty = true;
@@ -3572,16 +3620,23 @@ int main(void)
             }
             else if (state == STATE_BACKUP_LIST) {
                 if (ev.type == SDL_EVENT_KEY_DOWN && backup_count > 0) {
-                    if (ev.key.key == SDLK_UP)
+                    if (ev.key.key == SDLK_UP) {
                         backup_list_selected = (backup_list_selected - 1 + backup_count) % backup_count;
-                    if (ev.key.key == SDLK_DOWN)
+                        play_ui_click();
+                    }
+                    if (ev.key.key == SDLK_DOWN) {
                         backup_list_selected = (backup_list_selected + 1) % backup_count;
+                        play_ui_click();
+                    }
                 }
                 if (ev.type == SDL_EVENT_JOYSTICK_HAT_MOTION && backup_count > 0) {
-                    if (ev.jhat.value == SDL_HAT_UP)
+                    if (ev.jhat.value == SDL_HAT_UP) {
                         backup_list_selected = (backup_list_selected - 1 + backup_count) % backup_count;
-                    else if (ev.jhat.value == SDL_HAT_DOWN)
+                        play_ui_click();
+                    } else if (ev.jhat.value == SDL_HAT_DOWN) {
                         backup_list_selected = (backup_list_selected + 1) % backup_count;
+                        play_ui_click();
+                    }
                 }
                 if (ev.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN &&
                     ev.jbutton.button == BTN_SDL_A && backup_count > 0) {
