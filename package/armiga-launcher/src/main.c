@@ -4749,9 +4749,15 @@ int main(void)
                 arexx_scroll = arxr_max_scroll;
             }
             int arxr_start = arexx_scroll;
+            SDL_Color c_arxr_lime = {183, 221, 91, 255};
+            SDL_Color c_arxr_red  = COL_RED;
             if (arxr_lines)
-                for (int i = arxr_start; i < arxr_nlines && (i - arxr_start) < arxr_max_visible; i++)
-                    draw_text(ren, f_xs, arxr_lines[i], c_gray, mx, arxr_y0 + (i - arxr_start) * arxr_line_h);
+                for (int i = arxr_start; i < arxr_nlines && (i - arxr_start) < arxr_max_visible; i++) {
+                    SDL_Color line_c = c_gray;
+                    if (strstr(arxr_lines[i], "[CORRECTO]")) line_c = c_arxr_lime;
+                    else if (strstr(arxr_lines[i], "[INCORRECTO]")) line_c = c_arxr_red;
+                    draw_text(ren, f_xs, arxr_lines[i], line_c, mx, arxr_y0 + (i - arxr_start) * arxr_line_h);
+                }
             if (!arexx_still_running && arxr_nlines > arxr_max_visible) {
                 char scroll_info[32];
                 snprintf(scroll_info, sizeof(scroll_info), "%d-%d/%d",
