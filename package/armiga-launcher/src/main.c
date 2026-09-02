@@ -2423,6 +2423,9 @@ static float draw_statusbar(SDL_Renderer *ren, TTF_Font *f, TTF_Font *f_ampm,
         int hh = 0, mm = 0;
         sscanf(time_str, "%d:%d", &hh, &mm);
         const char *ampm = (hh < 12) ? "AM" : "PM";
+        bool colon_visible = (SDL_GetTicks() / 500) % 2 == 0;
+        char time_display[16];
+        snprintf(time_display, sizeof(time_display), "%02d%s%02d", hh, colon_visible ? ":" : " ", mm);
         int tw = 0, th = 0, aw = 0, ah = 0;
         TTF_GetStringSize(f, time_str, 0, &tw, &th);
         TTF_GetStringSize(f_ampm, ampm, 0, &aw, &ah);
@@ -2433,7 +2436,7 @@ static float draw_statusbar(SDL_Renderer *ren, TTF_Font *f, TTF_Font *f_ampm,
         float pill_x = right - pill_w;
         float pill_y = y - pill_h / 2.0f;
         draw_rounded_rect_filled(ren, pill_x, pill_y, pill_w, pill_h, pill_h / 2.0f, c_pill_off);
-        draw_text(ren, f, time_str, c_cream, pill_x + pad_x, y - (float)th / 2.0f);
+        draw_text(ren, f, time_display, c_cream, pill_x + pad_x, y - (float)th / 2.0f);
         draw_text(ren, f_ampm, ampm, c_cream, pill_x + pad_x + (float)tw + ampm_gap, y - (float)ah / 2.0f);
         right -= pill_w;
     }
