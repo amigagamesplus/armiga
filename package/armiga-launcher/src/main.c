@@ -299,6 +299,7 @@ static const char *DEV_MENU_ITEMS[] = {
 #define BTN_SDL_SELECT 8
 #define BTN_SDL_START  9
 #define BTN_SDL_X      3
+#define BTN_SDL_MODE   10
 
 #define DEVMODE_HOLD_MS 3000
 
@@ -2846,6 +2847,25 @@ int main(void)
                      * dejaba siempre schedutil aunque el usuario tuviera
                      * Maximum Performance activo antes de atenuar. */
                     apply_perf_profile(perf_selected);
+                }
+            }
+
+            /* Atajo global: MODE + DPAD UP/DOWN ajusta brillo desde
+             * cualquier pantalla, salvo dentro de STATE_BRIGHTNESS_CONFIG
+             * (donde el D-pad ya tiene su propio uso LEFT/RIGHT). */
+            if (state != STATE_BRIGHTNESS_CONFIG &&
+                ev.type == SDL_EVENT_JOYSTICK_HAT_MOTION &&
+                joy && SDL_GetJoystickButton(joy, BTN_SDL_MODE)) {
+                int brightness_delta = 0;
+                if (ev.jhat.value == SDL_HAT_UP)   brightness_delta = +5;
+                if (ev.jhat.value == SDL_HAT_DOWN) brightness_delta = -5;
+                if (brightness_delta != 0) {
+                    brightness_pct += brightness_delta;
+                    if (brightness_pct < 5)   brightness_pct = 5;
+                    if (brightness_pct > 100) brightness_pct = 100;
+                    write_brightness((int)((int64_t)2499 * brightness_pct / 100));
+                    save_brightness_config(brightness_pct);
+                    continue;
                 }
             }
             if (ev.type == SDL_EVENT_KEY_DOWN && ev.key.key == SDLK_ESCAPE) {
