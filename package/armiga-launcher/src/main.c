@@ -2545,16 +2545,79 @@ static void get_time_in_tz(const char *tz_name, char *buf, size_t bufsize)
     tzset();
 }
 
+/* =========================================================================
+ * Audio tactil acustico retro (sintetizado en RAM, sin ficheros externos)
+ * ========================================================================= */
+#define CLICK_SAMPLE_RATE 44100
+#define CLICK_DURATION_MS 18
+#define CLICK_SAMPLES ((CLICK_SAMPLE_RATE * CLICK_DURATION_MS) / 1000)
+
+static Sint16 s_click_buffer[CLICK_SAMPLES];
+static SDL_AudioStream *s_audio_stream = NULL;
+
+static void audio_click_init(void)
+{
+    for (int i = 0; i < CLICK_SAMPLES; i++) {
+        float t = (float)i / (float)CLICK_SAMPLE_RATE;
+        float progress = (float)i / (float)CLICK_SAMPLES;
+        float freq = 420.0f - (300.0f * progress);
+        float phase = t * freq;
+        float tri = 2.0f * SDL_fabsf(2.0f * (phase - SDL_floorf(phase + 0.5f))) - 1.0f;
+        float env = 1.0f - progress;
+        env = env * env;
+        s_click_buffer[i] = (Sint16)(tri * env * 3000.0f);
+    }
+
+    SDL_AudioSpec spec;
+    spec.format = SDL_AUDIO_S16LE;
+    spec.channels = 1;
+    spec.freq = CLICK_SAMPLE_RATE;
+
+    s_audio_stream = SDL_OpenAudioDeviceStream(SDL_AUDIO_DEVICE_DEFAULT_PLAYBACK, &spec, NULL, NULL);
+    if (s_audio_stream) {
+        SDL_ResumeAudioStreamDevice(s_audio_stream);
+    }
+}
+
+static bool s_click_sound_enabled = true;
+static void play_ui_click(void)
+{
+    if (s_audio_stream && s_click_sound_enabled) {
+        SDL_PutAudioStreamData(s_audio_stream, s_click_buffer, sizeof(s_click_buffer));
+    }
+}
+/* Lee CLICK_SOUND_ENABLED de armiga.cfg. Default: activado (1). */
+static int read_click_sound_enabled(void)
+{
+    int enabled = 1;
+    FILE *f = fopen(ARMIGA_CONFIG_PATH, "r");
+    if (!f) return enabled;
+    char line[128];
+    while (fgets(line, sizeof(line), f)) {
+        char key[32], val[96];
+        if (sscanf(line, "%31[^=]=%95s", key, val) == 2) {
+            if (!strcmp(key, "CLICK_SOUND_ENABLED")) enabled = atoi(val);
+        }
+    }
+    fclose(f);
+    return enabled ? 1 : 0;
+}
+static void save_click_sound_enabled(int enabled)
+{
+    config_set_kv("CLICK_SOUND_ENABLED", enabled ? "1" : "0");
+}
+
 int main(void)
 {
     for (;;) {
     bool relaunch_after_retroarch = false;
     config_load();
 
-    if (!SDL_Init(SDL_INIT_VIDEO | SDL_INIT_JOYSTICK)) {
+    if (!SDL_Init(SDL_INIT_VIDEO | SDL_INIT_JOYSTICK | SDL_INIT_AUDIO)) {
         fprintf(stderr, "SDL_Init: %s\n", SDL_GetError());
         return 1;
     }
+    audio_click_init();
     if (!TTF_Init()) {
         fprintf(stderr, "TTF_Init: %s\n", SDL_GetError());
         SDL_Quit(); return 1;
@@ -2741,6 +2804,7 @@ int main(void)
     int refresh_120hz = read_refresh_120hz(); /* aplicado ya al crear la ventana, solo reflejar estado en UI */
     int samba_enabled = read_samba_enabled(); /* aplicado ya por S53samba-toggle en boot, solo reflejar estado en UI */
     int bt_enabled = read_bt_enabled(); /* aplicado ya por S22bluetooth-toggle en boot, solo reflejar estado en UI */
+    s_click_sound_enabled = read_click_sound_enabled() ? true : false;
     int bt_selected = 0; /* cursor en lista de dispositivos escaneados */
     BTDevice bt_devices[BT_MAX_DEVICES];
     int bt_device_count = 0;
@@ -2901,19 +2965,32 @@ int main(void)
                     current_lang = (current_lang == LANG_ES) ? LANG_EN : LANG_ES;
                     save_lang_config();
                 }
+                if (ev.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN &&
+                    ev.jbutton.button == BTN_SDL_B &&
+                    joy && SDL_GetJoystickButton(joy, BTN_SDL_MODE)) {
+                    s_click_sound_enabled = !s_click_sound_enabled;
+                    save_click_sound_enabled(s_click_sound_enabled ? 1 : 0);
+                }
                 if (ev.type == SDL_EVENT_KEY_DOWN) {
-                    if (ev.key.key == SDLK_UP)
+                    if (ev.key.key == SDLK_UP) {
                         selected = (selected - 1 + MENU_COUNT) % MENU_COUNT;
-                    if (ev.key.key == SDLK_DOWN)
+                        play_ui_click();
+                    }
+                    if (ev.key.key == SDLK_DOWN) {
                         selected = (selected + 1) % MENU_COUNT;
+                        play_ui_click();
+                    }
                     if (ev.key.key == SDLK_RETURN)
                         action = selected + 1;
                 }
                 if (ev.type == SDL_EVENT_JOYSTICK_HAT_MOTION) {
-                    if (ev.jhat.value == SDL_HAT_UP)
+                    if (ev.jhat.value == SDL_HAT_UP) {
                         selected = (selected - 1 + MENU_COUNT) % MENU_COUNT;
-                    else if (ev.jhat.value == SDL_HAT_DOWN)
+                        play_ui_click();
+                    } else if (ev.jhat.value == SDL_HAT_DOWN) {
                         selected = (selected + 1) % MENU_COUNT;
+                        play_ui_click();
+                    }
                 }
                 if (ev.type == SDL_EVENT_JOYSTICK_AXIS_MOTION &&
                     ev.jaxis.axis == 1) {
@@ -2924,6 +3001,7 @@ int main(void)
                             selected = (selected - 1 + MENU_COUNT) % MENU_COUNT;
                         else if (zone == 1)
                             selected = (selected + 1) % MENU_COUNT;
+                        if (zone != 0) play_ui_click();
                         menu_axis_prev = zone;
                     }
                 }
@@ -4184,7 +4262,7 @@ int main(void)
 
         /* Barra inferior */
         draw_line(ren, mx, 438.0f, SCREEN_W - 20.0f, 438.0f, (SDL_Color){183, 221, 91, 255});
-        draw_footer(ren, f_sm, tr("[B] Seleccionar  [DPAD] Navegar  [L1] Idioma", "[B] Select  [DPAD] Navigate  [L1] Language"), s_version);
+        draw_footer(ren, f_sm, tr("[B] Seleccionar  [DPAD] Navegar  [L1] Idioma  [MODE+A] Sonido", "[B] Select  [DPAD] Navigate  [L1] Language  [MODE+A] Sound"), s_version);
 
         /* Barra de progreso del hold de modo dev (si se está manteniendo) */
         if (devmode_combo_held && devmode_hold_start != 0) {
