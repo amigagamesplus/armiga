@@ -2753,6 +2753,8 @@ int main(void)
     char bt_connect_target_mac[18] = "";
     int dim_saved_brightness = -1; /* brillo del usuario antes de atenuar, -1 = no atenuado */
     bool dim_active = false;
+    bool led_dimmed = false;
+    Uint64 led_lowbat_timer = 0;
     Uint64 last_input_ticks = SDL_GetTicks();
     char kb_buffer[64] = "";
     int  kb_row = 0;
@@ -3863,6 +3865,31 @@ int main(void)
                               led_r_right, led_g_right, led_b_right,
                               led_r_left, led_g_left, led_b_left);
             led_repeat_next = now_ticks + 60;
+        }
+        /* LEDs reactivos: atenuar al entrar en dim, restaurar al salir. */
+        if (dim_active && !led_dimmed) {
+            int dim_b = led_brightness / 8;
+            if (dim_b < 5) dim_b = 5;
+            send_led_payload(dim_b, led_r_right, led_g_right, led_b_right,
+                              led_r_left, led_g_left, led_b_left);
+            led_dimmed = true;
+        } else if (!dim_active && led_dimmed) {
+            send_led_payload(led_brightness, led_r_right, led_g_right, led_b_right,
+                              led_r_left, led_g_left, led_b_left);
+            led_dimmed = false;
+        }
+        /* LEDs reactivos: alerta bateria critica (<=15%, no cargando, sin dim activo) */
+        if (!dim_active && status_battery > 0 && status_battery <= 15 && !s_status_charging) {
+            if (led_lowbat_timer == 0 || now_ticks - led_lowbat_timer > 1000) {
+                bool pulse = (now_ticks / 1000) % 2 == 0;
+                if (pulse) {
+                    send_led_payload(led_brightness, 255, 0, 0, 255, 0, 0);
+                } else {
+                    send_led_payload(led_brightness, led_r_right, led_g_right, led_b_right,
+                                      led_r_left, led_g_left, led_b_left);
+                }
+                led_lowbat_timer = now_ticks;
+            }
         }
 
         /* Creacion de backup async (B01/B02 pattern): tar corre en
