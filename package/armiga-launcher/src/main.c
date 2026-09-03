@@ -3073,70 +3073,6 @@ int main(void)
                         settings_selected = (settings_selected + 1) % SETTINGS_MENU_COUNT;
                         play_ui_click();
                     }
-                    if (ev.key.key == SDLK_RETURN && settings_selected == 0) {
-                        read_wifi_conf(wifi_ssid, sizeof(wifi_ssid), wifi_password, sizeof(wifi_password));
-                        wifi_field_selected = 0;
-                        wifi_show_password = false;
-                        state = STATE_WIFI_CONFIG;
-                    }
-                    if (ev.key.key == SDLK_RETURN && settings_selected == 1) {
-                        backup_selected = 0;
-                        state = STATE_BACKUP_MENU;
-                    }
-                    if (ev.key.key == SDLK_RETURN && settings_selected == 2) {
-                        led_selected = 0;
-                        state = STATE_LED_CONFIG;
-                    }
-                    if (ev.key.key == SDLK_RETURN && settings_selected == 3) {
-                        state = STATE_TIMEZONE_CONFIG;
-                    }
-                    if (ev.key.key == SDLK_RETURN && settings_selected == 4) {
-                        dim_field_selected = 0;
-                        state = STATE_SCREENDIM_CONFIG;
-                    }
-                    if (ev.key.key == SDLK_RETURN && settings_selected == 5) {
-                        state = STATE_BRIGHTNESS_CONFIG;
-                    }
-                    if (ev.key.key == SDLK_RETURN && settings_selected == 6) {
-                        ssh_enabled = !ssh_enabled;
-                        save_ssh_enabled(ssh_enabled);
-                        apply_ssh_enabled(ssh_enabled);
-                    }
-                    if (ev.key.key == SDLK_RETURN && settings_selected == 7) {
-                        samba_enabled = !samba_enabled;
-                        save_samba_enabled(samba_enabled);
-                        apply_samba_enabled(samba_enabled);
-                    }
-                    if (ev.key.key == SDLK_RETURN && settings_selected == 8) {
-                        state = STATE_PERF_CONFIG;
-                    }
-                    if (ev.key.key == SDLK_RETURN && settings_selected == 9) {
-                        bt_selected = 0;
-                        bt_device_count = 0;
-                        bt_connect_status[0] = 0;
-                        read_bt_connected(bt_connected_mac, sizeof(bt_connected_mac), bt_connected_name, sizeof(bt_connected_name));
-                        if (bt_connected_mac[0]) set_retroarch_audio_device(bt_connected_mac);
-                        if (bt_enabled) {
-                            bt_scanning = true;
-                            bt_scan_start = SDL_GetTicks();
-                            system("armiga-bt-scan >/dev/null 2>&1 &");
-                        }
-                        state = STATE_BLUETOOTH_CONFIG;
-                    }
-                    if (ev.key.key == SDLK_RETURN && settings_selected == 10) {
-                        refresh_120hz = !refresh_120hz;
-                        save_refresh_120hz(refresh_120hz);
-                        apply_refresh_120hz(win, refresh_120hz);
-                        set_retroarch_refresh_rate(refresh_120hz ? 120 : 60);
-                    }
-                    if (ev.key.key == SDLK_RETURN && settings_selected == 11) {
-                        confirm_target = SETTINGS_ACTION_FACTORY_RESET;
-                        confirm_return_state = STATE_SETTINGS;
-                        state = STATE_CONFIRM;
-                    }
-                    if (ev.key.key == SDLK_RETURN && settings_selected == SETTINGS_ITEM_CONTROLLER_TEST) {
-                        state = STATE_CONTROLLER_TEST;
-                    }
                 }
                 if (ev.type == SDL_EVENT_JOYSTICK_HAT_MOTION) {
                     if (ev.jhat.value == SDL_HAT_UP) {
@@ -3147,82 +3083,76 @@ int main(void)
                         play_ui_click();
                     }
                 }
-                if (ev.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN &&
-                    ev.jbutton.button == BTN_SDL_A && settings_selected == 0) {
-                    read_wifi_conf(wifi_ssid, sizeof(wifi_ssid), wifi_password, sizeof(wifi_password));
-                    wifi_field_selected = 0;
-                    wifi_show_password = false;
-                    state = STATE_WIFI_CONFIG;
-                }
-                if (ev.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN &&
-                    ev.jbutton.button == BTN_SDL_A && settings_selected == 1) {
-                    backup_selected = 0;
-                    state = STATE_BACKUP_MENU;
-                }
-                if (ev.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN &&
-                    ev.jbutton.button == BTN_SDL_A && settings_selected == 2) {
-                    led_selected = 0;
-                    state = STATE_LED_CONFIG;
-                }
-                if (ev.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN &&
-                    ev.jbutton.button == BTN_SDL_A && settings_selected == 3) {
-                    state = STATE_TIMEZONE_CONFIG;
-                }
-                if (ev.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN &&
-                    ev.jbutton.button == BTN_SDL_A && settings_selected == 4) {
-                    dim_field_selected = 0;
-                    state = STATE_SCREENDIM_CONFIG;
-                }
-                if (ev.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN &&
-                    ev.jbutton.button == BTN_SDL_A && settings_selected == 5) {
-                    state = STATE_BRIGHTNESS_CONFIG;
-                }
-                if (ev.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN &&
-                    ev.jbutton.button == BTN_SDL_A && settings_selected == 6) {
-                    ssh_enabled = !ssh_enabled;
-                    save_ssh_enabled(ssh_enabled);
-                    apply_ssh_enabled(ssh_enabled);
-                }
-                if (ev.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN &&
-                    ev.jbutton.button == BTN_SDL_A && settings_selected == 7) {
-                    samba_enabled = !samba_enabled;
-                    save_samba_enabled(samba_enabled);
-                    apply_samba_enabled(samba_enabled);
-                }
-                if (ev.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN &&
-                    ev.jbutton.button == BTN_SDL_A && settings_selected == 8) {
-                    state = STATE_PERF_CONFIG;
-                }
-                if (ev.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN &&
-                    ev.jbutton.button == BTN_SDL_A && settings_selected == 9) {
-                    bt_selected = 0;
-                    bt_device_count = 0;
-                    bt_connect_status[0] = 0;
-                    read_bt_connected(bt_connected_mac, sizeof(bt_connected_mac), bt_connected_name, sizeof(bt_connected_name));
-                    if (bt_connected_mac[0]) set_retroarch_audio_device(bt_connected_mac);
-                    if (bt_enabled) {
-                        bt_scanning = true;
-                        bt_scan_start = SDL_GetTicks();
-                        system("armiga-bt-scan >/dev/null 2>&1 &");
+                bool settings_trigger_action =
+                    (ev.type == SDL_EVENT_KEY_DOWN && ev.key.key == SDLK_RETURN) ||
+                    (ev.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN && ev.jbutton.button == BTN_SDL_A);
+                if (settings_trigger_action) {
+                    switch (settings_selected) {
+                        case 0:
+                            read_wifi_conf(wifi_ssid, sizeof(wifi_ssid), wifi_password, sizeof(wifi_password));
+                            wifi_field_selected = 0;
+                            wifi_show_password = false;
+                            state = STATE_WIFI_CONFIG;
+                            break;
+                        case 1:
+                            backup_selected = 0;
+                            state = STATE_BACKUP_MENU;
+                            break;
+                        case 2:
+                            led_selected = 0;
+                            state = STATE_LED_CONFIG;
+                            break;
+                        case 3:
+                            state = STATE_TIMEZONE_CONFIG;
+                            break;
+                        case 4:
+                            dim_field_selected = 0;
+                            state = STATE_SCREENDIM_CONFIG;
+                            break;
+                        case 5:
+                            state = STATE_BRIGHTNESS_CONFIG;
+                            break;
+                        case 6:
+                            ssh_enabled = !ssh_enabled;
+                            save_ssh_enabled(ssh_enabled);
+                            apply_ssh_enabled(ssh_enabled);
+                            break;
+                        case 7:
+                            samba_enabled = !samba_enabled;
+                            save_samba_enabled(samba_enabled);
+                            apply_samba_enabled(samba_enabled);
+                            break;
+                        case 8:
+                            state = STATE_PERF_CONFIG;
+                            break;
+                        case 9:
+                            bt_selected = 0;
+                            bt_device_count = 0;
+                            bt_connect_status[0] = 0;
+                            read_bt_connected(bt_connected_mac, sizeof(bt_connected_mac), bt_connected_name, sizeof(bt_connected_name));
+                            if (bt_connected_mac[0]) set_retroarch_audio_device(bt_connected_mac);
+                            if (bt_enabled) {
+                                bt_scanning = true;
+                                bt_scan_start = SDL_GetTicks();
+                                system("armiga-bt-scan >/dev/null 2>&1 &");
+                            }
+                            state = STATE_BLUETOOTH_CONFIG;
+                            break;
+                        case 10:
+                            refresh_120hz = !refresh_120hz;
+                            save_refresh_120hz(refresh_120hz);
+                            apply_refresh_120hz(win, refresh_120hz);
+                            set_retroarch_refresh_rate(refresh_120hz ? 120 : 60);
+                            break;
+                        case 11:
+                            confirm_target = SETTINGS_ACTION_FACTORY_RESET;
+                            confirm_return_state = STATE_SETTINGS;
+                            state = STATE_CONFIRM;
+                            break;
+                        case SETTINGS_ITEM_CONTROLLER_TEST:
+                            state = STATE_CONTROLLER_TEST;
+                            break;
                     }
-                    state = STATE_BLUETOOTH_CONFIG;
-                }
-                if (ev.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN &&
-                    ev.jbutton.button == BTN_SDL_A && settings_selected == 10) {
-                    refresh_120hz = !refresh_120hz;
-                    save_refresh_120hz(refresh_120hz);
-                    apply_refresh_120hz(win, refresh_120hz);
-                    set_retroarch_refresh_rate(refresh_120hz ? 120 : 60);
-                }
-                if (ev.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN &&
-                    ev.jbutton.button == BTN_SDL_A && settings_selected == 11) {
-                    confirm_target = SETTINGS_ACTION_FACTORY_RESET;
-                    confirm_return_state = STATE_SETTINGS;
-                    state = STATE_CONFIRM;
-                }
-                if (ev.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN &&
-                    ev.jbutton.button == BTN_SDL_A && settings_selected == SETTINGS_ITEM_CONTROLLER_TEST) {
-                    state = STATE_CONTROLLER_TEST;
                 }
                 if (ev.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN &&
                     ev.jbutton.button == BTN_SDL_B)
@@ -3274,10 +3204,14 @@ int main(void)
             }
             else if (state == STATE_PERF_CONFIG) {
                 if (ev.type == SDL_EVENT_KEY_DOWN) {
-                    if (ev.key.key == SDLK_UP)
+                    if (ev.key.key == SDLK_UP) {
                         perf_selected = (perf_selected - 1 + 3) % 3;
-                    if (ev.key.key == SDLK_DOWN)
+                        play_ui_click();
+                    }
+                    if (ev.key.key == SDLK_DOWN) {
                         perf_selected = (perf_selected + 1) % 3;
+                        play_ui_click();
+                    }
                     if (ev.key.key == SDLK_RETURN) {
                         save_perf_profile(perf_selected);
                         apply_perf_profile(perf_selected);
@@ -3289,10 +3223,13 @@ int main(void)
                     }
                 }
                 if (ev.type == SDL_EVENT_JOYSTICK_HAT_MOTION) {
-                    if (ev.jhat.value == SDL_HAT_UP)
+                    if (ev.jhat.value == SDL_HAT_UP) {
                         perf_selected = (perf_selected - 1 + 3) % 3;
-                    else if (ev.jhat.value == SDL_HAT_DOWN)
+                        play_ui_click();
+                    } else if (ev.jhat.value == SDL_HAT_DOWN) {
                         perf_selected = (perf_selected + 1) % 3;
+                        play_ui_click();
+                    }
                 }
                 if (ev.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN &&
                     ev.jbutton.button == BTN_SDL_A) {
@@ -3459,44 +3396,54 @@ int main(void)
             }
             else if (state == STATE_SCREENDIM_CONFIG) {
                 if (ev.type == SDL_EVENT_KEY_DOWN) {
-                    if (ev.key.key == SDLK_UP)
+                    if (ev.key.key == SDLK_UP) {
                         dim_field_selected = (dim_field_selected - 1 + 2) % 2;
-                    if (ev.key.key == SDLK_DOWN)
+                        play_ui_click();
+                    }
+                    if (ev.key.key == SDLK_DOWN) {
                         dim_field_selected = (dim_field_selected + 1) % 2;
+                        play_ui_click();
+                    }
                     if (ev.key.key == SDLK_LEFT) {
-                        if (dim_field_selected == 0)
+                        if (dim_field_selected == 0) {
                             dim_timeout_selected = (dim_timeout_selected - 1 + DIM_TIMEOUT_COUNT) % DIM_TIMEOUT_COUNT;
-                        else {
+                            play_ui_click();
+                        } else {
                             dim_percent -= 5;
                             if (dim_percent < 5) dim_percent = 5;
                         }
                     }
                     if (ev.key.key == SDLK_RIGHT) {
-                        if (dim_field_selected == 0)
+                        if (dim_field_selected == 0) {
                             dim_timeout_selected = (dim_timeout_selected + 1) % DIM_TIMEOUT_COUNT;
-                        else {
+                            play_ui_click();
+                        } else {
                             dim_percent += 5;
                             if (dim_percent > 95) dim_percent = 95;
                         }
                     }
                 }
                 if (ev.type == SDL_EVENT_JOYSTICK_HAT_MOTION) {
-                    if (ev.jhat.value == SDL_HAT_UP)
+                    if (ev.jhat.value == SDL_HAT_UP) {
                         dim_field_selected = (dim_field_selected - 1 + 2) % 2;
-                    else if (ev.jhat.value == SDL_HAT_DOWN)
+                        play_ui_click();
+                    } else if (ev.jhat.value == SDL_HAT_DOWN) {
                         dim_field_selected = (dim_field_selected + 1) % 2;
-                    else if (ev.jhat.value == SDL_HAT_LEFT) {
-                        if (dim_field_selected == 0)
+                        play_ui_click();
+                    } else if (ev.jhat.value == SDL_HAT_LEFT) {
+                        if (dim_field_selected == 0) {
                             dim_timeout_selected = (dim_timeout_selected - 1 + DIM_TIMEOUT_COUNT) % DIM_TIMEOUT_COUNT;
-                        else {
+                            play_ui_click();
+                        } else {
                             dim_percent -= 5;
                             if (dim_percent < 5) dim_percent = 5;
                         }
                     }
                     else if (ev.jhat.value == SDL_HAT_RIGHT) {
-                        if (dim_field_selected == 0)
+                        if (dim_field_selected == 0) {
                             dim_timeout_selected = (dim_timeout_selected + 1) % DIM_TIMEOUT_COUNT;
-                        else {
+                            play_ui_click();
+                        } else {
                             dim_percent += 5;
                             if (dim_percent > 95) dim_percent = 95;
                         }
@@ -3677,16 +3624,23 @@ int main(void)
             }
             else if (state == STATE_WIFI_CONFIG) {
                 if (ev.type == SDL_EVENT_KEY_DOWN) {
-                    if (ev.key.key == SDLK_UP)
+                    if (ev.key.key == SDLK_UP) {
                         wifi_field_selected = (wifi_field_selected - 1 + 2) % 2;
-                    if (ev.key.key == SDLK_DOWN)
+                        play_ui_click();
+                    }
+                    if (ev.key.key == SDLK_DOWN) {
                         wifi_field_selected = (wifi_field_selected + 1) % 2;
+                        play_ui_click();
+                    }
                 }
                 if (ev.type == SDL_EVENT_JOYSTICK_HAT_MOTION) {
-                    if (ev.jhat.value == SDL_HAT_UP)
+                    if (ev.jhat.value == SDL_HAT_UP) {
                         wifi_field_selected = (wifi_field_selected - 1 + 2) % 2;
-                    else if (ev.jhat.value == SDL_HAT_DOWN)
+                        play_ui_click();
+                    } else if (ev.jhat.value == SDL_HAT_DOWN) {
                         wifi_field_selected = (wifi_field_selected + 1) % 2;
+                        play_ui_click();
+                    }
                 }
                 if (ev.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN &&
                     ev.jbutton.button == BTN_SDL_SELECT)
