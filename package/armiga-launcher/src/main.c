@@ -5785,6 +5785,11 @@ int main(void)
     SDL_DestroyRenderer(ren);
     SDL_DestroyWindow(win);
     TTF_Quit();
+    if (s_audio_stream) {
+        SDL_PauseAudioStreamDevice(s_audio_stream);
+        SDL_DestroyAudioStream(s_audio_stream);
+        s_audio_stream = NULL;
+    }
     SDL_Quit();
     clear_fb0();
 
@@ -5821,6 +5826,7 @@ int main(void)
             return 1;
         case EXEC_SHUTDOWN:
             redirect_stdio_to_local_console();
+            system("amixer sset 'Speaker' off >/dev/null 2>&1");
             execl("/sbin/poweroff", "poweroff", (char *)NULL);
             fprintf(stderr, "armiga-launcher: no se pudo ejecutar poweroff: %s\n",
                     strerror(errno));
