@@ -2852,6 +2852,9 @@ int main(void)
     char sysinfo_disk_data[32] = "--";
     char sysinfo_disk_root[32] = "--";
     char menu_disk_free[32]    = "--";
+    char dash_cpu_temp[16]     = "--";
+    char dash_cpu_load[16]     = "--";
+    char dash_ram[32]          = "--";
     Uint64 last_menu_refresh   = 0;
     int sysinfo_page = 0; /* 0 = Sistema/Metricas/Volumenes, 1 = Specs/Software/Red */
     char sysinfo_temp[16]      = "--";
@@ -4123,6 +4126,9 @@ int main(void)
         if (state == STATE_MENU &&
             (last_menu_refresh == 0 || now_ticks - last_menu_refresh > 5000)) {
             read_disk_free_short("/media/amiga_data", menu_disk_free, sizeof(menu_disk_free));
+            read_cpu_temp(dash_cpu_temp, sizeof(dash_cpu_temp));
+            read_cpu_usage(dash_cpu_load, sizeof(dash_cpu_load), NULL);
+            read_ram_usage(dash_ram, sizeof(dash_ram));
             last_menu_refresh = now_ticks;
         }
         if (state == STATE_SYSINFO &&
@@ -4317,7 +4323,31 @@ int main(void)
             snprintf(ctx_lines[ctx_n], sizeof(ctx_lines[ctx_n]), "%s: %s",
                      tr("Espacio libre", "Free space"), menu_disk_free);
             ctx_n++;
+            snprintf(ctx_lines[ctx_n], sizeof(ctx_lines[ctx_n]), "%s: %s",
+                     tr("Temp. CPU", "CPU temp"), dash_cpu_temp);
+            ctx_n++;
+            snprintf(ctx_lines[ctx_n], sizeof(ctx_lines[ctx_n]), "%s: %s",
+                     tr("Carga CPU", "CPU load"), dash_cpu_load);
+            ctx_n++;
+            snprintf(ctx_lines[ctx_n], sizeof(ctx_lines[ctx_n]), "%s: %s",
+                     tr("RAM", "RAM"), dash_ram);
+            ctx_n++;
             float ctx_y = menu_y0 + 18.0f + (float)n_lines * 16.0f + 20.0f;
+            float ctx_box_pad = 10.0f;
+            float ctx_max_line_w = 0.0f;
+            for (int ci = 0; ci < ctx_n; ci++) {
+                int clw = 0, clh = 0;
+                TTF_GetStringSize(f_sm, ctx_lines[ci], 0, &clw, &clh);
+                if ((float)clw > ctx_max_line_w) ctx_max_line_w = (float)clw;
+            }
+            float ctx_box_x = rx - ctx_box_pad;
+            float ctx_box_y = ctx_y - ctx_box_pad;
+            float ctx_box_w = ctx_max_line_w + ctx_box_pad * 2.0f;
+            float ctx_box_h = (float)ctx_n * 16.0f + ctx_box_pad * 2.0f;
+            SDL_Color c_ctx_box_bg = COL_BG;
+            SDL_Color c_ctx_box_border = {183, 221, 91, 255};
+            draw_rounded_rect_outline(ren, ctx_box_x, ctx_box_y, ctx_box_w, ctx_box_h,
+                                       10.0f, 2.0f, c_ctx_box_border, c_ctx_box_bg);
             draw_context_panel(ren, f_sm, rx, ctx_y, ctx_lines, ctx_n, c_dkgreen);
         }
 
