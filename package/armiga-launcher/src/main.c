@@ -454,7 +454,7 @@ static void read_disk_free_short(const char *path, char *buf, size_t bufsize)
 static void read_cpu_temp(char *buf, size_t bufsize)
 {
     safe_copy(buf, "--", bufsize);
-    FILE *f = fopen("/sys/class/thermal/thermal_zone0/temp", "r");
+    FILE *f = fopen("/sys/class/thermal/thermal_zone2/temp", "r"); /* cpu-thermal; zone0 es gpu-thermal */
     if (!f) return;
     int millideg = 0;
     if (fscanf(f, "%d", &millideg) == 1) {
@@ -2856,11 +2856,16 @@ int main(void)
     char dash_cpu_load[16]     = "--";
     char dash_ram[32]          = "--";
     Uint64 last_menu_refresh   = 0;
+    Uint64 last_cpu_temp_sample = 0;
     int sysinfo_page = 0; /* 0 = Sistema/Metricas/Volumenes, 1 = Specs/Software/Red */
     char sysinfo_temp[16]      = "--";
     char sysinfo_cpu_usage[8]  = "--";
     int  sysinfo_cpu_pct       = 0;
-    int  sysinfo_temp_pct      = 0; /* thermal_zone0, para la barra de temperatura en STATE_SYSINFO */
+    int  sysinfo_temp_pct      = 0; /* thermal_zone2 (cpu-thermal), para la barra de temperatura en STATE_SYSINFO */
+    int  sysinfo_ram_pct       = 0;
+    int  sysinfo_disk_root_pct = 0;
+    int  sysinfo_disk_data_pct = 0;
+    char sysinfo_data_free_str[32] = "--";
     char sysinfo_loadavg[32]   = "--";
     char sysinfo_wifi_sig[32]  = "--";
     int  sysinfo_wifi_pct      = -1;
@@ -4123,10 +4128,16 @@ int main(void)
             }
         }
 
+        if ((state == STATE_MENU || state == STATE_SYSINFO) &&
+            (last_cpu_temp_sample == 0 || now_ticks - last_cpu_temp_sample > 5000)) {
+            read_cpu_temp(dash_cpu_temp, sizeof(dash_cpu_temp));
+            safe_copy(sysinfo_temp, dash_cpu_temp, sizeof(sysinfo_temp));
+            { int td = 0; if (read_sysfs_int("/sys/class/thermal/thermal_zone2/temp", &td)) sysinfo_temp_pct = td / 1000; if (sysinfo_temp_pct > 100) sysinfo_temp_pct = 100; }
+            last_cpu_temp_sample = now_ticks;
+        }
         if (state == STATE_MENU &&
             (last_menu_refresh == 0 || now_ticks - last_menu_refresh > 5000)) {
             read_disk_free_short("/media/amiga_data", menu_disk_free, sizeof(menu_disk_free));
-            read_cpu_temp(dash_cpu_temp, sizeof(dash_cpu_temp));
             read_cpu_usage(dash_cpu_load, sizeof(dash_cpu_load), NULL);
             read_ram_usage(dash_ram, sizeof(dash_ram));
             last_menu_refresh = now_ticks;
@@ -4138,13 +4149,37 @@ int main(void)
             read_ram_usage(dev_ram, sizeof(dev_ram));
             read_disk_usage("/media/amiga_data", sysinfo_disk_data, sizeof(sysinfo_disk_data));
             read_disk_usage("/", sysinfo_disk_root, sizeof(sysinfo_disk_root));
-            read_cpu_temp(sysinfo_temp, sizeof(sysinfo_temp));
-            { int td = 0; if (read_sysfs_int("/sys/class/thermal/thermal_zone0/temp", &td)) sysinfo_temp_pct = td / 1000; if (sysinfo_temp_pct > 100) sysinfo_temp_pct = 100; }
             read_cpu_usage(sysinfo_cpu_usage, sizeof(sysinfo_cpu_usage), &sysinfo_cpu_pct);
             read_loadavg(sysinfo_loadavg, sizeof(sysinfo_loadavg));
             read_wifi_signal(sysinfo_wifi_sig, sizeof(sysinfo_wifi_sig), &sysinfo_wifi_pct);
             read_mac_address(sysinfo_mac, sizeof(sysinfo_mac));
             snprintf(sysinfo_build, sizeof(sysinfo_build), "%s (%s)", s_build_date, s_build_number);
+            {
+                FILE *fm = fopen("/proc/meminfo", "r");
+                if (fm) {
+                    long mt = -1, ma = -1; char ln[128];
+                    while (fgets(ln, sizeof(ln), fm)) {
+                        if (!strncmp(ln, "MemTotal:",    9)) sscanf(ln, "MemTotal: %ld",    &mt);
+                        if (!strncmp(ln, "MemAvailable:",13)) sscanf(ln, "MemAvailable: %ld",&ma);
+                    }
+                    fclose(fm);
+                    if (mt > 0 && ma >= 0) sysinfo_ram_pct = (int)(100 * (mt - ma) / mt);
+                }
+            }
+            {
+                struct statvfs st;
+                if (statvfs("/", &st) == 0 && st.f_blocks > 0)
+                    sysinfo_disk_root_pct = (int)(100 - 100ULL * st.f_bfree / st.f_blocks);
+            }
+            {
+                struct statvfs st;
+                if (statvfs("/media/amiga_data", &st) == 0 && st.f_blocks > 0) {
+                    sysinfo_disk_data_pct = (int)(100 - 100ULL * st.f_bfree / st.f_blocks);
+                    unsigned long long free_mb = (unsigned long long)st.f_bfree * st.f_frsize / (1024*1024);
+                    if (free_mb >= 1024) snprintf(sysinfo_data_free_str, sizeof(sysinfo_data_free_str), "%.1f GB", free_mb / 1024.0);
+                    else                 snprintf(sysinfo_data_free_str, sizeof(sysinfo_data_free_str), "%llu MB", free_mb);
+                }
+            }
             last_sysinfo_update = now_ticks;
         }
         if (state == STATE_DEVMODE &&
@@ -5410,22 +5445,8 @@ int main(void)
             SI_BLOCK_TITLE(SI_RX, y, tr("MÉTRICAS", "METRICS"));
             y += 28.0f;
             {
-                /* RAM: calcular pct */
-                int ram_pct = 0;
-                {
-                    FILE *fm = fopen("/proc/meminfo", "r");
-                    if (fm) {
-                        long mt = -1, ma = -1; char ln[128];
-                        while (fgets(ln, sizeof(ln), fm)) {
-                            if (!strncmp(ln, "MemTotal:",    9)) sscanf(ln, "MemTotal: %ld",    &mt);
-                            if (!strncmp(ln, "MemAvailable:",13)) sscanf(ln, "MemAvailable: %ld",&ma);
-                        }
-                        fclose(fm);
-                        if (mt > 0 && ma >= 0) ram_pct = (int)(100 * (mt - ma) / mt);
-                    }
-                }
                 SI_ROW_BAR(SI_RX, y, SI_RX + SI_CW_R, tr("Carga CPU", "CPU Load"),  sysinfo_cpu_usage, sysinfo_cpu_pct); y += SI_ROW_H;
-                SI_ROW_BAR(SI_RX, y, SI_RX + SI_CW_R, tr("Uso de RAM", "RAM Usage"),  dev_ram,           ram_pct);          y += SI_ROW_H;
+                SI_ROW_BAR(SI_RX, y, SI_RX + SI_CW_R, tr("Uso de RAM", "RAM Usage"),  dev_ram,           sysinfo_ram_pct);  y += SI_ROW_H;
                 SI_ROW_BAR(SI_RX, y, SI_RX + SI_CW_R, tr("Temp CPU", "CPU Temp"), sysinfo_temp,      sysinfo_temp_pct); y += SI_ROW_H;
                 SI_ROW    (SI_RX, y, SI_RX + SI_CW_R, "Uptime",   dev_uptime);                          y += SI_ROW_H;
                 SI_ROW    (SI_RX, y, SI_RX + SI_CW_R, "Load Avg", sysinfo_loadavg);
@@ -5439,28 +5460,9 @@ int main(void)
             SI_BLOCK_TITLE(SI_MX, y, tr("VOLÚMENES", "VOLUMES"));
             y += 28.0f;
             {
-                /* Disco sistema: pct */
-                int disk_root_pct = 0, disk_data_pct = 0;
-                { struct statvfs st;
-                  if (statvfs("/", &st) == 0 && st.f_blocks > 0)
-                      disk_root_pct = (int)(100 - 100ULL * st.f_bfree / st.f_blocks); }
-                { struct statvfs st;
-                  if (statvfs("/media/amiga_data", &st) == 0 && st.f_blocks > 0)
-                      disk_data_pct = (int)(100 - 100ULL * st.f_bfree / st.f_blocks); }
-
-                SI_ROW_BAR(SI_MX, y, SI_MX + SI_CW_L, tr("DH0: (Sistema)", "DH0: (System)"), sysinfo_disk_root, disk_root_pct); y += SI_ROW_H;
-                SI_ROW_BAR(SI_MX, y, SI_MX + SI_CW_L, tr("DH1: (Datos)", "DH1: (Data)"),   sysinfo_disk_data, disk_data_pct); y += SI_ROW_H;
-                /* Libre total en datos */
-                {
-                    char free_buf[32] = "--";
-                    struct statvfs st;
-                    if (statvfs("/media/amiga_data", &st) == 0) {
-                        unsigned long long free_mb = (unsigned long long)st.f_bfree * st.f_frsize / (1024*1024);
-                        if (free_mb >= 1024) snprintf(free_buf, sizeof(free_buf), "%.1f GB", free_mb / 1024.0);
-                        else                 snprintf(free_buf, sizeof(free_buf), "%llu MB", free_mb);
-                    }
-                    SI_ROW(SI_MX, y, SI_MX + SI_CW_L, tr("Espacio disponible", "Free space"), free_buf);
-                }
+                SI_ROW_BAR(SI_MX, y, SI_MX + SI_CW_L, tr("DH0: (Sistema)", "DH0: (System)"), sysinfo_disk_root, sysinfo_disk_root_pct); y += SI_ROW_H;
+                SI_ROW_BAR(SI_MX, y, SI_MX + SI_CW_L, tr("DH1: (Datos)", "DH1: (Data)"),   sysinfo_disk_data, sysinfo_disk_data_pct); y += SI_ROW_H;
+                SI_ROW(SI_MX, y, SI_MX + SI_CW_L, tr("Espacio disponible", "Free space"), sysinfo_data_free_str);
             }
             }
 
