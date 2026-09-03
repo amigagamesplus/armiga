@@ -2717,6 +2717,9 @@ int main(void)
     float led_cursor_y = -1.0f;
     Uint64 led_lerp_last_time = SDL_GetTicksNS();
     float tz_cursor_y = -1.0f;
+    char tz_preview_buf[8] = "--:--";
+    int tz_preview_last_sel = -1;
+    Uint64 tz_preview_last_time = 0;
     Uint64 tz_lerp_last_time = SDL_GetTicksNS();
     float dim_cursor_y = -1.0f;
     Uint64 dim_lerp_last_time = SDL_GetTicksNS();
@@ -4749,10 +4752,13 @@ int main(void)
             /* Panel derecho: hora en vivo de la zona resaltada por el cursor */
             {
                 float tzp_x = mx + mw + 30.0f;
-                char tz_time_buf[8];
-                get_time_in_tz(TIMEZONE_LIST[timezone_selected].tz_name, tz_time_buf, sizeof(tz_time_buf));
+                if (timezone_selected != tz_preview_last_sel || now_ticks - tz_preview_last_time > 1000) {
+                    get_time_in_tz(TIMEZONE_LIST[timezone_selected].tz_name, tz_preview_buf, sizeof(tz_preview_buf));
+                    tz_preview_last_sel = timezone_selected;
+                    tz_preview_last_time = now_ticks;
+                }
                 draw_text(ren, f_sm, tr("Hora actual", "Current time"), c_menu_beige, tzp_x, tz_y0);
-                draw_text(ren, f_lg, tz_time_buf, c_menu_selbg, tzp_x, tz_y0 + 22.0f);
+                draw_text(ren, f_lg, tz_preview_buf, c_menu_selbg, tzp_x, tz_y0 + 22.0f);
                 draw_text(ren, f_sm, TIMEZONE_LIST[timezone_selected].label[current_lang], c_menu_beige, tzp_x, tz_y0 + 66.0f);
             }
 
