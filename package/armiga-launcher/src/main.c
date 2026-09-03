@@ -4280,8 +4280,14 @@ int main(void)
                 draw_rounded_rect_filled(ren, mx - 10.0f, menu_cursor_y - 5.0f,
                                  sel_w, pill_h, pill_radius, c_menu_selbg);
                 if (menu_icon_tex[i]) {
+                    /* Respiracion sutil: pulso senoidal 20px-23px, ~1.8s de ciclo */
+                    float breath = (SDL_sinf((float)now_ticks * 0.0035f) + 1.0f) * 0.5f;
+                    float icon_sz = 20.0f + (breath * 3.0f);
+                    float icon_offset = (icon_sz - 20.0f) / 2.0f;
+                    float icon_x = (mx + 8.0f) - icon_offset;
+                    float icon_y = iy - icon_offset;
                     SDL_SetTextureColorMod(menu_icon_tex[i], c_menu_gold.r, c_menu_gold.g, c_menu_gold.b);
-                    SDL_FRect icon_dst = {mx + 8.0f, iy, 20.0f, 20.0f};
+                    SDL_FRect icon_dst = {icon_x, icon_y, icon_sz, icon_sz};
                     SDL_RenderTexture(ren, menu_icon_tex[i], NULL, &icon_dst);
                 }
                 draw_text(ren, f_med, MENU_ITEMS[i][current_lang], c_menu_gold, mx + 46.0f, iy);
