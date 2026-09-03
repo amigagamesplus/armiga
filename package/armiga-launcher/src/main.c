@@ -3432,6 +3432,15 @@ int main(void)
                         play_ui_click();
                     }
                 }
+                if (ev.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN) {
+                    if (ev.jbutton.button == BTN_SDL_L1) {
+                        timezone_selected = (timezone_selected - 5 + TIMEZONE_LIST_COUNT) % TIMEZONE_LIST_COUNT;
+                        play_ui_click();
+                    } else if (ev.jbutton.button == BTN_SDL_R1) {
+                        timezone_selected = (timezone_selected + 5) % TIMEZONE_LIST_COUNT;
+                        play_ui_click();
+                    }
+                }
                 if ((ev.type == SDL_EVENT_KEY_DOWN && ev.key.key == SDLK_RETURN) ||
                     (ev.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN && ev.jbutton.button == BTN_SDL_A)) {
                     strncpy(timezone_current, TIMEZONE_LIST[timezone_selected].tz_name,
@@ -4734,7 +4743,7 @@ int main(void)
                 SDL_Color labelc = sel ? c_menu_gold : c_menu_beige;
                 draw_text(ren, f_sm, TIMEZONE_LIST[i].label[current_lang], labelc, mx + 8.0f, iy);
                 if (active)
-                    draw_text(ren, f_sm, "✓", c_menu_gold, mx + 8.0f + (float)text_w + 8.0f, iy);
+                    draw_text(ren, f_sm, "✓", sel ? c_menu_gold : c_menu_selbg, mx + 8.0f + (float)text_w + 8.0f, iy);
             }
 
             /* Panel derecho: hora en vivo de la zona resaltada por el cursor */
@@ -4749,7 +4758,7 @@ int main(void)
 
             draw_line(ren, mx, 438.0f, SCREEN_W - 20.0f, 438.0f, (SDL_Color){183, 221, 91, 255});
             draw_footer(ren, f_sm,
-                tr("[B] Aplicar  [A] Volver", "[B] Apply  [A] Back"), s_version);
+                tr("[B] Aplicar  [A] Volver  [L1/R1] Salto x5", "[B] Apply  [A] Back  [L1/R1] Jump x5"), s_version);
 
         } else if (state == STATE_SCREENDIM_CONFIG) {
             SDL_Color c_menu_gold  = {27, 39, 8, 255};
