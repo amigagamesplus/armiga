@@ -1,0 +1,12 @@
+#!/bin/sh
+# Aplica preferencia de usuario WIFI_ENABLED (armiga.cfg) tras el arranque
+# normal de S41wifi. Si el usuario lo desactivo, lo para aqui.
+CFG="/media/amiga_data/armiga.cfg"
+ENABLED=1
+if [ -r "$CFG" ]; then
+    val=$(grep "^WIFI_ENABLED=" "$CFG" | cut -d= -f2)
+    [ -n "$val" ] && ENABLED="$val"
+fi
+if [ "$ENABLED" = "0" ]; then
+    /etc/init.d/S41wifi stop >/dev/null 2>&1
+fi

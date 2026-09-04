@@ -1129,6 +1129,35 @@ static void apply_bt_enabled(int enabled)
     else
         system("/etc/init.d/S21bluetooth stop >/dev/null 2>&1 &");
 }
+static int read_wifi_enabled(void)
+{
+    int enabled = 1;
+    FILE *f = fopen(ARMIGA_CONFIG_PATH, "r");
+    if (!f) return enabled;
+    char line[128];
+    while (fgets(line, sizeof(line), f)) {
+        char key[32], val[96];
+        if (sscanf(line, "%31[^=]=%95s", key, val) == 2) {
+            if (!strcmp(key, "WIFI_ENABLED")) enabled = atoi(val);
+        }
+    }
+    fclose(f);
+    return enabled ? 1 : 0;
+}
+/* Guarda WIFI_ENABLED en armiga.cfg. */
+static void save_wifi_enabled(int enabled)
+{
+    config_set_kv("WIFI_ENABLED", enabled ? "1" : "0");
+}
+static void apply_wifi_enabled(int enabled)
+{
+    /* Igual que apply_bt_enabled: S41wifi puede tardar (espera de interface,
+     * wpa_supplicant, DHCP) y un system() sincrono aqui congela el mando. */
+    if (enabled)
+        system("/etc/init.d/S41wifi start >/dev/null 2>&1 &");
+    else
+        system("/etc/init.d/S41wifi stop >/dev/null 2>&1 &");
+}
 /* Lee el MAC/nombre conectado desde el fichero que arma armiga-bt-scan en
  * background (formato "MAC|Nombre"). NUNCA lanza un subproceso propio aqui:
  * un popen() sincrono a bluetoothctl desde el hilo principal se ha
@@ -2807,6 +2836,7 @@ int main(void)
     int refresh_120hz = read_refresh_120hz(); /* aplicado ya al crear la ventana, solo reflejar estado en UI */
     int samba_enabled = read_samba_enabled(); /* aplicado ya por S53samba-toggle en boot, solo reflejar estado en UI */
     int bt_enabled = read_bt_enabled(); /* aplicado ya por S22bluetooth-toggle en boot, solo reflejar estado en UI */
+    int wifi_enabled = read_wifi_enabled(); /* aplicado ya por S41wifi-toggle en boot, solo reflejar estado en UI */
     s_click_sound_enabled = read_click_sound_enabled() ? true : false;
     int bt_selected = 0; /* cursor en lista de dispositivos escaneados */
     BTDevice bt_devices[BT_MAX_DEVICES];
@@ -3632,20 +3662,20 @@ int main(void)
             else if (state == STATE_WIFI_CONFIG) {
                 if (ev.type == SDL_EVENT_KEY_DOWN) {
                     if (ev.key.key == SDLK_UP) {
-                        wifi_field_selected = (wifi_field_selected - 1 + 2) % 2;
+                        wifi_field_selected = (wifi_field_selected - 1 + 3) % 3;
                         play_ui_click();
                     }
                     if (ev.key.key == SDLK_DOWN) {
-                        wifi_field_selected = (wifi_field_selected + 1) % 2;
+                        wifi_field_selected = (wifi_field_selected + 1) % 3;
                         play_ui_click();
                     }
                 }
                 if (ev.type == SDL_EVENT_JOYSTICK_HAT_MOTION) {
                     if (ev.jhat.value == SDL_HAT_UP) {
-                        wifi_field_selected = (wifi_field_selected - 1 + 2) % 2;
+                        wifi_field_selected = (wifi_field_selected - 1 + 3) % 3;
                         play_ui_click();
                     } else if (ev.jhat.value == SDL_HAT_DOWN) {
-                        wifi_field_selected = (wifi_field_selected + 1) % 2;
+                        wifi_field_selected = (wifi_field_selected + 1) % 3;
                         play_ui_click();
                     }
                 }
@@ -3654,16 +3684,22 @@ int main(void)
                     wifi_show_password = !wifi_show_password;
                 if (ev.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN &&
                     ev.jbutton.button == BTN_SDL_A) {
-                    if (wifi_field_selected == 0)
-                        strncpy(kb_buffer, wifi_ssid, sizeof(kb_buffer) - 1);
-                    else
-                        strncpy(kb_buffer, wifi_password, sizeof(kb_buffer) - 1);
-                    kb_buffer[sizeof(kb_buffer) - 1] = 0;
-                    kb_row = 0;
-                    kb_col = 0;
-                    kb_mode = KB_MODE_LOWER;
-                    kb_return_state = STATE_WIFI_CONFIG;
-                    state = STATE_KEYBOARD;
+                    if (wifi_field_selected == 2) {
+                        wifi_enabled = !wifi_enabled;
+                        save_wifi_enabled(wifi_enabled);
+                        apply_wifi_enabled(wifi_enabled);
+                    } else {
+                        if (wifi_field_selected == 0)
+                            strncpy(kb_buffer, wifi_ssid, sizeof(kb_buffer) - 1);
+                        else
+                            strncpy(kb_buffer, wifi_password, sizeof(kb_buffer) - 1);
+                        kb_buffer[sizeof(kb_buffer) - 1] = 0;
+                        kb_row = 0;
+                        kb_col = 0;
+                        kb_mode = KB_MODE_LOWER;
+                        kb_return_state = STATE_WIFI_CONFIG;
+                        state = STATE_KEYBOARD;
+                    }
                 }
                 if (ev.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN &&
                     ev.jbutton.button == BTN_SDL_B) {
@@ -5073,9 +5109,27 @@ int main(void)
                 draw_text(ren, f_med, masked, labelc, mx + 8.0f, iy + 16.0f);
             }
 
+            {
+                float iy = wifi_y0 + 2 * wifi_item_h;
+                bool sel = (wifi_field_selected == 2);
+                SDL_Color labelc = sel ? c_menu_gold : c_menu_beige;
+                const char *wifi_status_disp = wifi_enabled ? tr("ACTIVADO", "ENABLED") : tr("DESACTIVADO", "DISABLED");
+                if (sel) {
+                    int lw = 0, lh = 0, vw = 0, vh = 0;
+                    TTF_GetStringSize(f_sm, "WIFI", 0, &lw, &lh);
+                    TTF_GetStringSize(f_med, wifi_status_disp, 0, &vw, &vh);
+                    float sel_w = (float)(lw > vw ? lw : vw) + 40.0f;
+                    float pill_h = wifi_item_h + 4.0f;
+                    draw_rounded_rect_filled(ren, mx - 14.0f, wifi_cursor_y - 8.0f,
+                                     sel_w, pill_h, pill_h / 2.0f, c_menu_selbg);
+                }
+                draw_text(ren, f_sm, "WIFI", labelc, mx + 8.0f, iy);
+                draw_text(ren, f_med, wifi_status_disp, labelc, mx + 8.0f, iy + 16.0f);
+            }
+
             draw_line(ren, mx, 438.0f, SCREEN_W - 20.0f, 438.0f, (SDL_Color){183, 221, 91, 255});
             draw_footer(ren, f_sm,
-                tr("[B] Editar  [SELECT] Ver/Ocultar  [A] Guardar", "[B] Edit  [SELECT] Show/Hide  [A] Save"),
+                tr("[B] Editar/Alternar  [SELECT] Ver/Ocultar  [A] Guardar", "[B] Edit/Toggle  [SELECT] Show/Hide  [A] Save"),
                 s_version);
 
         } else if (state == STATE_LED_CONFIG) {
