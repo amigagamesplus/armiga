@@ -4,7 +4,8 @@
     "type": "file-raw",
     "source": "/usr/share/armiga/fastfetch-logo.txt",
     "padding": {
-      "top": 3
+      "top": 3,
+      "left": 3
     }
   },
   "modules": [
