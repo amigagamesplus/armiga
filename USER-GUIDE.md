@@ -47,6 +47,8 @@ Some RG40XX H units use a newer internal display panel revision ("v2"). There's 
 | **X**                               | Delete (backup screen only)         |
 | **D-Pad**                           | Navigate menus                      |
 | **L1**                              | Switch language (Español/English)   |
+| **MODE + D-Pad Up/Down**           | Adjust screen brightness (±5%, any screen) |
+| **MODE + A**                        | Mute/unmute UI navigation click sound |
 | **SELECT + START + L1** (hold 3s)  | Developer mode                      |
 
 Not sure which physical button does what on your controller? Head to **Settings → Controller Test** — see below.
@@ -58,6 +60,8 @@ Not sure which physical button does what on your controller? Head to **Settings 
 - **System diagnostics** — technical device info (CPU, memory, network, versions)
 - **Settings** — all device settings
 - **Power off device**
+
+The main menu also shows a live status panel with CPU temperature, CPU load, RAM usage, and free storage space, updated automatically.
 
 ## Settings
 
@@ -102,9 +106,11 @@ Not sure which physical button is A, B, X or Y on your specific controller? This
 
 Adjust the color and brightness of both analog sticks' LED rings independently. Use L1/R1 for quick jumps or the D-Pad to fine-tune each value.
 
+The LEDs also react automatically: they dim while the screensaver is active, and pulse red when the battery drops to 15% or below (unless charging).
+
 ### Timezone
 
-Select your timezone from a list of cities. Affects the time shown on the device.
+Select your timezone from a list of cities. Affects the time shown on the device. Use **L1/R1** to jump 5 entries at a time through the list.
 
 ### Screensaver
 
@@ -112,7 +118,11 @@ Configure how long the device must be idle before the screen dims, and to what b
 
 ### Screen brightness
 
-Adjust overall screen brightness with D-Pad up/down, in 5% steps.
+Adjust overall screen brightness with D-Pad up/down, in 5% steps. You can also adjust brightness from anywhere — no need to open Settings — by holding **MODE** and pressing D-Pad up/down.
+
+### Battery and charging
+
+The status bar shows your battery percentage at all times. A small **+** appears next to the percentage whenever the device is plugged in and charging.
 
 ### SSH
 
