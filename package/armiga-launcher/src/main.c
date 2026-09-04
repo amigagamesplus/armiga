@@ -299,6 +299,7 @@ static const char *DEV_MENU_ITEMS[] = {
 #define BTN_SDL_SELECT 8
 #define BTN_SDL_START  9
 #define BTN_SDL_X      3
+#define BTN_SDL_MODE   10
 
 #define DEVMODE_HOLD_MS 3000
 
@@ -453,7 +454,7 @@ static void read_disk_free_short(const char *path, char *buf, size_t bufsize)
 static void read_cpu_temp(char *buf, size_t bufsize)
 {
     safe_copy(buf, "--", bufsize);
-    FILE *f = fopen("/sys/class/thermal/thermal_zone0/temp", "r");
+    FILE *f = fopen("/sys/class/thermal/thermal_zone2/temp", "r"); /* cpu-thermal; zone0 es gpu-thermal */
     if (!f) return;
     int millideg = 0;
     if (fscanf(f, "%d", &millideg) == 1) {
@@ -633,15 +634,29 @@ static int finish_check_update(const char *json_path, const char *current_ver,
 }
 
 /* Descarga el .img.gz con progreso. Ejecuta curl en background y
- * monitoriza el fichero destino para actualizar la barra. */
+ * monitoriza el fichero destino para actualizar la barra.
+ *
+ * Tolerancia a red inestable (WiFi de mano, cortes frecuentes):
+ * - Si la URL coincide con el ultimo intento, NO se borra el .img.gz
+ *   parcial: curl -C - retoma desde el byte ya descargado en vez de
+ *   volver a empezar de 0. Solo se borra al cambiar de version/URL
+ *   (nueva actualizacion) o tras verificar SHA256 con exito.
+ * - --retry/--retry-delay/--connect-timeout dan margen a curl para
+ *   recuperarse de cortes breves sin abortar el proceso entero. */
 /* PID real del hijo curl (no via fichero, evita reciclado de PID). */
 static pid_t s_curl_pid = -1;
+static char s_last_download_url[512] = "";
 static int download_update(const char *url, float *progress_out)
 {
     mkdir(UPDATE_DIR, 0755);
-    /* Limpiar ficheros de descarga anterior */
-    unlink(UPDATE_IMG);
-    unlink(UPDATE_SHA256);
+    bool same_target = (strcmp(url, s_last_download_url) == 0);
+    if (!same_target) {
+        /* Nueva version/URL distinta a la del ultimo intento: descartar
+         * cualquier descarga parcial previa, no es reanudable. */
+        unlink(UPDATE_IMG);
+        unlink(UPDATE_SHA256);
+        safe_copy(s_last_download_url, url, sizeof(s_last_download_url));
+    }
     s_curl_pid = -1;
 
     pid_t pid = fork();
@@ -652,7 +667,9 @@ static int download_update(const char *url, float *progress_out)
          * inyeccion de comandos (B01). */
         int fd = open("/tmp/curl_progress", O_WRONLY | O_CREAT | O_TRUNC, 0644);
         if (fd >= 0) { dup2(fd, STDOUT_FILENO); dup2(fd, STDERR_FILENO); close(fd); }
-        execlp("curl", "curl", "-s", "--max-time", "300", "-L",
+        execlp("curl", "curl", "-s", "-C", "-",
+               "--retry", "3", "--retry-delay", "2",
+               "--connect-timeout", "15", "--max-time", "300", "-L",
                "-o", UPDATE_IMG, url, (char *)NULL);
         _exit(127); /* solo si execlp falla */
     }
@@ -813,6 +830,7 @@ static bool read_sysfs_int(const char *path, int *out)
     return true;
 }
 
+static bool s_status_charging = false;
 static void update_status(char *time_str, size_t time_str_sz,
                           bool *wifi_up, int *battery_pct)
 {
@@ -828,6 +846,10 @@ static void update_status(char *time_str, size_t time_str_sz,
     int cap = -1;
     read_sysfs_int("/sys/class/power_supply/battery/capacity", &cap);
     *battery_pct = cap;
+
+    char chg_status[16] = {0};
+    s_status_charging = read_sysfs_str("/sys/class/power_supply/battery/status", chg_status, sizeof(chg_status))
+                         && (strcmp(chg_status, "Charging") == 0 || strcmp(chg_status, "Full") == 0);
 }
 
 #define WIFI_CONF_PATH "/media/amiga_data/wifi.conf"
@@ -2372,12 +2394,17 @@ static float draw_statusbar(SDL_Renderer *ren, TTF_Font *f, TTF_Font *f_ampm,
     float y     = 25.0f;
     float gap   = 9.0f;
 
-    char batt_buf[8];
+    char batt_buf[12];
     SDL_Color batt_fg = c_gold;
     if (battery >= 0) {
-        snprintf(batt_buf, sizeof(batt_buf), "%d%%", battery);
-        if (battery <= 20) batt_fg = c_red;
-        else                batt_fg = c_gold;
+        if (s_status_charging) {
+            snprintf(batt_buf, sizeof(batt_buf), "%d%% +", battery);
+            batt_fg = c_gold;
+        } else {
+            snprintf(batt_buf, sizeof(batt_buf), "%d%%", battery);
+            if (battery <= 20) batt_fg = c_red;
+            else                batt_fg = c_gold;
+        }
     } else {
         strncpy(batt_buf, "--", sizeof(batt_buf));
     }
@@ -2396,6 +2423,9 @@ static float draw_statusbar(SDL_Renderer *ren, TTF_Font *f, TTF_Font *f_ampm,
         int hh = 0, mm = 0;
         sscanf(time_str, "%d:%d", &hh, &mm);
         const char *ampm = (hh < 12) ? "AM" : "PM";
+        bool colon_visible = (SDL_GetTicks() / 500) % 2 == 0;
+        char time_display[16];
+        snprintf(time_display, sizeof(time_display), "%02d%s%02d", hh, colon_visible ? ":" : " ", mm);
         int tw = 0, th = 0, aw = 0, ah = 0;
         TTF_GetStringSize(f, time_str, 0, &tw, &th);
         TTF_GetStringSize(f_ampm, ampm, 0, &aw, &ah);
@@ -2406,7 +2436,7 @@ static float draw_statusbar(SDL_Renderer *ren, TTF_Font *f, TTF_Font *f_ampm,
         float pill_x = right - pill_w;
         float pill_y = y - pill_h / 2.0f;
         draw_rounded_rect_filled(ren, pill_x, pill_y, pill_w, pill_h, pill_h / 2.0f, c_pill_off);
-        draw_text(ren, f, time_str, c_cream, pill_x + pad_x, y - (float)th / 2.0f);
+        draw_text(ren, f, time_display, c_cream, pill_x + pad_x, y - (float)th / 2.0f);
         draw_text(ren, f_ampm, ampm, c_cream, pill_x + pad_x + (float)tw + ampm_gap, y - (float)ah / 2.0f);
         right -= pill_w;
     }
@@ -2515,16 +2545,79 @@ static void get_time_in_tz(const char *tz_name, char *buf, size_t bufsize)
     tzset();
 }
 
+/* =========================================================================
+ * Audio tactil acustico retro (sintetizado en RAM, sin ficheros externos)
+ * ========================================================================= */
+#define CLICK_SAMPLE_RATE 44100
+#define CLICK_DURATION_MS 18
+#define CLICK_SAMPLES ((CLICK_SAMPLE_RATE * CLICK_DURATION_MS) / 1000)
+
+static Sint16 s_click_buffer[CLICK_SAMPLES];
+static SDL_AudioStream *s_audio_stream = NULL;
+
+static void audio_click_init(void)
+{
+    for (int i = 0; i < CLICK_SAMPLES; i++) {
+        float t = (float)i / (float)CLICK_SAMPLE_RATE;
+        float progress = (float)i / (float)CLICK_SAMPLES;
+        float freq = 420.0f - (300.0f * progress);
+        float phase = t * freq;
+        float tri = 2.0f * SDL_fabsf(2.0f * (phase - SDL_floorf(phase + 0.5f))) - 1.0f;
+        float env = 1.0f - progress;
+        env = env * env;
+        s_click_buffer[i] = (Sint16)(tri * env * 3000.0f);
+    }
+
+    SDL_AudioSpec spec;
+    spec.format = SDL_AUDIO_S16LE;
+    spec.channels = 1;
+    spec.freq = CLICK_SAMPLE_RATE;
+
+    s_audio_stream = SDL_OpenAudioDeviceStream(SDL_AUDIO_DEVICE_DEFAULT_PLAYBACK, &spec, NULL, NULL);
+    if (s_audio_stream) {
+        SDL_ResumeAudioStreamDevice(s_audio_stream);
+    }
+}
+
+static bool s_click_sound_enabled = true;
+static void play_ui_click(void)
+{
+    if (s_audio_stream && s_click_sound_enabled) {
+        SDL_PutAudioStreamData(s_audio_stream, s_click_buffer, sizeof(s_click_buffer));
+    }
+}
+/* Lee CLICK_SOUND_ENABLED de armiga.cfg. Default: activado (1). */
+static int read_click_sound_enabled(void)
+{
+    int enabled = 1;
+    FILE *f = fopen(ARMIGA_CONFIG_PATH, "r");
+    if (!f) return enabled;
+    char line[128];
+    while (fgets(line, sizeof(line), f)) {
+        char key[32], val[96];
+        if (sscanf(line, "%31[^=]=%95s", key, val) == 2) {
+            if (!strcmp(key, "CLICK_SOUND_ENABLED")) enabled = atoi(val);
+        }
+    }
+    fclose(f);
+    return enabled ? 1 : 0;
+}
+static void save_click_sound_enabled(int enabled)
+{
+    config_set_kv("CLICK_SOUND_ENABLED", enabled ? "1" : "0");
+}
+
 int main(void)
 {
     for (;;) {
     bool relaunch_after_retroarch = false;
     config_load();
 
-    if (!SDL_Init(SDL_INIT_VIDEO | SDL_INIT_JOYSTICK)) {
+    if (!SDL_Init(SDL_INIT_VIDEO | SDL_INIT_JOYSTICK | SDL_INIT_AUDIO)) {
         fprintf(stderr, "SDL_Init: %s\n", SDL_GetError());
         return 1;
     }
+    audio_click_init();
     if (!TTF_Init()) {
         fprintf(stderr, "TTF_Init: %s\n", SDL_GetError());
         SDL_Quit(); return 1;
@@ -2624,6 +2717,9 @@ int main(void)
     float led_cursor_y = -1.0f;
     Uint64 led_lerp_last_time = SDL_GetTicksNS();
     float tz_cursor_y = -1.0f;
+    char tz_preview_buf[8] = "--:--";
+    int tz_preview_last_sel = -1;
+    Uint64 tz_preview_last_time = 0;
     Uint64 tz_lerp_last_time = SDL_GetTicksNS();
     float dim_cursor_y = -1.0f;
     Uint64 dim_lerp_last_time = SDL_GetTicksNS();
@@ -2711,6 +2807,7 @@ int main(void)
     int refresh_120hz = read_refresh_120hz(); /* aplicado ya al crear la ventana, solo reflejar estado en UI */
     int samba_enabled = read_samba_enabled(); /* aplicado ya por S53samba-toggle en boot, solo reflejar estado en UI */
     int bt_enabled = read_bt_enabled(); /* aplicado ya por S22bluetooth-toggle en boot, solo reflejar estado en UI */
+    s_click_sound_enabled = read_click_sound_enabled() ? true : false;
     int bt_selected = 0; /* cursor en lista de dispositivos escaneados */
     BTDevice bt_devices[BT_MAX_DEVICES];
     int bt_device_count = 0;
@@ -2726,6 +2823,8 @@ int main(void)
     char bt_connect_target_mac[18] = "";
     int dim_saved_brightness = -1; /* brillo del usuario antes de atenuar, -1 = no atenuado */
     bool dim_active = false;
+    bool led_dimmed = false;
+    Uint64 led_lowbat_timer = 0;
     Uint64 last_input_ticks = SDL_GetTicks();
     char kb_buffer[64] = "";
     int  kb_row = 0;
@@ -2756,12 +2855,20 @@ int main(void)
     char sysinfo_disk_data[32] = "--";
     char sysinfo_disk_root[32] = "--";
     char menu_disk_free[32]    = "--";
+    char dash_cpu_temp[16]     = "--";
+    char dash_cpu_load[16]     = "--";
+    char dash_ram[32]          = "--";
     Uint64 last_menu_refresh   = 0;
+    Uint64 last_cpu_temp_sample = 0;
     int sysinfo_page = 0; /* 0 = Sistema/Metricas/Volumenes, 1 = Specs/Software/Red */
     char sysinfo_temp[16]      = "--";
     char sysinfo_cpu_usage[8]  = "--";
     int  sysinfo_cpu_pct       = 0;
-    int  sysinfo_temp_pct      = 0; /* thermal_zone0, para la barra de temperatura en STATE_SYSINFO */
+    int  sysinfo_temp_pct      = 0; /* thermal_zone2 (cpu-thermal), para la barra de temperatura en STATE_SYSINFO */
+    int  sysinfo_ram_pct       = 0;
+    int  sysinfo_disk_root_pct = 0;
+    int  sysinfo_disk_data_pct = 0;
+    char sysinfo_data_free_str[32] = "--";
     char sysinfo_loadavg[32]   = "--";
     char sysinfo_wifi_sig[32]  = "--";
     int  sysinfo_wifi_pct      = -1;
@@ -2832,6 +2939,25 @@ int main(void)
                     apply_perf_profile(perf_selected);
                 }
             }
+
+            /* Atajo global: MODE + DPAD UP/DOWN ajusta brillo desde
+             * cualquier pantalla, salvo dentro de STATE_BRIGHTNESS_CONFIG
+             * (donde el D-pad ya tiene su propio uso LEFT/RIGHT). */
+            if (state != STATE_BRIGHTNESS_CONFIG &&
+                ev.type == SDL_EVENT_JOYSTICK_HAT_MOTION &&
+                joy && SDL_GetJoystickButton(joy, BTN_SDL_MODE)) {
+                int brightness_delta = 0;
+                if (ev.jhat.value == SDL_HAT_UP)   brightness_delta = +5;
+                if (ev.jhat.value == SDL_HAT_DOWN) brightness_delta = -5;
+                if (brightness_delta != 0) {
+                    brightness_pct += brightness_delta;
+                    if (brightness_pct < 5)   brightness_pct = 5;
+                    if (brightness_pct > 100) brightness_pct = 100;
+                    write_brightness((int)((int64_t)2499 * brightness_pct / 100));
+                    save_brightness_config(brightness_pct);
+                    continue;
+                }
+            }
             if (ev.type == SDL_EVENT_KEY_DOWN && ev.key.key == SDLK_ESCAPE) {
                 if (state == STATE_MENU) running = false;
                 else if (state == STATE_CONFIRM) state = STATE_DEVMODE;
@@ -2850,19 +2976,32 @@ int main(void)
                     current_lang = (current_lang == LANG_ES) ? LANG_EN : LANG_ES;
                     save_lang_config();
                 }
+                if (ev.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN &&
+                    ev.jbutton.button == BTN_SDL_B &&
+                    joy && SDL_GetJoystickButton(joy, BTN_SDL_MODE)) {
+                    s_click_sound_enabled = !s_click_sound_enabled;
+                    save_click_sound_enabled(s_click_sound_enabled ? 1 : 0);
+                }
                 if (ev.type == SDL_EVENT_KEY_DOWN) {
-                    if (ev.key.key == SDLK_UP)
+                    if (ev.key.key == SDLK_UP) {
                         selected = (selected - 1 + MENU_COUNT) % MENU_COUNT;
-                    if (ev.key.key == SDLK_DOWN)
+                        play_ui_click();
+                    }
+                    if (ev.key.key == SDLK_DOWN) {
                         selected = (selected + 1) % MENU_COUNT;
+                        play_ui_click();
+                    }
                     if (ev.key.key == SDLK_RETURN)
                         action = selected + 1;
                 }
                 if (ev.type == SDL_EVENT_JOYSTICK_HAT_MOTION) {
-                    if (ev.jhat.value == SDL_HAT_UP)
+                    if (ev.jhat.value == SDL_HAT_UP) {
                         selected = (selected - 1 + MENU_COUNT) % MENU_COUNT;
-                    else if (ev.jhat.value == SDL_HAT_DOWN)
+                        play_ui_click();
+                    } else if (ev.jhat.value == SDL_HAT_DOWN) {
                         selected = (selected + 1) % MENU_COUNT;
+                        play_ui_click();
+                    }
                 }
                 if (ev.type == SDL_EVENT_JOYSTICK_AXIS_MOTION &&
                     ev.jaxis.axis == 1) {
@@ -2873,6 +3012,7 @@ int main(void)
                             selected = (selected - 1 + MENU_COUNT) % MENU_COUNT;
                         else if (zone == 1)
                             selected = (selected + 1) % MENU_COUNT;
+                        if (zone != 0) play_ui_click();
                         menu_axis_prev = zone;
                     }
                 }
@@ -2882,16 +3022,23 @@ int main(void)
             }
             else if (state == STATE_DEVMODE) {
                 if (ev.type == SDL_EVENT_KEY_DOWN) {
-                    if (ev.key.key == SDLK_UP)
+                    if (ev.key.key == SDLK_UP) {
                         dev_selected = (dev_selected - 1 + DEV_MENU_COUNT) % DEV_MENU_COUNT;
-                    if (ev.key.key == SDLK_DOWN)
+                        play_ui_click();
+                    }
+                    if (ev.key.key == SDLK_DOWN) {
                         dev_selected = (dev_selected + 1) % DEV_MENU_COUNT;
+                        play_ui_click();
+                    }
                 }
                 if (ev.type == SDL_EVENT_JOYSTICK_HAT_MOTION) {
-                    if (ev.jhat.value == SDL_HAT_UP)
+                    if (ev.jhat.value == SDL_HAT_UP) {
                         dev_selected = (dev_selected - 1 + DEV_MENU_COUNT) % DEV_MENU_COUNT;
-                    else if (ev.jhat.value == SDL_HAT_DOWN)
+                        play_ui_click();
+                    } else if (ev.jhat.value == SDL_HAT_DOWN) {
                         dev_selected = (dev_selected + 1) % DEV_MENU_COUNT;
+                        play_ui_click();
+                    }
                 }
                 if ((ev.type == SDL_EVENT_KEY_DOWN && ev.key.key == SDLK_RETURN) ||
                     (ev.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN &&
@@ -2918,157 +3065,94 @@ int main(void)
             }
             else if (state == STATE_SETTINGS) {
                 if (ev.type == SDL_EVENT_KEY_DOWN) {
-                    if (ev.key.key == SDLK_UP)
+                    if (ev.key.key == SDLK_UP) {
                         settings_selected = (settings_selected - 1 + SETTINGS_MENU_COUNT) % SETTINGS_MENU_COUNT;
-                    if (ev.key.key == SDLK_DOWN)
+                        play_ui_click();
+                    }
+                    if (ev.key.key == SDLK_DOWN) {
                         settings_selected = (settings_selected + 1) % SETTINGS_MENU_COUNT;
-                    if (ev.key.key == SDLK_RETURN && settings_selected == 0) {
-                        read_wifi_conf(wifi_ssid, sizeof(wifi_ssid), wifi_password, sizeof(wifi_password));
-                        wifi_field_selected = 0;
-                        wifi_show_password = false;
-                        state = STATE_WIFI_CONFIG;
-                    }
-                    if (ev.key.key == SDLK_RETURN && settings_selected == 1) {
-                        backup_selected = 0;
-                        state = STATE_BACKUP_MENU;
-                    }
-                    if (ev.key.key == SDLK_RETURN && settings_selected == 2) {
-                        led_selected = 0;
-                        state = STATE_LED_CONFIG;
-                    }
-                    if (ev.key.key == SDLK_RETURN && settings_selected == 3) {
-                        state = STATE_TIMEZONE_CONFIG;
-                    }
-                    if (ev.key.key == SDLK_RETURN && settings_selected == 4) {
-                        dim_field_selected = 0;
-                        state = STATE_SCREENDIM_CONFIG;
-                    }
-                    if (ev.key.key == SDLK_RETURN && settings_selected == 5) {
-                        state = STATE_BRIGHTNESS_CONFIG;
-                    }
-                    if (ev.key.key == SDLK_RETURN && settings_selected == 6) {
-                        ssh_enabled = !ssh_enabled;
-                        save_ssh_enabled(ssh_enabled);
-                        apply_ssh_enabled(ssh_enabled);
-                    }
-                    if (ev.key.key == SDLK_RETURN && settings_selected == 7) {
-                        samba_enabled = !samba_enabled;
-                        save_samba_enabled(samba_enabled);
-                        apply_samba_enabled(samba_enabled);
-                    }
-                    if (ev.key.key == SDLK_RETURN && settings_selected == 8) {
-                        state = STATE_PERF_CONFIG;
-                    }
-                    if (ev.key.key == SDLK_RETURN && settings_selected == 9) {
-                        bt_selected = 0;
-                        bt_device_count = 0;
-                        bt_connect_status[0] = 0;
-                        read_bt_connected(bt_connected_mac, sizeof(bt_connected_mac), bt_connected_name, sizeof(bt_connected_name));
-                        if (bt_connected_mac[0]) set_retroarch_audio_device(bt_connected_mac);
-                        if (bt_enabled) {
-                            bt_scanning = true;
-                            bt_scan_start = SDL_GetTicks();
-                            system("armiga-bt-scan >/dev/null 2>&1 &");
-                        }
-                        state = STATE_BLUETOOTH_CONFIG;
-                    }
-                    if (ev.key.key == SDLK_RETURN && settings_selected == 10) {
-                        refresh_120hz = !refresh_120hz;
-                        save_refresh_120hz(refresh_120hz);
-                        apply_refresh_120hz(win, refresh_120hz);
-                        set_retroarch_refresh_rate(refresh_120hz ? 120 : 60);
-                    }
-                    if (ev.key.key == SDLK_RETURN && settings_selected == 11) {
-                        confirm_target = SETTINGS_ACTION_FACTORY_RESET;
-                        confirm_return_state = STATE_SETTINGS;
-                        state = STATE_CONFIRM;
-                    }
-                    if (ev.key.key == SDLK_RETURN && settings_selected == SETTINGS_ITEM_CONTROLLER_TEST) {
-                        state = STATE_CONTROLLER_TEST;
+                        play_ui_click();
                     }
                 }
                 if (ev.type == SDL_EVENT_JOYSTICK_HAT_MOTION) {
-                    if (ev.jhat.value == SDL_HAT_UP)
+                    if (ev.jhat.value == SDL_HAT_UP) {
                         settings_selected = (settings_selected - 1 + SETTINGS_MENU_COUNT) % SETTINGS_MENU_COUNT;
-                    else if (ev.jhat.value == SDL_HAT_DOWN)
+                        play_ui_click();
+                    } else if (ev.jhat.value == SDL_HAT_DOWN) {
                         settings_selected = (settings_selected + 1) % SETTINGS_MENU_COUNT;
-                }
-                if (ev.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN &&
-                    ev.jbutton.button == BTN_SDL_A && settings_selected == 0) {
-                    read_wifi_conf(wifi_ssid, sizeof(wifi_ssid), wifi_password, sizeof(wifi_password));
-                    wifi_field_selected = 0;
-                    wifi_show_password = false;
-                    state = STATE_WIFI_CONFIG;
-                }
-                if (ev.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN &&
-                    ev.jbutton.button == BTN_SDL_A && settings_selected == 1) {
-                    backup_selected = 0;
-                    state = STATE_BACKUP_MENU;
-                }
-                if (ev.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN &&
-                    ev.jbutton.button == BTN_SDL_A && settings_selected == 2) {
-                    led_selected = 0;
-                    state = STATE_LED_CONFIG;
-                }
-                if (ev.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN &&
-                    ev.jbutton.button == BTN_SDL_A && settings_selected == 3) {
-                    state = STATE_TIMEZONE_CONFIG;
-                }
-                if (ev.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN &&
-                    ev.jbutton.button == BTN_SDL_A && settings_selected == 4) {
-                    dim_field_selected = 0;
-                    state = STATE_SCREENDIM_CONFIG;
-                }
-                if (ev.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN &&
-                    ev.jbutton.button == BTN_SDL_A && settings_selected == 5) {
-                    state = STATE_BRIGHTNESS_CONFIG;
-                }
-                if (ev.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN &&
-                    ev.jbutton.button == BTN_SDL_A && settings_selected == 6) {
-                    ssh_enabled = !ssh_enabled;
-                    save_ssh_enabled(ssh_enabled);
-                    apply_ssh_enabled(ssh_enabled);
-                }
-                if (ev.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN &&
-                    ev.jbutton.button == BTN_SDL_A && settings_selected == 7) {
-                    samba_enabled = !samba_enabled;
-                    save_samba_enabled(samba_enabled);
-                    apply_samba_enabled(samba_enabled);
-                }
-                if (ev.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN &&
-                    ev.jbutton.button == BTN_SDL_A && settings_selected == 8) {
-                    state = STATE_PERF_CONFIG;
-                }
-                if (ev.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN &&
-                    ev.jbutton.button == BTN_SDL_A && settings_selected == 9) {
-                    bt_selected = 0;
-                    bt_device_count = 0;
-                    bt_connect_status[0] = 0;
-                    read_bt_connected(bt_connected_mac, sizeof(bt_connected_mac), bt_connected_name, sizeof(bt_connected_name));
-                    if (bt_connected_mac[0]) set_retroarch_audio_device(bt_connected_mac);
-                    if (bt_enabled) {
-                        bt_scanning = true;
-                        bt_scan_start = SDL_GetTicks();
-                        system("armiga-bt-scan >/dev/null 2>&1 &");
+                        play_ui_click();
                     }
-                    state = STATE_BLUETOOTH_CONFIG;
                 }
-                if (ev.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN &&
-                    ev.jbutton.button == BTN_SDL_A && settings_selected == 10) {
-                    refresh_120hz = !refresh_120hz;
-                    save_refresh_120hz(refresh_120hz);
-                    apply_refresh_120hz(win, refresh_120hz);
-                    set_retroarch_refresh_rate(refresh_120hz ? 120 : 60);
-                }
-                if (ev.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN &&
-                    ev.jbutton.button == BTN_SDL_A && settings_selected == 11) {
-                    confirm_target = SETTINGS_ACTION_FACTORY_RESET;
-                    confirm_return_state = STATE_SETTINGS;
-                    state = STATE_CONFIRM;
-                }
-                if (ev.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN &&
-                    ev.jbutton.button == BTN_SDL_A && settings_selected == SETTINGS_ITEM_CONTROLLER_TEST) {
-                    state = STATE_CONTROLLER_TEST;
+                bool settings_trigger_action =
+                    (ev.type == SDL_EVENT_KEY_DOWN && ev.key.key == SDLK_RETURN) ||
+                    (ev.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN && ev.jbutton.button == BTN_SDL_A);
+                if (settings_trigger_action) {
+                    switch (settings_selected) {
+                        case 0:
+                            read_wifi_conf(wifi_ssid, sizeof(wifi_ssid), wifi_password, sizeof(wifi_password));
+                            wifi_field_selected = 0;
+                            wifi_show_password = false;
+                            state = STATE_WIFI_CONFIG;
+                            break;
+                        case 1:
+                            backup_selected = 0;
+                            state = STATE_BACKUP_MENU;
+                            break;
+                        case 2:
+                            led_selected = 0;
+                            state = STATE_LED_CONFIG;
+                            break;
+                        case 3:
+                            state = STATE_TIMEZONE_CONFIG;
+                            break;
+                        case 4:
+                            dim_field_selected = 0;
+                            state = STATE_SCREENDIM_CONFIG;
+                            break;
+                        case 5:
+                            state = STATE_BRIGHTNESS_CONFIG;
+                            break;
+                        case 6:
+                            ssh_enabled = !ssh_enabled;
+                            save_ssh_enabled(ssh_enabled);
+                            apply_ssh_enabled(ssh_enabled);
+                            break;
+                        case 7:
+                            samba_enabled = !samba_enabled;
+                            save_samba_enabled(samba_enabled);
+                            apply_samba_enabled(samba_enabled);
+                            break;
+                        case 8:
+                            state = STATE_PERF_CONFIG;
+                            break;
+                        case 9:
+                            bt_selected = 0;
+                            bt_device_count = 0;
+                            bt_connect_status[0] = 0;
+                            read_bt_connected(bt_connected_mac, sizeof(bt_connected_mac), bt_connected_name, sizeof(bt_connected_name));
+                            if (bt_connected_mac[0]) set_retroarch_audio_device(bt_connected_mac);
+                            if (bt_enabled) {
+                                bt_scanning = true;
+                                bt_scan_start = SDL_GetTicks();
+                                system("armiga-bt-scan >/dev/null 2>&1 &");
+                            }
+                            state = STATE_BLUETOOTH_CONFIG;
+                            break;
+                        case 10:
+                            refresh_120hz = !refresh_120hz;
+                            save_refresh_120hz(refresh_120hz);
+                            apply_refresh_120hz(win, refresh_120hz);
+                            set_retroarch_refresh_rate(refresh_120hz ? 120 : 60);
+                            break;
+                        case 11:
+                            confirm_target = SETTINGS_ACTION_FACTORY_RESET;
+                            confirm_return_state = STATE_SETTINGS;
+                            state = STATE_CONFIRM;
+                            break;
+                        case SETTINGS_ITEM_CONTROLLER_TEST:
+                            state = STATE_CONTROLLER_TEST;
+                            break;
+                    }
                 }
                 if (ev.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN &&
                     ev.jbutton.button == BTN_SDL_B)
@@ -3120,10 +3204,14 @@ int main(void)
             }
             else if (state == STATE_PERF_CONFIG) {
                 if (ev.type == SDL_EVENT_KEY_DOWN) {
-                    if (ev.key.key == SDLK_UP)
+                    if (ev.key.key == SDLK_UP) {
                         perf_selected = (perf_selected - 1 + 3) % 3;
-                    if (ev.key.key == SDLK_DOWN)
+                        play_ui_click();
+                    }
+                    if (ev.key.key == SDLK_DOWN) {
                         perf_selected = (perf_selected + 1) % 3;
+                        play_ui_click();
+                    }
                     if (ev.key.key == SDLK_RETURN) {
                         save_perf_profile(perf_selected);
                         apply_perf_profile(perf_selected);
@@ -3135,10 +3223,13 @@ int main(void)
                     }
                 }
                 if (ev.type == SDL_EVENT_JOYSTICK_HAT_MOTION) {
-                    if (ev.jhat.value == SDL_HAT_UP)
+                    if (ev.jhat.value == SDL_HAT_UP) {
                         perf_selected = (perf_selected - 1 + 3) % 3;
-                    else if (ev.jhat.value == SDL_HAT_DOWN)
+                        play_ui_click();
+                    } else if (ev.jhat.value == SDL_HAT_DOWN) {
                         perf_selected = (perf_selected + 1) % 3;
+                        play_ui_click();
+                    }
                 }
                 if (ev.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN &&
                     ev.jbutton.button == BTN_SDL_A) {
@@ -3168,16 +3259,23 @@ int main(void)
                 }
                 if (!bt_connecting && bt_device_count > 0) {
                     if (ev.type == SDL_EVENT_KEY_DOWN) {
-                        if (ev.key.key == SDLK_UP)
+                        if (ev.key.key == SDLK_UP) {
                             bt_selected = (bt_selected - 1 + bt_device_count) % bt_device_count;
-                        if (ev.key.key == SDLK_DOWN)
+                            play_ui_click();
+                        }
+                        if (ev.key.key == SDLK_DOWN) {
                             bt_selected = (bt_selected + 1) % bt_device_count;
+                            play_ui_click();
+                        }
                     }
                     if (ev.type == SDL_EVENT_JOYSTICK_HAT_MOTION) {
-                        if (ev.jhat.value == SDL_HAT_UP)
+                        if (ev.jhat.value == SDL_HAT_UP) {
                             bt_selected = (bt_selected - 1 + bt_device_count) % bt_device_count;
-                        else if (ev.jhat.value == SDL_HAT_DOWN)
+                            play_ui_click();
+                        } else if (ev.jhat.value == SDL_HAT_DOWN) {
                             bt_selected = (bt_selected + 1) % bt_device_count;
+                            play_ui_click();
+                        }
                     }
                     if (ev.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN &&
                         ev.jbutton.button == BTN_SDL_A) {
@@ -3199,16 +3297,23 @@ int main(void)
             else if (state == STATE_AREXX_LIST) {
                 if (arexx_count > 0) {
                     if (ev.type == SDL_EVENT_KEY_DOWN) {
-                        if (ev.key.key == SDLK_UP)
+                        if (ev.key.key == SDLK_UP) {
                             arexx_selected = (arexx_selected - 1 + arexx_count) % arexx_count;
-                        if (ev.key.key == SDLK_DOWN)
+                            play_ui_click();
+                        }
+                        if (ev.key.key == SDLK_DOWN) {
                             arexx_selected = (arexx_selected + 1) % arexx_count;
+                            play_ui_click();
+                        }
                     }
                     if (ev.type == SDL_EVENT_JOYSTICK_HAT_MOTION) {
-                        if (ev.jhat.value == SDL_HAT_UP)
+                        if (ev.jhat.value == SDL_HAT_UP) {
                             arexx_selected = (arexx_selected - 1 + arexx_count) % arexx_count;
-                        else if (ev.jhat.value == SDL_HAT_DOWN)
+                            play_ui_click();
+                        } else if (ev.jhat.value == SDL_HAT_DOWN) {
                             arexx_selected = (arexx_selected + 1) % arexx_count;
+                            play_ui_click();
+                        }
                     }
                     if (ev.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN &&
                         ev.jbutton.button == BTN_SDL_A) {
@@ -3249,16 +3354,32 @@ int main(void)
             }
             else if (state == STATE_TIMEZONE_CONFIG) {
                 if (ev.type == SDL_EVENT_KEY_DOWN) {
-                    if (ev.key.key == SDLK_UP)
+                    if (ev.key.key == SDLK_UP) {
                         timezone_selected = (timezone_selected - 1 + TIMEZONE_LIST_COUNT) % TIMEZONE_LIST_COUNT;
-                    if (ev.key.key == SDLK_DOWN)
+                        play_ui_click();
+                    }
+                    if (ev.key.key == SDLK_DOWN) {
                         timezone_selected = (timezone_selected + 1) % TIMEZONE_LIST_COUNT;
+                        play_ui_click();
+                    }
                 }
                 if (ev.type == SDL_EVENT_JOYSTICK_HAT_MOTION) {
-                    if (ev.jhat.value == SDL_HAT_UP)
+                    if (ev.jhat.value == SDL_HAT_UP) {
                         timezone_selected = (timezone_selected - 1 + TIMEZONE_LIST_COUNT) % TIMEZONE_LIST_COUNT;
-                    else if (ev.jhat.value == SDL_HAT_DOWN)
+                        play_ui_click();
+                    } else if (ev.jhat.value == SDL_HAT_DOWN) {
                         timezone_selected = (timezone_selected + 1) % TIMEZONE_LIST_COUNT;
+                        play_ui_click();
+                    }
+                }
+                if (ev.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN) {
+                    if (ev.jbutton.button == BTN_SDL_L1) {
+                        timezone_selected = (timezone_selected - 5 + TIMEZONE_LIST_COUNT) % TIMEZONE_LIST_COUNT;
+                        play_ui_click();
+                    } else if (ev.jbutton.button == BTN_SDL_R1) {
+                        timezone_selected = (timezone_selected + 5) % TIMEZONE_LIST_COUNT;
+                        play_ui_click();
+                    }
                 }
                 if ((ev.type == SDL_EVENT_KEY_DOWN && ev.key.key == SDLK_RETURN) ||
                     (ev.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN && ev.jbutton.button == BTN_SDL_A)) {
@@ -3275,44 +3396,54 @@ int main(void)
             }
             else if (state == STATE_SCREENDIM_CONFIG) {
                 if (ev.type == SDL_EVENT_KEY_DOWN) {
-                    if (ev.key.key == SDLK_UP)
+                    if (ev.key.key == SDLK_UP) {
                         dim_field_selected = (dim_field_selected - 1 + 2) % 2;
-                    if (ev.key.key == SDLK_DOWN)
+                        play_ui_click();
+                    }
+                    if (ev.key.key == SDLK_DOWN) {
                         dim_field_selected = (dim_field_selected + 1) % 2;
+                        play_ui_click();
+                    }
                     if (ev.key.key == SDLK_LEFT) {
-                        if (dim_field_selected == 0)
+                        if (dim_field_selected == 0) {
                             dim_timeout_selected = (dim_timeout_selected - 1 + DIM_TIMEOUT_COUNT) % DIM_TIMEOUT_COUNT;
-                        else {
+                            play_ui_click();
+                        } else {
                             dim_percent -= 5;
                             if (dim_percent < 5) dim_percent = 5;
                         }
                     }
                     if (ev.key.key == SDLK_RIGHT) {
-                        if (dim_field_selected == 0)
+                        if (dim_field_selected == 0) {
                             dim_timeout_selected = (dim_timeout_selected + 1) % DIM_TIMEOUT_COUNT;
-                        else {
+                            play_ui_click();
+                        } else {
                             dim_percent += 5;
                             if (dim_percent > 95) dim_percent = 95;
                         }
                     }
                 }
                 if (ev.type == SDL_EVENT_JOYSTICK_HAT_MOTION) {
-                    if (ev.jhat.value == SDL_HAT_UP)
+                    if (ev.jhat.value == SDL_HAT_UP) {
                         dim_field_selected = (dim_field_selected - 1 + 2) % 2;
-                    else if (ev.jhat.value == SDL_HAT_DOWN)
+                        play_ui_click();
+                    } else if (ev.jhat.value == SDL_HAT_DOWN) {
                         dim_field_selected = (dim_field_selected + 1) % 2;
-                    else if (ev.jhat.value == SDL_HAT_LEFT) {
-                        if (dim_field_selected == 0)
+                        play_ui_click();
+                    } else if (ev.jhat.value == SDL_HAT_LEFT) {
+                        if (dim_field_selected == 0) {
                             dim_timeout_selected = (dim_timeout_selected - 1 + DIM_TIMEOUT_COUNT) % DIM_TIMEOUT_COUNT;
-                        else {
+                            play_ui_click();
+                        } else {
                             dim_percent -= 5;
                             if (dim_percent < 5) dim_percent = 5;
                         }
                     }
                     else if (ev.jhat.value == SDL_HAT_RIGHT) {
-                        if (dim_field_selected == 0)
+                        if (dim_field_selected == 0) {
                             dim_timeout_selected = (dim_timeout_selected + 1) % DIM_TIMEOUT_COUNT;
-                        else {
+                            play_ui_click();
+                        } else {
                             dim_percent += 5;
                             if (dim_percent > 95) dim_percent = 95;
                         }
@@ -3336,16 +3467,23 @@ int main(void)
             }
             else if (state == STATE_BACKUP_MENU) {
                 if (ev.type == SDL_EVENT_KEY_DOWN) {
-                    if (ev.key.key == SDLK_UP)
+                    if (ev.key.key == SDLK_UP) {
                         backup_selected = (backup_selected - 1 + BACKUP_MENU_COUNT) % BACKUP_MENU_COUNT;
-                    if (ev.key.key == SDLK_DOWN)
+                        play_ui_click();
+                    }
+                    if (ev.key.key == SDLK_DOWN) {
                         backup_selected = (backup_selected + 1) % BACKUP_MENU_COUNT;
+                        play_ui_click();
+                    }
                 }
                 if (ev.type == SDL_EVENT_JOYSTICK_HAT_MOTION) {
-                    if (ev.jhat.value == SDL_HAT_UP)
+                    if (ev.jhat.value == SDL_HAT_UP) {
                         backup_selected = (backup_selected - 1 + BACKUP_MENU_COUNT) % BACKUP_MENU_COUNT;
-                    else if (ev.jhat.value == SDL_HAT_DOWN)
+                        play_ui_click();
+                    } else if (ev.jhat.value == SDL_HAT_DOWN) {
                         backup_selected = (backup_selected + 1) % BACKUP_MENU_COUNT;
+                        play_ui_click();
+                    }
                 }
                 if (ev.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN &&
                     ev.jbutton.button == BTN_SDL_A && backup_selected == 0 && !backup_creating) {
@@ -3370,10 +3508,14 @@ int main(void)
                 };
                 bool led_dirty = false;
                 if (ev.type == SDL_EVENT_KEY_DOWN) {
-                    if (ev.key.key == SDLK_UP)
+                    if (ev.key.key == SDLK_UP) {
                         led_selected = (led_selected - 1 + LED_SLIDER_COUNT) % LED_SLIDER_COUNT;
-                    if (ev.key.key == SDLK_DOWN)
+                        play_ui_click();
+                    }
+                    if (ev.key.key == SDLK_DOWN) {
                         led_selected = (led_selected + 1) % LED_SLIDER_COUNT;
+                        play_ui_click();
+                    }
                     if (ev.key.key == SDLK_LEFT) {
                         *led_vals[led_selected] -= 5;
                         if (*led_vals[led_selected] < 0) *led_vals[led_selected] = 0;
@@ -3394,11 +3536,13 @@ int main(void)
                     led_repeat_dir = 0;
                 }
                 if (ev.type == SDL_EVENT_JOYSTICK_HAT_MOTION) {
-                    if (ev.jhat.value == SDL_HAT_UP)
+                    if (ev.jhat.value == SDL_HAT_UP) {
                         led_selected = (led_selected - 1 + LED_SLIDER_COUNT) % LED_SLIDER_COUNT;
-                    else if (ev.jhat.value == SDL_HAT_DOWN)
+                        play_ui_click();
+                    } else if (ev.jhat.value == SDL_HAT_DOWN) {
                         led_selected = (led_selected + 1) % LED_SLIDER_COUNT;
-                    else if (ev.jhat.value == SDL_HAT_LEFT) {
+                        play_ui_click();
+                    } else if (ev.jhat.value == SDL_HAT_LEFT) {
                         *led_vals[led_selected] -= 5;
                         if (*led_vals[led_selected] < 0) *led_vals[led_selected] = 0;
                         led_dirty = true;
@@ -3443,16 +3587,23 @@ int main(void)
             }
             else if (state == STATE_BACKUP_LIST) {
                 if (ev.type == SDL_EVENT_KEY_DOWN && backup_count > 0) {
-                    if (ev.key.key == SDLK_UP)
+                    if (ev.key.key == SDLK_UP) {
                         backup_list_selected = (backup_list_selected - 1 + backup_count) % backup_count;
-                    if (ev.key.key == SDLK_DOWN)
+                        play_ui_click();
+                    }
+                    if (ev.key.key == SDLK_DOWN) {
                         backup_list_selected = (backup_list_selected + 1) % backup_count;
+                        play_ui_click();
+                    }
                 }
                 if (ev.type == SDL_EVENT_JOYSTICK_HAT_MOTION && backup_count > 0) {
-                    if (ev.jhat.value == SDL_HAT_UP)
+                    if (ev.jhat.value == SDL_HAT_UP) {
                         backup_list_selected = (backup_list_selected - 1 + backup_count) % backup_count;
-                    else if (ev.jhat.value == SDL_HAT_DOWN)
+                        play_ui_click();
+                    } else if (ev.jhat.value == SDL_HAT_DOWN) {
                         backup_list_selected = (backup_list_selected + 1) % backup_count;
+                        play_ui_click();
+                    }
                 }
                 if (ev.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN &&
                     ev.jbutton.button == BTN_SDL_A && backup_count > 0) {
@@ -3473,16 +3624,23 @@ int main(void)
             }
             else if (state == STATE_WIFI_CONFIG) {
                 if (ev.type == SDL_EVENT_KEY_DOWN) {
-                    if (ev.key.key == SDLK_UP)
+                    if (ev.key.key == SDLK_UP) {
                         wifi_field_selected = (wifi_field_selected - 1 + 2) % 2;
-                    if (ev.key.key == SDLK_DOWN)
+                        play_ui_click();
+                    }
+                    if (ev.key.key == SDLK_DOWN) {
                         wifi_field_selected = (wifi_field_selected + 1) % 2;
+                        play_ui_click();
+                    }
                 }
                 if (ev.type == SDL_EVENT_JOYSTICK_HAT_MOTION) {
-                    if (ev.jhat.value == SDL_HAT_UP)
+                    if (ev.jhat.value == SDL_HAT_UP) {
                         wifi_field_selected = (wifi_field_selected - 1 + 2) % 2;
-                    else if (ev.jhat.value == SDL_HAT_DOWN)
+                        play_ui_click();
+                    } else if (ev.jhat.value == SDL_HAT_DOWN) {
                         wifi_field_selected = (wifi_field_selected + 1) % 2;
+                        play_ui_click();
+                    }
                 }
                 if (ev.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN &&
                     ev.jbutton.button == BTN_SDL_SELECT)
@@ -3818,6 +3976,30 @@ int main(void)
                               led_r_left, led_g_left, led_b_left);
             led_repeat_next = now_ticks + 60;
         }
+        /* LEDs reactivos: atenuar al entrar en dim, restaurar al salir. */
+        if (dim_active && !led_dimmed) {
+            int dim_b = led_brightness / 8;
+            if (dim_b < 5) dim_b = 5;
+            send_led_payload(dim_b, led_r_right, led_g_right, led_b_right,
+                              led_r_left, led_g_left, led_b_left);
+            led_dimmed = true;
+        } else if (!dim_active && led_dimmed) {
+            send_led_payload(led_brightness, led_r_right, led_g_right, led_b_right,
+                              led_r_left, led_g_left, led_b_left);
+            led_dimmed = false;
+        }
+        /* LEDs reactivos: alerta bateria critica (<=15%, no cargando, sin dim activo) */
+        if (!dim_active && status_battery > 0 && status_battery <= 15 && !s_status_charging) {
+            if (led_lowbat_timer == 0 || now_ticks - led_lowbat_timer > 1000) {
+                bool pulse = (now_ticks / 1000) % 2 == 0;
+                if (pulse) {
+                    send_led_payload(led_brightness, 255, 0, 0, 255, 0, 0);
+                } else {
+                    send_led_payload(0, 0, 0, 0, 0, 0, 0);
+                }
+                led_lowbat_timer = now_ticks;
+            }
+        }
 
         /* Creacion de backup async (B01/B02 pattern): tar corre en
          * background, se sondea cada frame sin bloquear la UI. */
@@ -3892,6 +4074,7 @@ int main(void)
                                 safe_copy(upd_msg, tr("Error de verificación SHA256.", "SHA256 verification error."), sizeof(upd_msg));
                                 unlink(UPDATE_IMG);
                                 unlink(UPDATE_SHA256);
+                                s_last_download_url[0] = '\0';
                             }
                         }
                     }
@@ -3905,14 +4088,24 @@ int main(void)
                         safe_copy(upd_msg, tr("Error de verificación SHA256.", "SHA256 verification error."), sizeof(upd_msg));
                         unlink(UPDATE_IMG);
                         unlink(UPDATE_SHA256);
+                        s_last_download_url[0] = '\0';
                     }
                 }
             }
         }
 
+        if ((state == STATE_MENU || state == STATE_SYSINFO) &&
+            (last_cpu_temp_sample == 0 || now_ticks - last_cpu_temp_sample > 5000)) {
+            read_cpu_temp(dash_cpu_temp, sizeof(dash_cpu_temp));
+            safe_copy(sysinfo_temp, dash_cpu_temp, sizeof(sysinfo_temp));
+            { int td = 0; if (read_sysfs_int("/sys/class/thermal/thermal_zone2/temp", &td)) sysinfo_temp_pct = td / 1000; if (sysinfo_temp_pct > 100) sysinfo_temp_pct = 100; }
+            last_cpu_temp_sample = now_ticks;
+        }
         if (state == STATE_MENU &&
             (last_menu_refresh == 0 || now_ticks - last_menu_refresh > 5000)) {
             read_disk_free_short("/media/amiga_data", menu_disk_free, sizeof(menu_disk_free));
+            read_cpu_usage(dash_cpu_load, sizeof(dash_cpu_load), NULL);
+            read_ram_usage(dash_ram, sizeof(dash_ram));
             last_menu_refresh = now_ticks;
         }
         if (state == STATE_SYSINFO &&
@@ -3922,13 +4115,37 @@ int main(void)
             read_ram_usage(dev_ram, sizeof(dev_ram));
             read_disk_usage("/media/amiga_data", sysinfo_disk_data, sizeof(sysinfo_disk_data));
             read_disk_usage("/", sysinfo_disk_root, sizeof(sysinfo_disk_root));
-            read_cpu_temp(sysinfo_temp, sizeof(sysinfo_temp));
-            { int td = 0; if (read_sysfs_int("/sys/class/thermal/thermal_zone0/temp", &td)) sysinfo_temp_pct = td / 1000; if (sysinfo_temp_pct > 100) sysinfo_temp_pct = 100; }
             read_cpu_usage(sysinfo_cpu_usage, sizeof(sysinfo_cpu_usage), &sysinfo_cpu_pct);
             read_loadavg(sysinfo_loadavg, sizeof(sysinfo_loadavg));
             read_wifi_signal(sysinfo_wifi_sig, sizeof(sysinfo_wifi_sig), &sysinfo_wifi_pct);
             read_mac_address(sysinfo_mac, sizeof(sysinfo_mac));
             snprintf(sysinfo_build, sizeof(sysinfo_build), "%s (%s)", s_build_date, s_build_number);
+            {
+                FILE *fm = fopen("/proc/meminfo", "r");
+                if (fm) {
+                    long mt = -1, ma = -1; char ln[128];
+                    while (fgets(ln, sizeof(ln), fm)) {
+                        if (!strncmp(ln, "MemTotal:",    9)) sscanf(ln, "MemTotal: %ld",    &mt);
+                        if (!strncmp(ln, "MemAvailable:",13)) sscanf(ln, "MemAvailable: %ld",&ma);
+                    }
+                    fclose(fm);
+                    if (mt > 0 && ma >= 0) sysinfo_ram_pct = (int)(100 * (mt - ma) / mt);
+                }
+            }
+            {
+                struct statvfs st;
+                if (statvfs("/", &st) == 0 && st.f_blocks > 0)
+                    sysinfo_disk_root_pct = (int)(100 - 100ULL * st.f_bfree / st.f_blocks);
+            }
+            {
+                struct statvfs st;
+                if (statvfs("/media/amiga_data", &st) == 0 && st.f_blocks > 0) {
+                    sysinfo_disk_data_pct = (int)(100 - 100ULL * st.f_bfree / st.f_blocks);
+                    unsigned long long free_mb = (unsigned long long)st.f_bfree * st.f_frsize / (1024*1024);
+                    if (free_mb >= 1024) snprintf(sysinfo_data_free_str, sizeof(sysinfo_data_free_str), "%.1f GB", free_mb / 1024.0);
+                    else                 snprintf(sysinfo_data_free_str, sizeof(sysinfo_data_free_str), "%llu MB", free_mb);
+                }
+            }
             last_sysinfo_update = now_ticks;
         }
         if (state == STATE_DEVMODE &&
@@ -4070,8 +4287,14 @@ int main(void)
                 draw_rounded_rect_filled(ren, mx - 10.0f, menu_cursor_y - 5.0f,
                                  sel_w, pill_h, pill_radius, c_menu_selbg);
                 if (menu_icon_tex[i]) {
+                    /* Respiracion sutil: pulso senoidal 20px-23px, ~1.8s de ciclo */
+                    float breath = (SDL_sinf((float)now_ticks * 0.0035f) + 1.0f) * 0.5f;
+                    float icon_sz = 20.0f + (breath * 3.0f);
+                    float icon_offset = (icon_sz - 20.0f) / 2.0f;
+                    float icon_x = (mx + 8.0f) - icon_offset;
+                    float icon_y = iy - icon_offset;
                     SDL_SetTextureColorMod(menu_icon_tex[i], c_menu_gold.r, c_menu_gold.g, c_menu_gold.b);
-                    SDL_FRect icon_dst = {mx + 8.0f, iy, 20.0f, 20.0f};
+                    SDL_FRect icon_dst = {icon_x, icon_y, icon_sz, icon_sz};
                     SDL_RenderTexture(ren, menu_icon_tex[i], NULL, &icon_dst);
                 }
                 draw_text(ren, f_med, MENU_ITEMS[i][current_lang], c_menu_gold, mx + 46.0f, iy);
@@ -4101,13 +4324,37 @@ int main(void)
             snprintf(ctx_lines[ctx_n], sizeof(ctx_lines[ctx_n]), "%s: %s",
                      tr("Espacio libre", "Free space"), menu_disk_free);
             ctx_n++;
+            snprintf(ctx_lines[ctx_n], sizeof(ctx_lines[ctx_n]), "%s: %s",
+                     tr("Temp. CPU", "CPU temp"), dash_cpu_temp);
+            ctx_n++;
+            snprintf(ctx_lines[ctx_n], sizeof(ctx_lines[ctx_n]), "%s: %s",
+                     tr("Carga CPU", "CPU load"), dash_cpu_load);
+            ctx_n++;
+            snprintf(ctx_lines[ctx_n], sizeof(ctx_lines[ctx_n]), "%s: %s",
+                     tr("RAM", "RAM"), dash_ram);
+            ctx_n++;
             float ctx_y = menu_y0 + 18.0f + (float)n_lines * 16.0f + 20.0f;
+            float ctx_box_pad = 10.0f;
+            float ctx_max_line_w = 0.0f;
+            for (int ci = 0; ci < ctx_n; ci++) {
+                int clw = 0, clh = 0;
+                TTF_GetStringSize(f_sm, ctx_lines[ci], 0, &clw, &clh);
+                if ((float)clw > ctx_max_line_w) ctx_max_line_w = (float)clw;
+            }
+            float ctx_box_x = rx - ctx_box_pad;
+            float ctx_box_y = ctx_y - ctx_box_pad;
+            float ctx_box_w = ctx_max_line_w + ctx_box_pad * 2.0f;
+            float ctx_box_h = (float)ctx_n * 16.0f + ctx_box_pad * 2.0f;
+            SDL_Color c_ctx_box_bg = COL_BG;
+            SDL_Color c_ctx_box_border = {183, 221, 91, 255};
+            draw_rounded_rect_outline(ren, ctx_box_x, ctx_box_y, ctx_box_w, ctx_box_h,
+                                       10.0f, 2.0f, c_ctx_box_border, c_ctx_box_bg);
             draw_context_panel(ren, f_sm, rx, ctx_y, ctx_lines, ctx_n, c_dkgreen);
         }
 
         /* Barra inferior */
         draw_line(ren, mx, 438.0f, SCREEN_W - 20.0f, 438.0f, (SDL_Color){183, 221, 91, 255});
-        draw_footer(ren, f_sm, tr("[B] Seleccionar  [DPAD] Navegar  [L1] Idioma", "[B] Select  [DPAD] Navigate  [L1] Language"), s_version);
+        draw_footer(ren, f_sm, tr("[B] Seleccionar  [DPAD] Navegar  [L1] Idioma  [MODE+A] Sonido", "[B] Select  [DPAD] Navigate  [L1] Language  [MODE+A] Sound"), s_version);
 
         /* Barra de progreso del hold de modo dev (si se está manteniendo) */
         if (devmode_combo_held && devmode_hold_start != 0) {
@@ -4453,22 +4700,25 @@ int main(void)
                 SDL_Color labelc = sel ? c_menu_gold : c_menu_beige;
                 draw_text(ren, f_sm, TIMEZONE_LIST[i].label[current_lang], labelc, mx + 8.0f, iy);
                 if (active)
-                    draw_text(ren, f_sm, "✓", c_menu_gold, mx + 8.0f + (float)text_w + 8.0f, iy);
+                    draw_text(ren, f_sm, "✓", sel ? c_menu_gold : c_menu_selbg, mx + 8.0f + (float)text_w + 8.0f, iy);
             }
 
             /* Panel derecho: hora en vivo de la zona resaltada por el cursor */
             {
                 float tzp_x = mx + mw + 30.0f;
-                char tz_time_buf[8];
-                get_time_in_tz(TIMEZONE_LIST[timezone_selected].tz_name, tz_time_buf, sizeof(tz_time_buf));
+                if (timezone_selected != tz_preview_last_sel || now_ticks - tz_preview_last_time > 1000) {
+                    get_time_in_tz(TIMEZONE_LIST[timezone_selected].tz_name, tz_preview_buf, sizeof(tz_preview_buf));
+                    tz_preview_last_sel = timezone_selected;
+                    tz_preview_last_time = now_ticks;
+                }
                 draw_text(ren, f_sm, tr("Hora actual", "Current time"), c_menu_beige, tzp_x, tz_y0);
-                draw_text(ren, f_lg, tz_time_buf, c_menu_selbg, tzp_x, tz_y0 + 22.0f);
+                draw_text(ren, f_lg, tz_preview_buf, c_menu_selbg, tzp_x, tz_y0 + 22.0f);
                 draw_text(ren, f_sm, TIMEZONE_LIST[timezone_selected].label[current_lang], c_menu_beige, tzp_x, tz_y0 + 66.0f);
             }
 
             draw_line(ren, mx, 438.0f, SCREEN_W - 20.0f, 438.0f, (SDL_Color){183, 221, 91, 255});
             draw_footer(ren, f_sm,
-                tr("[B] Aplicar  [A] Volver", "[B] Apply  [A] Back"), s_version);
+                tr("[B] Aplicar  [A] Volver  [L1/R1] Salto x5", "[B] Apply  [A] Back  [L1/R1] Jump x5"), s_version);
 
         } else if (state == STATE_SCREENDIM_CONFIG) {
             SDL_Color c_menu_gold  = {27, 39, 8, 255};
@@ -4731,9 +4981,15 @@ int main(void)
                 arexx_scroll = arxr_max_scroll;
             }
             int arxr_start = arexx_scroll;
+            SDL_Color c_arxr_lime = {183, 221, 91, 255};
+            SDL_Color c_arxr_red  = COL_RED;
             if (arxr_lines)
-                for (int i = arxr_start; i < arxr_nlines && (i - arxr_start) < arxr_max_visible; i++)
-                    draw_text(ren, f_xs, arxr_lines[i], c_gray, mx, arxr_y0 + (i - arxr_start) * arxr_line_h);
+                for (int i = arxr_start; i < arxr_nlines && (i - arxr_start) < arxr_max_visible; i++) {
+                    SDL_Color line_c = c_gray;
+                    if (strstr(arxr_lines[i], "[CORRECTO]")) line_c = c_arxr_lime;
+                    else if (strstr(arxr_lines[i], "[INCORRECTO]")) line_c = c_arxr_red;
+                    draw_text(ren, f_xs, arxr_lines[i], line_c, mx, arxr_y0 + (i - arxr_start) * arxr_line_h);
+                }
             if (!arexx_still_running && arxr_nlines > arxr_max_visible) {
                 char scroll_info[32];
                 snprintf(scroll_info, sizeof(scroll_info), "%d-%d/%d",
@@ -5158,22 +5414,8 @@ int main(void)
             SI_BLOCK_TITLE(SI_RX, y, tr("MÉTRICAS", "METRICS"));
             y += 28.0f;
             {
-                /* RAM: calcular pct */
-                int ram_pct = 0;
-                {
-                    FILE *fm = fopen("/proc/meminfo", "r");
-                    if (fm) {
-                        long mt = -1, ma = -1; char ln[128];
-                        while (fgets(ln, sizeof(ln), fm)) {
-                            if (!strncmp(ln, "MemTotal:",    9)) sscanf(ln, "MemTotal: %ld",    &mt);
-                            if (!strncmp(ln, "MemAvailable:",13)) sscanf(ln, "MemAvailable: %ld",&ma);
-                        }
-                        fclose(fm);
-                        if (mt > 0 && ma >= 0) ram_pct = (int)(100 * (mt - ma) / mt);
-                    }
-                }
                 SI_ROW_BAR(SI_RX, y, SI_RX + SI_CW_R, tr("Carga CPU", "CPU Load"),  sysinfo_cpu_usage, sysinfo_cpu_pct); y += SI_ROW_H;
-                SI_ROW_BAR(SI_RX, y, SI_RX + SI_CW_R, tr("Uso de RAM", "RAM Usage"),  dev_ram,           ram_pct);          y += SI_ROW_H;
+                SI_ROW_BAR(SI_RX, y, SI_RX + SI_CW_R, tr("Uso de RAM", "RAM Usage"),  dev_ram,           sysinfo_ram_pct);  y += SI_ROW_H;
                 SI_ROW_BAR(SI_RX, y, SI_RX + SI_CW_R, tr("Temp CPU", "CPU Temp"), sysinfo_temp,      sysinfo_temp_pct); y += SI_ROW_H;
                 SI_ROW    (SI_RX, y, SI_RX + SI_CW_R, "Uptime",   dev_uptime);                          y += SI_ROW_H;
                 SI_ROW    (SI_RX, y, SI_RX + SI_CW_R, "Load Avg", sysinfo_loadavg);
@@ -5187,28 +5429,9 @@ int main(void)
             SI_BLOCK_TITLE(SI_MX, y, tr("VOLÚMENES", "VOLUMES"));
             y += 28.0f;
             {
-                /* Disco sistema: pct */
-                int disk_root_pct = 0, disk_data_pct = 0;
-                { struct statvfs st;
-                  if (statvfs("/", &st) == 0 && st.f_blocks > 0)
-                      disk_root_pct = (int)(100 - 100ULL * st.f_bfree / st.f_blocks); }
-                { struct statvfs st;
-                  if (statvfs("/media/amiga_data", &st) == 0 && st.f_blocks > 0)
-                      disk_data_pct = (int)(100 - 100ULL * st.f_bfree / st.f_blocks); }
-
-                SI_ROW_BAR(SI_MX, y, SI_MX + SI_CW_L, tr("DH0: (Sistema)", "DH0: (System)"), sysinfo_disk_root, disk_root_pct); y += SI_ROW_H;
-                SI_ROW_BAR(SI_MX, y, SI_MX + SI_CW_L, tr("DH1: (Datos)", "DH1: (Data)"),   sysinfo_disk_data, disk_data_pct); y += SI_ROW_H;
-                /* Libre total en datos */
-                {
-                    char free_buf[32] = "--";
-                    struct statvfs st;
-                    if (statvfs("/media/amiga_data", &st) == 0) {
-                        unsigned long long free_mb = (unsigned long long)st.f_bfree * st.f_frsize / (1024*1024);
-                        if (free_mb >= 1024) snprintf(free_buf, sizeof(free_buf), "%.1f GB", free_mb / 1024.0);
-                        else                 snprintf(free_buf, sizeof(free_buf), "%llu MB", free_mb);
-                    }
-                    SI_ROW(SI_MX, y, SI_MX + SI_CW_L, tr("Espacio disponible", "Free space"), free_buf);
-                }
+                SI_ROW_BAR(SI_MX, y, SI_MX + SI_CW_L, tr("DH0: (Sistema)", "DH0: (System)"), sysinfo_disk_root, sysinfo_disk_root_pct); y += SI_ROW_H;
+                SI_ROW_BAR(SI_MX, y, SI_MX + SI_CW_L, tr("DH1: (Datos)", "DH1: (Data)"),   sysinfo_disk_data, sysinfo_disk_data_pct); y += SI_ROW_H;
+                SI_ROW(SI_MX, y, SI_MX + SI_CW_L, tr("Espacio disponible", "Free space"), sysinfo_data_free_str);
             }
             }
 
@@ -5533,6 +5756,11 @@ int main(void)
     SDL_DestroyRenderer(ren);
     SDL_DestroyWindow(win);
     TTF_Quit();
+    if (s_audio_stream) {
+        SDL_PauseAudioStreamDevice(s_audio_stream);
+        SDL_DestroyAudioStream(s_audio_stream);
+        s_audio_stream = NULL;
+    }
     SDL_Quit();
     clear_fb0();
 
@@ -5569,6 +5797,7 @@ int main(void)
             return 1;
         case EXEC_SHUTDOWN:
             redirect_stdio_to_local_console();
+            system("amixer sset 'Speaker' off >/dev/null 2>&1");
             execl("/sbin/poweroff", "poweroff", (char *)NULL);
             fprintf(stderr, "armiga-launcher: no se pudo ejecutar poweroff: %s\n",
                     strerror(errno));
