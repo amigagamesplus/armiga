@@ -2982,6 +2982,13 @@ int main(void)
                     s_click_sound_enabled = !s_click_sound_enabled;
                     save_click_sound_enabled(s_click_sound_enabled ? 1 : 0);
                 }
+                /* MODE+START: restart launcher only (clean exit, inittab
+                 * respawn relaunches armiga-launcher automatically). */
+                if (ev.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN &&
+                    ev.jbutton.button == BTN_SDL_START &&
+                    joy && SDL_GetJoystickButton(joy, BTN_SDL_MODE)) {
+                    running = false;
+                }
                 if (ev.type == SDL_EVENT_KEY_DOWN) {
                     if (ev.key.key == SDLK_UP) {
                         selected = (selected - 1 + MENU_COUNT) % MENU_COUNT;
