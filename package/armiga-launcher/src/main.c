@@ -92,6 +92,43 @@ static void safe_copy(char *dst, const char *src, size_t sz) {
 #define COL_KEY_BG   { 22,  22,  22, 255}
 #define COL_ROW_BG   {28, 52, 40, 255}
 #define COL_DEADZONE {40, 65, 50, 255}
+#define THEME_COUNT 7
+/* Estructura de tema: acento/texto + fondo general + rojo de alerta,
+ * segun lo acordado (no cubre colores de datos como RGB de LEDs). */
+typedef struct {
+    SDL_Color bg;             /* fondo general de la interfaz */
+    SDL_Color accent;         /* acento principal / fondo de seleccion */
+    SDL_Color text_on_accent; /* texto oscuro sobre el acento */
+    SDL_Color text_light;     /* texto claro sobre fondo oscuro */
+    SDL_Color row_bg;         /* fondo de fila/pildora secundaria */
+    SDL_Color alert;          /* rojo de alerta/error */
+} Theme;
+static const char *THEME_NAMES[THEME_COUNT][2] = {
+    {"Lima",              "Lime"},
+    {"Ambar",             "Amber"},
+    {"Cian / Hielo",      "Cyan / Ice"},
+    {"Magenta",           "Magenta"},
+    {"Carmesi",           "Crimson"},
+    {"Fosforo verde",     "Green phosphor"},
+    {"Monocromo / Plata", "Monochrome / Silver"},
+};
+static const Theme THEMES[THEME_COUNT] = {
+    /* 1. Lima (original) */
+    { {15, 31, 24, 255}, {183, 221, 91, 255}, {27, 39, 8, 255}, {231, 239, 231, 255}, {28, 52, 40, 255}, {200, 40, 40, 255} },
+    /* 2. Ambar */
+    { {20, 14, 8, 255}, {230, 150, 40, 255}, {40, 24, 4, 255}, {240, 225, 200, 255}, {45, 32, 18, 255}, {210, 60, 40, 255} },
+    /* 3. Cian / Hielo */
+    { {10, 18, 28, 255}, {70, 200, 220, 255}, {6, 20, 28, 255}, {220, 240, 245, 255}, {18, 34, 48, 255}, {220, 70, 70, 255} },
+    /* 4. Magenta */
+    { {22, 10, 28, 255}, {230, 80, 180, 255}, {35, 8, 26, 255}, {245, 230, 240, 255}, {40, 18, 46, 255}, {230, 60, 90, 255} },
+    /* 5. Carmesi */
+    { {26, 10, 10, 255}, {220, 70, 60, 255}, {35, 10, 8, 255}, {240, 220, 210, 255}, {46, 20, 18, 255}, {230, 170, 40, 255} },
+    /* 6. Fosforo verde */
+    { {8, 8, 8, 255}, {80, 255, 120, 255}, {8, 8, 8, 255}, {200, 255, 210, 255}, {20, 26, 20, 255}, {255, 90, 60, 255} },
+    /* 7. Monocromo / Plata */
+    { {20, 20, 20, 255}, {216, 216, 216, 255}, {24, 24, 24, 255}, {232, 232, 232, 255}, {36, 36, 36, 255}, {220, 80, 80, 255} },
+};
+static Theme g_theme; /* tema activo, fijado en main() tras leer config */
 
 
 typedef enum {
@@ -1153,6 +1190,28 @@ static void save_wifi_enabled(int enabled)
 {
     config_set_kv("WIFI_ENABLED", enabled ? "1" : "0");
 }
+static int read_theme_index(void)
+{
+    int idx = 0;
+    FILE *f = fopen(ARMIGA_CONFIG_PATH, "r");
+    if (!f) return idx;
+    char line[128];
+    while (fgets(line, sizeof(line), f)) {
+        char key[32], val[96];
+        if (sscanf(line, "%31[^=]=%95s", key, val) == 2) {
+            if (!strcmp(key, "THEME_INDEX")) idx = atoi(val);
+        }
+    }
+    fclose(f);
+    if (idx < 0 || idx >= THEME_COUNT) idx = 0;
+    return idx;
+}
+static void save_theme_index(int idx)
+{
+    char buf[8];
+    snprintf(buf, sizeof(buf), "%d", idx);
+    config_set_kv("THEME_INDEX", buf);
+}
 static void apply_wifi_enabled(int enabled)
 {
     /* Igual que apply_bt_enabled: S41wifi puede tardar (espera de interface,
@@ -1963,10 +2022,10 @@ static void devmode_push_temp(int temp_c)
 static void draw_footer(SDL_Renderer *ren, TTF_Font *f,
                         const char *legend, const char *version)
 {
-    SDL_Color c_gray    = COL_CREAM;
-    SDL_Color c_dkgreen = COL_CREAM;
-    SDL_Color c_gold    = COL_GOLD;
-    SDL_Color c_lime    = COL_SEL_BG;
+    SDL_Color c_gray    = g_theme.text_light;
+    SDL_Color c_dkgreen = g_theme.text_light;
+    SDL_Color c_gold    = g_theme.text_on_accent;
+    SDL_Color c_lime    = g_theme.accent;
     draw_text(ren, f, legend, c_gray, 20.0f, 448.0f);
     draw_text_right(ren, f, version, c_lime, SCREEN_W - 20.0f, 448.0f);
 
@@ -2433,11 +2492,11 @@ static float draw_statusbar(SDL_Renderer *ren, TTF_Font *f, TTF_Font *f_ampm,
                             SDL_Texture *wifi_icon_tex, SDL_Texture *battery_icon_tex,
                             SDL_Texture *bt_icon_tex)
 {
-    SDL_Color c_cream    = COL_CREAM;
-    SDL_Color c_gold     = COL_GOLD;
-    SDL_Color c_red      = COL_RED;
-    SDL_Color c_pill_on  = COL_SEL_BG;
-    SDL_Color c_pill_off = COL_ROW_BG;
+    SDL_Color c_cream    = g_theme.text_light;
+    SDL_Color c_gold     = g_theme.text_on_accent;
+    SDL_Color c_red      = g_theme.alert;
+    SDL_Color c_pill_on  = g_theme.accent;
+    SDL_Color c_pill_off = g_theme.row_bg;
     SDL_Color c_dim_fg   = {70, 90, 80, 255};
     float right = SCREEN_W - 20.0f;
     float y     = 25.0f;
@@ -2537,7 +2596,7 @@ static void draw_active_dash_breadcrumbs(SDL_Renderer *ren, TTF_Font *font,
 
     const SDL_Color c_prev_dot    = { 28,  52,  40, 255};
     const SDL_Color c_active_dash = {183, 221,  91, 255};
-    const SDL_Color c_text        = COL_CREAM;
+    const SDL_Color c_text        = g_theme.text_light;
 
     float cur_x = x;
 
@@ -2857,6 +2916,8 @@ int main(void)
     int samba_enabled = read_samba_enabled(); /* aplicado ya por S53samba-toggle en boot, solo reflejar estado en UI */
     int bt_enabled = read_bt_enabled(); /* aplicado ya por S22bluetooth-toggle en boot, solo reflejar estado en UI */
     int wifi_enabled = read_wifi_enabled(); /* aplicado ya por S41wifi-toggle en boot, solo reflejar estado en UI */
+    int theme_selected = read_theme_index();
+    g_theme = THEMES[theme_selected];
     s_click_sound_enabled = read_click_sound_enabled() ? true : false;
     int bt_selected = 0; /* cursor en lista de dispositivos escaneados */
     BTDevice bt_devices[BT_MAX_DEVICES];
@@ -2959,12 +3020,12 @@ int main(void)
     char rt_bt_applied_mac[18] = "";
     bool rt_bt_applied_init = false;
 
-    SDL_Color c_bg      = COL_BG;
-    SDL_Color c_green   = COL_CREAM;
-    SDL_Color c_dkgreen = COL_CREAM;
+    SDL_Color c_bg      = g_theme.bg;
+    SDL_Color c_green   = g_theme.text_light;
+    SDL_Color c_dkgreen = g_theme.text_light;
     SDL_Color c_white   = COL_WHITE;
-    SDL_Color c_gray    = COL_CREAM;
-    SDL_Color c_selbg   = COL_SEL_BG;
+    SDL_Color c_gray    = g_theme.text_light;
+    SDL_Color c_selbg   = g_theme.accent;
 
     /* Layout */
     float mx     = 20.0f;
@@ -4310,8 +4371,8 @@ int main(void)
         /* Paleta de tema (Fase 1: centralizada aqui, antes redeclarada
          * ~35 veces en distintos bloques de estado con el mismo valor
          * literal). Preparacion para futuro soporte de temas. */
-        SDL_Color c_menu_gold  = COL_GOLD;
-        SDL_Color c_menu_beige = COL_CREAM;
+        SDL_Color c_menu_gold  = g_theme.text_on_accent;
+        SDL_Color c_menu_beige = g_theme.text_light;
         SDL_Color c_menu_selbg = c_selbg;
 
         if (state == STATE_MENU) {
@@ -4362,7 +4423,7 @@ int main(void)
                 draw_text(ren, f_med, MENU_ITEMS[i][current_lang], c_menu_beige, mx + 46.0f, iy);
             }
             if (i == 1 && bg_update_available) {
-                SDL_Color c_red = COL_RED;
+                SDL_Color c_red = g_theme.alert;
                 float sel_w = 46.0f + (float)label_w + 32.0f;
                 float txt_x = (mx - 10.0f) + sel_w + 10.0f;
                 const char *upd_txt = tr("[!] Nueva Actualización", "[!] New Update");
@@ -4407,7 +4468,7 @@ int main(void)
             float ctx_box_y = ctx_y - ctx_box_pad;
             float ctx_box_w = ctx_max_line_w + ctx_box_pad * 2.0f;
             float ctx_box_h = (float)ctx_n * 16.0f + ctx_box_pad * 2.0f;
-            SDL_Color c_ctx_box_bg = COL_BG;
+            SDL_Color c_ctx_box_bg = g_theme.bg;
             SDL_Color c_ctx_box_border = c_selbg;
             draw_rounded_rect_outline(ren, ctx_box_x, ctx_box_y, ctx_box_w, ctx_box_h,
                                        10.0f, 2.0f, c_ctx_box_border, c_ctx_box_bg);
@@ -4601,7 +4662,7 @@ int main(void)
                 draw_text(ren, f_med, "Bluetooth", c_menu_gold, mx + label_pad, toggle_y + 8.0f);
                 float badge_x = mx + toggle_w - 12.0f - badge_w;
                 float badge_y = toggle_y + (toggle_h - badge_h) / 2.0f;
-                SDL_Color badge_bg = bt_enabled ? (SDL_Color)COL_BG : (SDL_Color)COL_ROW_BG;
+                SDL_Color badge_bg = bt_enabled ? g_theme.bg : g_theme.row_bg;
                 draw_rounded_rect_filled(ren, badge_x, badge_y, badge_w, badge_h, badge_h / 2.0f, badge_bg);
                 SDL_Color bt_status_c = bt_enabled ? c_green : c_white;
                 draw_text(ren, f_sm, bt_status, bt_status_c, badge_x + badge_pad, badge_y + 3.0f);
@@ -4857,7 +4918,7 @@ int main(void)
             } else if (backup_msg_until > 0 && SDL_GetTicks() < backup_msg_until) {
                 char msgbuf[128];
                 SDL_Color msgc;
-                SDL_Color c_red = COL_RED;
+                SDL_Color c_red = g_theme.alert;
                 if (backup_created_name[0]) {
                     snprintf(msgbuf, sizeof(msgbuf), "%s: %s%s",
                              tr("Copia creada", "Backup created"),
@@ -4965,7 +5026,7 @@ int main(void)
                 float box_h = box_pad + (float)desc_lines * desc_line_h + 6.0f + (float)md5_h + box_pad;
                 float box_x = SCREEN_W - mx - box_w;
                 float box_y = 438.0f - 12.0f - box_h;
-                SDL_Color c_bg_box = COL_BG;
+                SDL_Color c_bg_box = g_theme.bg;
                 draw_rounded_rect_outline(ren, box_x, box_y, box_w, box_h, 10.0f, 2.0f, c_menu_selbg, c_bg_box);
                 draw_text_wrapped(ren, f_sm, desc_line, c_gray, box_x + box_pad, box_y + box_pad, desc_max_w, desc_line_h);
                 draw_text(ren, f_sm, md5_line, c_gray, box_x + box_pad, box_y + box_pad + (float)desc_lines * desc_line_h + 6.0f);
@@ -5018,7 +5079,7 @@ int main(void)
             }
             int arxr_start = arexx_scroll;
             SDL_Color c_arxr_lime = c_selbg;
-            SDL_Color c_arxr_red  = COL_RED;
+            SDL_Color c_arxr_red  = g_theme.alert;
             if (arxr_lines)
                 for (int i = arxr_start; i < arxr_nlines && (i - arxr_start) < arxr_max_visible; i++) {
                     SDL_Color line_c = c_gray;
@@ -5319,7 +5380,7 @@ int main(void)
                 float g_y0 = 250.0f;
                 float g_w  = (SCREEN_W - 20.0f) - dm_rx2;
                 float g_h  = 150.0f;
-                SDL_Color c_red = COL_RED;
+                SDL_Color c_red = g_theme.alert;
                 int perf_now = g_cfg.perf_profile;
                 bool throttle_applicable = (perf_now == 0) && dev_cpu_max_freq > 0 && dev_cpu_cur_freq > 0;
                 bool throttling = throttle_applicable &&
@@ -5378,8 +5439,8 @@ int main(void)
              *  Col izq: x=20..330  Col der: x=348..620
              *  Cada bloque: título(14) + guiones(10) + N filas×(label+valor, 18px)
              */
-            SDL_Color c_red = COL_RED;
-            SDL_Color c_row_bg = COL_ROW_BG;
+            SDL_Color c_red = g_theme.alert;
+            SDL_Color c_row_bg = g_theme.row_bg;
             SDL_Color c_si_title = c_selbg;
             int si_row_idx = 0;
 
@@ -5437,7 +5498,7 @@ int main(void)
       float _bh = 6.0f; \
       float _bar_right = (col_right) - (float)_fw - 10.0f; \
       float _bar_y = _text_y + ((float)_fh - _bh) / 2.0f; \
-      SDL_Color _c_bar_bg = COL_ROW_BG; \
+      SDL_Color _c_bar_bg = g_theme.row_bg; \
       SDL_Color _c_bar_fill = c_selbg; \
       draw_bar_rounded(ren, _bar_right - _bw, _bar_y, _bw, _bh, (pct) / 100.0f, _c_bar_bg, _c_bar_fill); \
     } \
@@ -5567,7 +5628,7 @@ int main(void)
                 /* Barra de progreso */
                 int pct = (int)(upd_progress * 100.0f);
                 char pct_buf[8]; snprintf(pct_buf, sizeof(pct_buf), "%d%%", pct);
-                { SDL_Color _c_upd_bg = COL_ROW_BG;
+                { SDL_Color _c_upd_bg = g_theme.row_bg;
                   SDL_Color _c_upd_fill = c_selbg;
                   draw_bar_rounded(ren, UX, 122.0f, 260.0f, 12.0f, upd_progress, _c_upd_bg, _c_upd_fill); }
                 draw_text(ren, f_sm, pct_buf, c_white, UX + 270.0f, 118.0f);
@@ -5584,7 +5645,7 @@ int main(void)
                 running  = false;
 
             } else if (update_phase == UPD_ERROR) {
-                { SDL_Color _c_red = COL_RED; draw_text(ren, f_sm, "Error:", _c_red, UX, 100.0f); }
+                { SDL_Color _c_red = g_theme.alert; draw_text(ren, f_sm, "Error:", _c_red, UX, 100.0f); }
                 draw_text(ren, f_sm, upd_msg,  c_gray, UX, 118.0f);
             }
 
@@ -5615,7 +5676,7 @@ int main(void)
                 float dp_down_x = dpad_cx - dpad_sz/2, dp_down_y = dpad_cy + dpad_gap;
                 float dp_left_x = dpad_cx - dpad_sz - dpad_gap - dpad_sz/2, dp_left_y = dpad_cy - dpad_sz/2;
                 float dp_right_x = dpad_cx + dpad_gap + dpad_sz/2, dp_right_y = dpad_cy - dpad_sz/2;
-                { SDL_Color border_c = COL_SEL_BG, bg_c = COL_KEY_BG;
+                { SDL_Color border_c = g_theme.accent, bg_c = COL_KEY_BG;
                   if (dpad_up_p)    draw_rounded_rect_filled(ren, dp_up_x, dp_up_y, dpad_sz, dpad_sz, 4.0f, border_c);
                   else              draw_rounded_rect_outline(ren, dp_up_x, dp_up_y, dpad_sz, dpad_sz, 4.0f, 2.0f, border_c, bg_c);
                   if (dpad_down_p)  draw_rounded_rect_filled(ren, dp_down_x, dp_down_y, dpad_sz, dpad_sz, 4.0f, border_c);
@@ -5629,7 +5690,7 @@ int main(void)
                 /* ── STICK IZQUIERDO (ejes 0,1) ─────────────────────────── */
                 float stickL_cx = 320.0f, stickL_cy = 160.0f, stick_r = 45.0f, dot_r = 8.0f;
                 draw_text_centered(ren, f_sm, tr("Stick Izq.", "Left Stick"), c_gray, stickL_cx, stickL_cy - 70.0f);
-                { SDL_Color ring_c = COL_SEL_BG; SDL_Color bg_c = COL_BG;
+                { SDL_Color ring_c = g_theme.accent; SDL_Color bg_c = g_theme.bg;
                   draw_rounded_rect_outline(ren, stickL_cx - stick_r, stickL_cy - stick_r, stick_r*2, stick_r*2, stick_r, 2.0f, ring_c, bg_c); }
                 { SDL_Color deadzone_c = COL_DEADZONE;
                   draw_circle_filled(ren, stickL_cx, stickL_cy, stick_r * 0.10f, deadzone_c); }
@@ -5642,7 +5703,7 @@ int main(void)
                 float dotL_x = stickL_cx + normL_x * (stick_r - dot_r);
                 float dotL_y = stickL_cy + normL_y * (stick_r - dot_r);
                 { bool l3_pressed = (SDL_GetNumJoystickButtons(joy) > 11) && SDL_GetJoystickButton(joy, 11);
-                  SDL_Color dot_c = l3_pressed ? (SDL_Color)COL_RED : (SDL_Color)COL_SEL_BG;
+                  SDL_Color dot_c = l3_pressed ? g_theme.alert : g_theme.accent;
                   draw_circle_filled(ren, dotL_x, dotL_y, dot_r, dot_c); }
                 { char buf[24]; snprintf(buf, sizeof(buf), "X:%d Y:%d", axL_x, axL_y);
                   draw_text_centered(ren, f_xsm, buf, c_gray, stickL_cx, stickL_cy + stick_r + 10.0f); }
@@ -5650,7 +5711,7 @@ int main(void)
                 /* ── STICK DERECHO (ejes 2,3) ───────────────────────────── */
                 float stickR_cx = 500.0f, stickR_cy = 160.0f;
                 draw_text_centered(ren, f_sm, tr("Stick Dcho.", "Right Stick"), c_gray, stickR_cx, stickR_cy - 70.0f);
-                { SDL_Color ring_c = COL_SEL_BG; SDL_Color bg_c = COL_BG;
+                { SDL_Color ring_c = g_theme.accent; SDL_Color bg_c = g_theme.bg;
                   draw_rounded_rect_outline(ren, stickR_cx - stick_r, stickR_cy - stick_r, stick_r*2, stick_r*2, stick_r, 2.0f, ring_c, bg_c); }
                 { SDL_Color deadzone_c = COL_DEADZONE;
                   draw_circle_filled(ren, stickR_cx, stickR_cy, stick_r * 0.10f, deadzone_c); }
@@ -5663,7 +5724,7 @@ int main(void)
                 float dotR_x = stickR_cx + normR_x * (stick_r - dot_r);
                 float dotR_y = stickR_cy + normR_y * (stick_r - dot_r);
                 { bool r3_pressed = (SDL_GetNumJoystickButtons(joy) > 12) && SDL_GetJoystickButton(joy, 12);
-                  SDL_Color dot_c = r3_pressed ? (SDL_Color)COL_RED : (SDL_Color)COL_SEL_BG;
+                  SDL_Color dot_c = r3_pressed ? g_theme.alert : g_theme.accent;
                   draw_circle_filled(ren, dotR_x, dotR_y, dot_r, dot_c); }
                 { char buf[24]; snprintf(buf, sizeof(buf), "X:%d Y:%d", axR_x, axR_y);
                   draw_text_centered(ren, f_xsm, buf, c_gray, stickR_cx, stickR_cy + stick_r + 10.0f); }
@@ -5690,16 +5751,16 @@ int main(void)
                     float by = btn_y0 + row * (btn_h + btn_gap);
                     bool pressed = SDL_GetJoystickButton(joy, b);
                     if (pressed) {
-                        SDL_Color bc = COL_SEL_BG;
+                        SDL_Color bc = g_theme.accent;
                         draw_rounded_rect_filled(ren, bx, by, btn_w, btn_h, 6.0f, bc);
                     } else {
-                        SDL_Color border_c = COL_SEL_BG, bg_c = COL_KEY_BG;
+                        SDL_Color border_c = g_theme.accent, bg_c = COL_KEY_BG;
                         draw_rounded_rect_outline(ren, bx, by, btn_w, btn_h, 6.0f, 2.0f, border_c, bg_c);
                     }
                     char bl[4]; snprintf(bl, sizeof(bl), "%d", b);
                     int tw = 0, th = 0;
                     TTF_GetStringSize(f_med, bl, 0, &tw, &th);
-                    SDL_Color txt_c = pressed ? (SDL_Color){0,0,0,255} : (SDL_Color)COL_SEL_BG;
+                    SDL_Color txt_c = pressed ? (SDL_Color){0,0,0,255} : g_theme.accent;
                     draw_text(ren, f_med, bl, txt_c, bx + btn_w/2.0f - (float)tw/2.0f, by + btn_h/2.0f - (float)th/2.0f);
                 }
 
@@ -5748,13 +5809,13 @@ int main(void)
                         }
                     }
                     if (any_pressed) {
-                        SDL_Color name_c = COL_SEL_BG;
+                        SDL_Color name_c = g_theme.accent;
                         draw_text_centered(ren, f_sm, active_btns_str, name_c, SCREEN_W / 2.0f, 385.0f);
                     }
                 }
             }
 
-            { SDL_Color joytest_c = COL_SEL_BG;
+            { SDL_Color joytest_c = g_theme.accent;
               draw_text_right(ren, f_sm, "armiga-joytest v1.1", joytest_c, SCREEN_W - 20.0f, 414.0f); }
             /* Test de vibracion: mantener L2 (indice 6, confirmado en
              * hardware) dispara un pulso corto de rumble, repetido
