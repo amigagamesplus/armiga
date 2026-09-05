@@ -45,10 +45,11 @@ Some RG40XX H units use a newer internal display panel revision ("v2"). There's 
 | **B**                               | Confirm / Select                    |
 | **A**                               | Cancel / Go back                    |
 | **X**                               | Delete (backup screen only)         |
-| **D-Pad**                           | Navigate menus                      |
+| **D-Pad / Left analog stick**       | Navigate menus                      |
 | **L1**                              | Switch language (Español/English)   |
 | **MODE + D-Pad Up/Down**           | Adjust screen brightness (±5%, any screen) |
 | **MODE + A**                        | Mute/unmute UI navigation click sound |
+| **MODE + START**                    | Restart the launcher (quick fix if the interface misbehaves) |
 | **SELECT + START + L1** (hold 3s)  | Developer mode                      |
 
 Not sure which physical button does what on your controller? Head to **Settings → Controller Test** — see below.
@@ -67,7 +68,7 @@ The main menu also shows a live status panel with CPU temperature, CPU load, RAM
 
 ### Wireless network
 
-Enter your network name (SSID) and password with the on-screen keyboard. Use the D-Pad to move between keys, B to select a letter, and START to switch between uppercase, lowercase, and numbers.
+Enter your network name (SSID) and password with the on-screen keyboard. Use the D-Pad to move between keys, B to select a letter, and START to switch between uppercase, lowercase, and numbers. A third option below lets you turn WiFi ENABLED/DISABLED entirely — press B on it to toggle.
 
 ### Bluetooth
 
@@ -134,7 +135,7 @@ Erases all your custom settings (WiFi, preferences, backups) and resets the devi
 
 ## System updates
 
-armiga checks whether a newer version is available. If there is, you can download and install it directly from the menu — the download happens in the background, and the device reboots automatically once it's done. Just don't power off the device mid-update.
+armiga checks whether a newer version is available. If there is, a red **[!] New Update** label appears next to System Update in the main menu. Open it to download and install directly from the menu — the download happens in the background, and the device reboots automatically once it's done. Just don't power off the device mid-update.
 
 ## Having trouble?
 
