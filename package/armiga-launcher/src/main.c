@@ -5695,14 +5695,21 @@ int main(void)
                   draw_text_centered(ren, f_xsm, buf, c_gray, stickR_cx, stickR_cy + stick_r + 10.0f); }
 
                 /* ── BOTONES (indice SDL crudo, sin asumir nombres no verificados) ── */
-                int n_btn = SDL_GetNumJoystickButtons(joy);
+                /* El D-pad se expone via HID tambien como BTN_DPAD_*
+                 * (indices 13-16), pero SDL los redirige solo al HAT y
+                 * nunca los reporta como pulsados via
+                 * SDL_GetJoystickButton — verificado empiricamente en esta
+                 * pantalla. Se excluyen del grid (maximo 12: los digitales
+                 * reales) para no mostrar recuadros que nunca se iluminan. */
+                int n_btn_raw = SDL_GetNumJoystickButtons(joy);
+                int n_btn = (n_btn_raw > 13) ? 13 : n_btn_raw;
                 draw_text_centered(ren, f_sm, tr("Botones", "Buttons"), c_gray, SCREEN_W / 2.0f, 260.0f);
                 float btn_y0 = 285.0f, btn_w = 36.0f, btn_h = 36.0f, btn_gap = 8.0f;
-                int btn_per_row = 10;
-                int btn_rows = (n_btn + btn_per_row - 1) / btn_per_row;
+                static const int btn_row_sizes[2] = {7, 6}; /* 13 botones reales: 7 arriba, 6 abajo */
                 for (int b = 0; b < n_btn; b++) {
-                    int row = b / btn_per_row, col = b % btn_per_row;
-                    int items_this_row = (row == btn_rows - 1) ? (n_btn - row * btn_per_row) : btn_per_row;
+                    int row = (b < btn_row_sizes[0]) ? 0 : 1;
+                    int col = (row == 0) ? b : (b - btn_row_sizes[0]);
+                    int items_this_row = btn_row_sizes[row];
                     float row_w = items_this_row * btn_w + (items_this_row - 1) * btn_gap;
                     float btn_x0 = (SCREEN_W - row_w) / 2.0f;
                     float bx = btn_x0 + col * (btn_w + btn_gap);
