@@ -296,6 +296,7 @@ static const char *DEV_MENU_ITEMS[] = {
 #define BTN_SDL_A      0
 #define BTN_SDL_L1     4
 #define BTN_SDL_R1     5
+#define BTN_SDL_R2     7 /* verificado empiricamente en hardware (evtest + Controller Test) */
 #define BTN_SDL_SELECT 8
 #define BTN_SDL_START  9
 #define BTN_SDL_X      3
@@ -3888,12 +3889,14 @@ int main(void)
             devmode_hold_start = 0;
         }
 
-        /* Combo screenshot: SELECT + R1 pulsados simultaneamente (cualquier
-         * estado excepto Controller Test, donde R1 debe poder probarse sin
-         * disparar una captura de pantalla). */
+        /* Combo screenshot: SELECT + R2 pulsados simultaneamente (cualquier
+         * estado excepto Controller Test, donde R2 debe poder probarse sin
+         * disparar una captura de pantalla). Antes era SELECT+R1; cambiado
+         * para evitar colisiones con R1 en pantallas que ya lo usan
+         * (paginacion, saltos de lista). */
         if (joy && state != STATE_CONTROLLER_TEST) {
             bool sel = SDL_GetJoystickButton(joy, BTN_SDL_SELECT);
-            bool r1  = SDL_GetJoystickButton(joy, BTN_SDL_R1);
+            bool r1  = SDL_GetJoystickButton(joy, BTN_SDL_R2);
             if (sel && r1) {
                 /* No capturar aqui: en este punto del bucle (antes de que
                  * este frame dibuje nada) el backbuffer puede contener
@@ -3907,7 +3910,7 @@ int main(void)
                 /* Esperar a que suelten los botones para evitar disparos multiples */
                 SDL_PumpEvents();
                 while (SDL_GetJoystickButton(joy, BTN_SDL_SELECT) ||
-                       SDL_GetJoystickButton(joy, BTN_SDL_R1)) {
+                       SDL_GetJoystickButton(joy, BTN_SDL_R2)) {
                     SDL_PumpEvents();
                     SDL_Delay(20);
                 }
