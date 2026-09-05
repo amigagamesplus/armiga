@@ -2382,6 +2382,22 @@ static void draw_rounded_rect_filled(SDL_Renderer *r, float x, float y,
     SDL_RenderGeometry(r, mask, verts, nv, inds, ni);
     SDL_SetTextureBlendMode(mask, prev_blend);
 }
+/* Barra de progreso con esquinas redondeadas: fondo + relleno proporcional,
+ * ambos con radio = altura/2. Sustituye al patron anterior de dos
+ * draw_rect_filled (fondo+relleno planos) usado en Brillo/LEDs/Dimming. */
+static void draw_bar_rounded(SDL_Renderer *r, float x, float y, float w, float h,
+                              float frac, SDL_Color c_bg, SDL_Color c_fill)
+{
+    if (frac < 0.0f) frac = 0.0f;
+    if (frac > 1.0f) frac = 1.0f;
+    float radius = h / 2.0f;
+    draw_rounded_rect_filled(r, x, y, w, h, radius, c_bg);
+    float fill_w = w * frac;
+    if (fill_w > 0.0f && fill_w < h) fill_w = h; /* asegura capsula completa, nunca un fragmento ambiguo */
+    if (fill_w > w) fill_w = w;
+    if (fill_w > 0.0f)
+        draw_rounded_rect_filled(r, x, y, fill_w, h, radius, c_fill);
+}
 static float draw_status_pill(SDL_Renderer *ren, TTF_Font *f, float right_edge, float y_center,
                                SDL_Texture *icon, const char *label, SDL_Color fg, SDL_Color bg,
                                float icon_size_override)
@@ -4385,8 +4401,7 @@ int main(void)
             float bar_x = (SCREEN_W - bar_w) / 2.0f;
             float bar_y = SCREEN_H - 64.0f;
             SDL_Color c_devbar_lime = {183, 221, 91, 255};
-            draw_rect_filled(ren, bar_x, bar_y, bar_w, 4.0f, c_devbar_lime);
-            draw_rect_filled(ren, bar_x, bar_y, bar_w * frac, 4.0f, c_white);
+            draw_bar_rounded(ren, bar_x, bar_y, bar_w, 4.0f, frac, c_devbar_lime, c_white);
         }
 
         } else if (state == STATE_SETTINGS) {
@@ -4461,8 +4476,7 @@ int main(void)
                 draw_text(ren, f_med, valbuf, c_white, mx + 8.0f, iy + 16.0f);
                 float frac = brightness_pct / 100.0f;
                 SDL_Color c_bar_lime = {183, 221, 91, 255};
-                draw_rect_filled(ren, mx + 8.0f, iy + 44.0f, bar_w, bar_h, c_bar_lime);
-                draw_rect_filled(ren, mx + 8.0f, iy + 44.0f, bar_w * frac, bar_h, c_white);
+                draw_bar_rounded(ren, mx + 8.0f, iy + 44.0f, bar_w, bar_h, frac, c_bar_lime, c_white);
             }
 
             draw_line(ren, mx, 438.0f, SCREEN_W - 20.0f, 438.0f, (SDL_Color){183, 221, 91, 255});
@@ -4792,9 +4806,8 @@ int main(void)
                           labelc, mx + 8.0f, iy);
                 float bar_x = mx + 8.0f;
                 float bar_y = iy + 20.0f;
-                draw_rect_filled(ren, bar_x, bar_y, dim_bar_w, dim_bar_h, c_selbg);
                 float frac = dim_percent / 100.0f;
-                draw_rect_filled(ren, bar_x, bar_y, dim_bar_w * frac, dim_bar_h, labelc);
+                draw_bar_rounded(ren, bar_x, bar_y, dim_bar_w, dim_bar_h, frac, c_selbg, labelc);
                 char valbuf[8];
                 snprintf(valbuf, sizeof(valbuf), "%d%%", dim_percent);
                 draw_text(ren, f_sm, valbuf, labelc, bar_x + dim_bar_w + 10.0f, iy + 16.0f);
@@ -5165,9 +5178,8 @@ int main(void)
 
                 float bar_y = iy + 3.0f;
                 SDL_Color c_bar_empty = {20, 18, 14, 255};
-                draw_rect_filled(ren, bar_x, bar_y, led_bar_w, led_bar_h, c_bar_empty);
                 float frac = led_vals_r[i] / 255.0f;
-                draw_rect_filled(ren, bar_x, bar_y, led_bar_w * frac, led_bar_h, led_bar_colors[i]);
+                draw_bar_rounded(ren, bar_x, bar_y, led_bar_w, led_bar_h, frac, c_bar_empty, led_bar_colors[i]);
 
                 draw_text(ren, f_sm, valbuf, labelc, bar_x + led_bar_w + 10.0f, iy);
             }
@@ -5419,16 +5431,16 @@ int main(void)
         draw_rect_filled(ren, (xpos) - 4.0f, (ypos) - 2.0f, (col_right) - (xpos) + 8.0f, SI_ROW_H, c_row_bg); \
     si_row_idx++; \
     draw_text(ren, f_sm, (lbl), c_gray, (xpos), (ypos)); \
-    { int _ncols = 10; \
-      int _fw = 0, _fh = 0; \
+    { int _fw = 0, _fh = 0; \
       TTF_GetStringSize(f_sm, (val), 0, &_fw, &_fh); \
-      float _bar_right = (col_right) - (float)_fw - 6.0f; \
       draw_text(ren, f_sm, (val), c_white, (col_right) - (float)_fw, (ypos)); \
-      /* calcular ancho de una barra de _ncols chars */ \
-      int _bw = 0; char _probe[16]; \
-      snprintf(_probe, sizeof(_probe), "[##########]"); \
-      TTF_GetStringSize(f_sm, _probe, 0, &_bw, &_fh); \
-      draw_bar(ren, f_sm, (pct), c_green, c_dkgreen, _bar_right - (float)_bw, (ypos), _ncols); \
+      float _bw = 60.0f; \
+      float _bh = 6.0f; \
+      float _bar_right = (col_right) - (float)_fw - 10.0f; \
+      float _bar_y = (ypos) + ((float)_fh - _bh) / 2.0f; \
+      SDL_Color _c_bar_bg = {28, 52, 40, 255}; \
+      SDL_Color _c_bar_fill = {183, 221, 91, 255}; \
+      draw_bar_rounded(ren, _bar_right - _bw, _bar_y, _bw, _bh, (pct) / 100.0f, _c_bar_bg, _c_bar_fill); \
     } \
 } while(0)
 
@@ -5556,8 +5568,10 @@ int main(void)
                 /* Barra de progreso */
                 int pct = (int)(upd_progress * 100.0f);
                 char pct_buf[8]; snprintf(pct_buf, sizeof(pct_buf), "%d%%", pct);
-                draw_bar(ren, f_sm, pct, c_green, c_dkgreen, UX, 122.0f, 30);
-                draw_text(ren, f_sm, pct_buf, c_white, UX + 280.0f, 122.0f);
+                { SDL_Color _c_upd_bg = {28, 52, 40, 255};
+                  SDL_Color _c_upd_fill = {183, 221, 91, 255};
+                  draw_bar_rounded(ren, UX, 122.0f, 260.0f, 12.0f, upd_progress, _c_upd_bg, _c_upd_fill); }
+                draw_text(ren, f_sm, pct_buf, c_white, UX + 270.0f, 118.0f);
                 draw_text(ren, f_sm, tr("No apagues el dispositivo durante la descarga.", "Do not turn off the device during download."), c_gray, UX, 144.0f);
 
             } else if (update_phase == UPD_VERIFYING) {
