@@ -4304,6 +4304,12 @@ int main(void)
         /* RENDER */
         SDL_SetRenderDrawColor(ren, c_bg.r, c_bg.g, c_bg.b, 255);
         SDL_RenderClear(ren);
+        /* Paleta de tema (Fase 1: centralizada aqui, antes redeclarada
+         * ~35 veces en distintos bloques de estado con el mismo valor
+         * literal). Preparacion para futuro soporte de temas. */
+        SDL_Color c_menu_gold  = {27, 39, 8, 255};
+        SDL_Color c_menu_beige = {231, 239, 231, 255};
+        SDL_Color c_menu_selbg = {183, 221, 91, 255};
 
         if (state == STATE_MENU) {
         /* Logo */
@@ -4318,9 +4324,6 @@ int main(void)
         draw_statusbar(ren, f_sm, f_xs, status_time, status_wifi_up, status_battery, status_bt_up, wifi_icon_tex, battery_icon_tex, bt_icon_tex);
 
         /* Menú */
-        SDL_Color c_menu_gold  = {27, 39, 8, 255};
-        SDL_Color c_menu_beige = {231, 239, 231, 255};
-        SDL_Color c_menu_selbg = {183, 221, 91, 255};
         {
             float target_y = menu_y0 + selected * item_h;
             menu_cursor_y = target_y;
@@ -4425,9 +4428,6 @@ int main(void)
         }
 
         } else if (state == STATE_SETTINGS) {
-            SDL_Color c_menu_gold  = {27, 39, 8, 255};
-            SDL_Color c_menu_beige = {231, 239, 231, 255};
-            SDL_Color c_menu_selbg = {183, 221, 91, 255};
             draw_statusbar(ren, f_sm, f_xs, status_time, status_wifi_up, status_battery, status_bt_up, wifi_icon_tex, battery_icon_tex, bt_icon_tex);
             draw_active_dash_breadcrumbs(ren, f_sm, mx, 25.0f, 2, tr("Configuración", "Settings"));
 
@@ -4504,9 +4504,6 @@ int main(void)
                 tr("[<>] Ajustar  [B] Aplicar  [A] Volver", "[<>] Adjust  [B] Apply  [A] Back"), s_version);
 
         } else if (state == STATE_PERF_CONFIG) {
-            SDL_Color c_menu_gold  = {27, 39, 8, 255};
-            SDL_Color c_menu_beige = {231, 239, 231, 255};
-            SDL_Color c_menu_selbg = {183, 221, 91, 255};
             draw_statusbar(ren, f_sm, f_xs, status_time, status_wifi_up, status_battery, status_bt_up, wifi_icon_tex, battery_icon_tex, bt_icon_tex);
             draw_active_dash_breadcrumbs(ren, f_sm, mx, 25.0f, 3, tr("Rendimiento", "Performance"));
             struct { const char *title[2]; const char *desc[2]; SDL_Texture *icon; } perf_opts[3] = {
@@ -4579,9 +4576,6 @@ int main(void)
                 tr("[DPAD] Elegir  [B] Aplicar  [A] Volver", "[DPAD] Choose  [B] Apply  [A] Back"), s_version);
 
         } else if (state == STATE_BLUETOOTH_CONFIG) {
-            SDL_Color c_menu_gold  = {27, 39, 8, 255};
-            SDL_Color c_menu_beige = {231, 239, 231, 255};
-            SDL_Color c_menu_selbg = {183, 221, 91, 255};
             SDL_Color c_bt_card    = {183, 221, 91, 255};
             SDL_Color c_bt_dim     = {90, 84, 66, 255};
             draw_statusbar(ren, f_sm, f_xs, status_time, status_wifi_up, status_battery, status_bt_up, wifi_icon_tex, battery_icon_tex, bt_icon_tex);
@@ -4717,9 +4711,6 @@ int main(void)
             draw_footer(ren, f_sm,
                 tr("[DPAD] Elegir  [B] Conectar  [SELECT] Activar  [A] Volver", "[DPAD] Choose  [B] Connect  [SELECT] Toggle  [A] Back"), s_version);
         } else if (state == STATE_TIMEZONE_CONFIG) {
-            SDL_Color c_menu_gold  = {27, 39, 8, 255};
-            SDL_Color c_menu_beige = {231, 239, 231, 255};
-            SDL_Color c_menu_selbg = {183, 221, 91, 255};
             draw_statusbar(ren, f_sm, f_xs, status_time, status_wifi_up, status_battery, status_bt_up, wifi_icon_tex, battery_icon_tex, bt_icon_tex);
             draw_active_dash_breadcrumbs(ren, f_sm, mx, 25.0f, 3, tr("Zona horaria", "Time Zone"));
 
@@ -4775,9 +4766,6 @@ int main(void)
                 tr("[B] Aplicar  [A] Volver  [L1/R1] Salto x5", "[B] Apply  [A] Back  [L1/R1] Jump x5"), s_version);
 
         } else if (state == STATE_SCREENDIM_CONFIG) {
-            SDL_Color c_menu_gold  = {27, 39, 8, 255};
-            SDL_Color c_menu_beige = {231, 239, 231, 255};
-            SDL_Color c_menu_selbg = {183, 221, 91, 255};
             draw_statusbar(ren, f_sm, f_xs, status_time, status_wifi_up, status_battery, status_bt_up, wifi_icon_tex, battery_icon_tex, bt_icon_tex);
             draw_active_dash_breadcrumbs(ren, f_sm, mx, 25.0f, 3, tr("Ahorro de pantalla", "Screen Dimming"));
 
@@ -4838,9 +4826,6 @@ int main(void)
                 tr("[B] Guardar  [A] Volver", "[B] Save  [A] Back"), s_version);
 
         } else if (state == STATE_BACKUP_MENU) {
-            SDL_Color c_menu_gold  = {27, 39, 8, 255};
-            SDL_Color c_menu_beige = {231, 239, 231, 255};
-            SDL_Color c_menu_selbg = {183, 221, 91, 255};
             draw_statusbar(ren, f_sm, f_xs, status_time, status_wifi_up, status_battery, status_bt_up, wifi_icon_tex, battery_icon_tex, bt_icon_tex);
             draw_active_dash_breadcrumbs(ren, f_sm, mx, 25.0f, 3, tr("Copia de seguridad", "Backup"));
             float bkm_y0 = 64.0f;
@@ -4897,8 +4882,6 @@ int main(void)
                     float target_y = bkl_y0 + backup_list_selected * bkl_item_h;
                     bkl_cursor_y = target_y;
                 }
-                SDL_Color c_menu_gold = {27, 39, 8, 255};
-                SDL_Color c_menu_selbg = {183, 221, 91, 255};
                 for (int i = 0; i < backup_count; i++) {
                     float iy = bkl_y0 + i * bkl_item_h;
                     if (i == backup_list_selected) {
@@ -4927,8 +4910,6 @@ int main(void)
             if (arexx_count == 0) {
                 draw_text(ren, f_sm, tr("No hay scripts disponibles", "No scripts available"), c_gray, mx, arx_y0);
             } else {
-                SDL_Color c_menu_gold = {27, 39, 8, 255};
-                SDL_Color c_menu_selbg = {183, 221, 91, 255};
                 SDL_Color c_white_icon = {255, 255, 255, 255};
                 float icon_size = 20.0f;
                 float icon_gap = 26.0f;
@@ -4996,7 +4977,6 @@ int main(void)
             int arexx_still_running = (poll_arexx_script(&arexx_output, &arexx_output_len, &arexx_output_cap) == 0);
             draw_statusbar(ren, f_sm, f_xs, status_time, status_wifi_up, status_battery, status_bt_up, wifi_icon_tex, battery_icon_tex, bt_icon_tex);
             draw_active_dash_breadcrumbs(ren, f_sm, mx, 25.0f, 3, tr("Ejecutando Script", "Running Script"));
-            SDL_Color c_menu_selbg = {183, 221, 91, 255};
             draw_text(ren, f_sm, arexx_scripts[arexx_selected].filename, c_menu_selbg, mx, 60.0f);
             if (arexx_still_running) {
                 int fname_w = 0, fname_h = 0;
@@ -5060,9 +5040,6 @@ int main(void)
                 draw_footer(ren, f_sm, tr("[A] Volver", "[A] Back"), s_version);
 
         } else if (state == STATE_WIFI_CONFIG) {
-            SDL_Color c_menu_gold  = {27, 39, 8, 255};
-            SDL_Color c_menu_beige = {231, 239, 231, 255};
-            SDL_Color c_menu_selbg = {183, 221, 91, 255};
             draw_statusbar(ren, f_sm, f_xs, status_time, status_wifi_up, status_battery, status_bt_up, wifi_icon_tex, battery_icon_tex, bt_icon_tex);
             draw_active_dash_breadcrumbs(ren, f_sm, mx, 25.0f, 3, tr("Red inalámbrica", "Wireless Network"));
 
@@ -5143,9 +5120,6 @@ int main(void)
                 s_version);
 
         } else if (state == STATE_LED_CONFIG) {
-            SDL_Color c_menu_gold  = {27, 39, 8, 255};
-            SDL_Color c_menu_beige = {231, 239, 231, 255};
-            SDL_Color c_menu_selbg = {183, 221, 91, 255};
             draw_statusbar(ren, f_sm, f_xs, status_time, status_wifi_up, status_battery, status_bt_up, wifi_icon_tex, battery_icon_tex, bt_icon_tex);
             draw_active_dash_breadcrumbs(ren, f_sm, mx, 25.0f, 3, tr("LEDs RGB analógicos", "Analog Stick LEDs"));
 
@@ -5277,9 +5251,6 @@ int main(void)
                 s_version);
 
         } else if (state == STATE_DEVMODE) {
-            SDL_Color c_menu_gold  = {27, 39, 8, 255};
-            SDL_Color c_menu_beige = {231, 239, 231, 255};
-            SDL_Color c_menu_selbg = {183, 221, 91, 255};
             /* Titulo pequeño arriba a la izquierda */
             draw_statusbar(ren, f_sm, f_xs, status_time, status_wifi_up, status_battery, status_bt_up, wifi_icon_tex, battery_icon_tex, bt_icon_tex);
             draw_active_dash_breadcrumbs(ren, f_sm, mx, 25.0f, 2, tr("Modo Desarrollador", "Dev Mode"));
