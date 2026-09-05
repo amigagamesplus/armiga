@@ -88,7 +88,10 @@ static void safe_copy(char *dst, const char *src, size_t sz) {
 #define COL_WHITE    {220, 220, 220, 255}
 #define COL_SEL_BG   {183, 221, 91, 255}
 #define COL_RED      {200,  40,  40, 255}
+#define COL_GOLD     {27, 39, 8, 255}
 #define COL_KEY_BG   { 22,  22,  22, 255}
+#define COL_ROW_BG   {28, 52, 40, 255}
+#define COL_DEADZONE {40, 65, 50, 255}
 
 
 typedef enum {
@@ -1962,8 +1965,8 @@ static void draw_footer(SDL_Renderer *ren, TTF_Font *f,
 {
     SDL_Color c_gray    = COL_CREAM;
     SDL_Color c_dkgreen = COL_CREAM;
-    SDL_Color c_gold    = {27, 39, 8, 255};
-    SDL_Color c_lime    = {183, 221, 91, 255};
+    SDL_Color c_gold    = COL_GOLD;
+    SDL_Color c_lime    = COL_SEL_BG;
     draw_text(ren, f, legend, c_gray, 20.0f, 448.0f);
     draw_text_right(ren, f, version, c_lime, SCREEN_W - 20.0f, 448.0f);
 
@@ -2430,11 +2433,11 @@ static float draw_statusbar(SDL_Renderer *ren, TTF_Font *f, TTF_Font *f_ampm,
                             SDL_Texture *wifi_icon_tex, SDL_Texture *battery_icon_tex,
                             SDL_Texture *bt_icon_tex)
 {
-    SDL_Color c_cream    = {231, 239, 231, 255};
-    SDL_Color c_gold     = {27, 39, 8, 255};
+    SDL_Color c_cream    = COL_CREAM;
+    SDL_Color c_gold     = COL_GOLD;
     SDL_Color c_red      = COL_RED;
-    SDL_Color c_pill_on  = {183, 221, 91, 255};
-    SDL_Color c_pill_off = {28, 52, 40, 255};
+    SDL_Color c_pill_on  = COL_SEL_BG;
+    SDL_Color c_pill_off = COL_ROW_BG;
     SDL_Color c_dim_fg   = {70, 90, 80, 255};
     float right = SCREEN_W - 20.0f;
     float y     = 25.0f;
@@ -2534,7 +2537,7 @@ static void draw_active_dash_breadcrumbs(SDL_Renderer *ren, TTF_Font *font,
 
     const SDL_Color c_prev_dot    = { 28,  52,  40, 255};
     const SDL_Color c_active_dash = {183, 221,  91, 255};
-    const SDL_Color c_text        = {231, 239, 231, 255};
+    const SDL_Color c_text        = COL_CREAM;
 
     float cur_x = x;
 
@@ -4307,9 +4310,9 @@ int main(void)
         /* Paleta de tema (Fase 1: centralizada aqui, antes redeclarada
          * ~35 veces en distintos bloques de estado con el mismo valor
          * literal). Preparacion para futuro soporte de temas. */
-        SDL_Color c_menu_gold  = {27, 39, 8, 255};
-        SDL_Color c_menu_beige = {231, 239, 231, 255};
-        SDL_Color c_menu_selbg = {183, 221, 91, 255};
+        SDL_Color c_menu_gold  = COL_GOLD;
+        SDL_Color c_menu_beige = COL_CREAM;
+        SDL_Color c_menu_selbg = c_selbg;
 
         if (state == STATE_MENU) {
         /* Logo */
@@ -4405,14 +4408,14 @@ int main(void)
             float ctx_box_w = ctx_max_line_w + ctx_box_pad * 2.0f;
             float ctx_box_h = (float)ctx_n * 16.0f + ctx_box_pad * 2.0f;
             SDL_Color c_ctx_box_bg = COL_BG;
-            SDL_Color c_ctx_box_border = {183, 221, 91, 255};
+            SDL_Color c_ctx_box_border = c_selbg;
             draw_rounded_rect_outline(ren, ctx_box_x, ctx_box_y, ctx_box_w, ctx_box_h,
                                        10.0f, 2.0f, c_ctx_box_border, c_ctx_box_bg);
             draw_context_panel(ren, f_sm, rx, ctx_y, ctx_lines, ctx_n, c_dkgreen);
         }
 
         /* Barra inferior */
-        draw_line(ren, mx, 438.0f, SCREEN_W - 20.0f, 438.0f, (SDL_Color){183, 221, 91, 255});
+        draw_line(ren, mx, 438.0f, SCREEN_W - 20.0f, 438.0f, c_selbg);
         draw_footer(ren, f_sm, tr("[B] Seleccionar  [DPAD] Navegar  [L1] Idioma  [MODE+A] Sonido", "[B] Select  [DPAD] Navigate  [L1] Language  [MODE+A] Sound"), s_version);
 
         /* Barra de progreso del hold de modo dev (si se está manteniendo) */
@@ -4423,7 +4426,7 @@ int main(void)
             float bar_w = 200.0f;
             float bar_x = (SCREEN_W - bar_w) / 2.0f;
             float bar_y = SCREEN_H - 64.0f;
-            SDL_Color c_devbar_lime = {183, 221, 91, 255};
+            SDL_Color c_devbar_lime = c_selbg;
             draw_bar_rounded(ren, bar_x, bar_y, bar_w, 4.0f, frac, c_devbar_lime, c_white);
         }
 
@@ -4480,7 +4483,7 @@ int main(void)
                           mx + 8.0f, settings_y0 + settings_visible * settings_item_h + 2.0f);
             }
 
-            draw_line(ren, mx, 438.0f, SCREEN_W - 20.0f, 438.0f, (SDL_Color){183, 221, 91, 255});
+            draw_line(ren, mx, 438.0f, SCREEN_W - 20.0f, 438.0f, c_selbg);
             draw_footer(ren, f_sm, tr("[B] Seleccionar  [A] Volver", "[B] Select  [A] Back"), s_version);
 
         } else if (state == STATE_BRIGHTNESS_CONFIG) {
@@ -4495,11 +4498,11 @@ int main(void)
                 draw_text(ren, f_sm, tr("Brillo", "Brightness"), c_green, mx + 8.0f, iy);
                 draw_text(ren, f_med, valbuf, c_white, mx + 8.0f, iy + 16.0f);
                 float frac = brightness_pct / 100.0f;
-                SDL_Color c_bar_lime = {183, 221, 91, 255};
+                SDL_Color c_bar_lime = c_selbg;
                 draw_bar_rounded(ren, mx + 8.0f, iy + 44.0f, bar_w, bar_h, frac, c_bar_lime, c_white);
             }
 
-            draw_line(ren, mx, 438.0f, SCREEN_W - 20.0f, 438.0f, (SDL_Color){183, 221, 91, 255});
+            draw_line(ren, mx, 438.0f, SCREEN_W - 20.0f, 438.0f, c_selbg);
             draw_footer(ren, f_sm,
                 tr("[<>] Ajustar  [B] Aplicar  [A] Volver", "[<>] Adjust  [B] Apply  [A] Back"), s_version);
 
@@ -4571,12 +4574,12 @@ int main(void)
                 draw_text(ren, f_med, perf_opts[i].title[current_lang], titlec, perf_x + 38.0f, iy);
                 draw_text_wrapped(ren, f_sm, desc_flat, titlec, perf_x + 38.0f, iy + 20.0f, perf_w - 30.0f, 15.0f);
             }
-            draw_line(ren, mx, 438.0f, SCREEN_W - 20.0f, 438.0f, (SDL_Color){183, 221, 91, 255});
+            draw_line(ren, mx, 438.0f, SCREEN_W - 20.0f, 438.0f, c_selbg);
             draw_footer(ren, f_sm,
                 tr("[DPAD] Elegir  [B] Aplicar  [A] Volver", "[DPAD] Choose  [B] Apply  [A] Back"), s_version);
 
         } else if (state == STATE_BLUETOOTH_CONFIG) {
-            SDL_Color c_bt_card    = {183, 221, 91, 255};
+            SDL_Color c_bt_card    = c_selbg;
             SDL_Color c_bt_dim     = {90, 84, 66, 255};
             draw_statusbar(ren, f_sm, f_xs, status_time, status_wifi_up, status_battery, status_bt_up, wifi_icon_tex, battery_icon_tex, bt_icon_tex);
             draw_active_dash_breadcrumbs(ren, f_sm, mx, 25.0f, 3, tr("Bluetooth", "Bluetooth"));
@@ -4598,7 +4601,7 @@ int main(void)
                 draw_text(ren, f_med, "Bluetooth", c_menu_gold, mx + label_pad, toggle_y + 8.0f);
                 float badge_x = mx + toggle_w - 12.0f - badge_w;
                 float badge_y = toggle_y + (toggle_h - badge_h) / 2.0f;
-                SDL_Color badge_bg = bt_enabled ? (SDL_Color){15, 31, 24, 255} : (SDL_Color){28, 52, 40, 255};
+                SDL_Color badge_bg = bt_enabled ? (SDL_Color)COL_BG : (SDL_Color)COL_ROW_BG;
                 draw_rounded_rect_filled(ren, badge_x, badge_y, badge_w, badge_h, badge_h / 2.0f, badge_bg);
                 SDL_Color bt_status_c = bt_enabled ? c_green : c_white;
                 draw_text(ren, f_sm, bt_status, bt_status_c, badge_x + badge_pad, badge_y + 3.0f);
@@ -4707,7 +4710,7 @@ int main(void)
                     draw_text(ren, f_sm, tr("Buscando dispositivos...", "Searching for devices..."), c_menu_beige, mx + 20.0f, 416.0f);
                 }
             }
-            draw_line(ren, mx, 438.0f, SCREEN_W - 20.0f, 438.0f, (SDL_Color){183, 221, 91, 255});
+            draw_line(ren, mx, 438.0f, SCREEN_W - 20.0f, 438.0f, c_selbg);
             draw_footer(ren, f_sm,
                 tr("[DPAD] Elegir  [B] Conectar  [SELECT] Activar  [A] Volver", "[DPAD] Choose  [B] Connect  [SELECT] Toggle  [A] Back"), s_version);
         } else if (state == STATE_TIMEZONE_CONFIG) {
@@ -4761,7 +4764,7 @@ int main(void)
                 draw_text(ren, f_sm, TIMEZONE_LIST[timezone_selected].label[current_lang], c_menu_beige, tzp_x, tz_y0 + 66.0f);
             }
 
-            draw_line(ren, mx, 438.0f, SCREEN_W - 20.0f, 438.0f, (SDL_Color){183, 221, 91, 255});
+            draw_line(ren, mx, 438.0f, SCREEN_W - 20.0f, 438.0f, c_selbg);
             draw_footer(ren, f_sm,
                 tr("[B] Aplicar  [A] Volver  [L1/R1] Salto x5", "[B] Apply  [A] Back  [L1/R1] Jump x5"), s_version);
 
@@ -4821,7 +4824,7 @@ int main(void)
                 draw_text(ren, f_sm, valbuf, labelc, bar_x + dim_bar_w + 10.0f, iy + 16.0f);
             }
 
-            draw_line(ren, mx, 438.0f, SCREEN_W - 20.0f, 438.0f, (SDL_Color){183, 221, 91, 255});
+            draw_line(ren, mx, 438.0f, SCREEN_W - 20.0f, 438.0f, c_selbg);
             draw_footer(ren, f_sm,
                 tr("[B] Guardar  [A] Volver", "[B] Save  [A] Back"), s_version);
 
@@ -4867,7 +4870,7 @@ int main(void)
                 draw_text_truncated(ren, f_sm, msgbuf,
                           msgc, mx, bkm_y0 + BACKUP_MENU_COUNT * bkm_item_h + 20.0f, SCREEN_W - 40.0f);
             }
-            draw_line(ren, mx, 438.0f, SCREEN_W - 20.0f, 438.0f, (SDL_Color){183, 221, 91, 255});
+            draw_line(ren, mx, 438.0f, SCREEN_W - 20.0f, 438.0f, c_selbg);
             draw_footer(ren, f_sm, tr("[B] Seleccionar  [A] Volver", "[B] Select  [A] Back"), s_version);
 
         } else if (state == STATE_BACKUP_LIST) {
@@ -4899,7 +4902,7 @@ int main(void)
                     }
                 }
             }
-            draw_line(ren, mx, 438.0f, SCREEN_W - 20.0f, 438.0f, (SDL_Color){183, 221, 91, 255});
+            draw_line(ren, mx, 438.0f, SCREEN_W - 20.0f, 438.0f, c_selbg);
             draw_footer(ren, f_sm, tr("[B] Restaurar  [X] Eliminar  [A] Volver", "[B] Restore  [X] Delete  [A] Back"), s_version);
 
         } else if (state == STATE_AREXX_LIST) {
@@ -4970,7 +4973,7 @@ int main(void)
             char arx_counter[24];
             snprintf(arx_counter, sizeof(arx_counter), "%d %s %d", arexx_count, tr("de", "of"), AREXX_MAX_SCRIPTS);
             draw_text(ren, f_sm, arx_counter, c_gray, mx, 418.0f);
-            draw_line(ren, mx, 438.0f, SCREEN_W - 20.0f, 438.0f, (SDL_Color){183, 221, 91, 255});
+            draw_line(ren, mx, 438.0f, SCREEN_W - 20.0f, 438.0f, c_selbg);
             draw_footer(ren, f_sm, tr("[B] Ejecutar  [A] Volver", "[B] Run  [A] Back"), s_version);
 
         } else if (state == STATE_AREXX_RUN) {
@@ -5014,7 +5017,7 @@ int main(void)
                 arexx_scroll = arxr_max_scroll;
             }
             int arxr_start = arexx_scroll;
-            SDL_Color c_arxr_lime = {183, 221, 91, 255};
+            SDL_Color c_arxr_lime = c_selbg;
             SDL_Color c_arxr_red  = COL_RED;
             if (arxr_lines)
                 for (int i = arxr_start; i < arxr_nlines && (i - arxr_start) < arxr_max_visible; i++) {
@@ -5033,7 +5036,7 @@ int main(void)
             }
             free(arxr_lines);
             free(arxr_tmp);
-            draw_line(ren, mx, 438.0f, SCREEN_W - 20.0f, 438.0f, (SDL_Color){183, 221, 91, 255});
+            draw_line(ren, mx, 438.0f, SCREEN_W - 20.0f, 438.0f, c_selbg);
             if (!arexx_still_running && arxr_nlines > arxr_max_visible)
                 draw_footer(ren, f_sm, tr("[DPAD] Navegar  [A] Volver", "[DPAD] Scroll  [A] Back"), s_version);
             else
@@ -5114,7 +5117,7 @@ int main(void)
                 draw_text(ren, f_med, wifi_status_disp, labelc, mx + 8.0f, iy + 16.0f);
             }
 
-            draw_line(ren, mx, 438.0f, SCREEN_W - 20.0f, 438.0f, (SDL_Color){183, 221, 91, 255});
+            draw_line(ren, mx, 438.0f, SCREEN_W - 20.0f, 438.0f, c_selbg);
             draw_footer(ren, f_sm,
                 tr("[B] Editar/Alternar  [SELECT] Ver/Ocultar  [A] Guardar", "[B] Edit/Toggle  [SELECT] Show/Hide  [A] Save"),
                 s_version);
@@ -5198,7 +5201,7 @@ int main(void)
                 draw_text(ren, f_sm, tr("Derecho", "Right"), c_menu_beige, sw_right_x + (sw_size - (float)lw) / 2.0f, sw_y + 46.0f);
             }
 
-            draw_line(ren, mx, 438.0f, SCREEN_W - 20.0f, 438.0f, (SDL_Color){183, 221, 91, 255});
+            draw_line(ren, mx, 438.0f, SCREEN_W - 20.0f, 438.0f, c_selbg);
             draw_footer(ren, f_sm,
                 tr("[<>] Ajustar  [L1/R1] +/-20  [A] Volver", "[<>] Adjust  [L1/R1] +/-20  [A] Back"),
                 s_version);
@@ -5210,7 +5213,7 @@ int main(void)
             draw_statusbar(ren, f_sm, f_xs, status_time, status_wifi_up, status_battery, status_bt_up, wifi_icon_tex, battery_icon_tex, bt_icon_tex);
 
             draw_rect_filled(ren, mx, 56.0f, SCREEN_W - 40.0f, 30.0f, c_selbg);
-            SDL_Color c_kb_val = {27, 39, 8, 255};
+            SDL_Color c_kb_val = c_menu_gold;
             draw_text(ren, f_med, kb_buffer[0] ? kb_buffer : "", c_kb_val, mx + 8.0f, 62.0f);
 
             SDL_Color c_keybg = COL_KEY_BG;
@@ -5235,7 +5238,7 @@ int main(void)
                     bool sel = (r == kb_row && c == kb_col);
                     const char *label = is_space_row ? tr("ESPACIO", "SPACE") : k;
                     if (sel) {
-                        SDL_Color c_kb_sel_text = {27, 39, 8, 255};
+                        SDL_Color c_kb_sel_text = c_menu_gold;
                         draw_rounded_rect_filled(ren, kx, ky, kw, key_h, 4.0f, c_selbg);
                         draw_text_centered(ren, f_sm, label, c_kb_sel_text, kx + kw/2.0f, ky + key_h/2.0f - 6.0f);
                     } else {
@@ -5245,7 +5248,7 @@ int main(void)
                 }
             }
 
-            draw_line(ren, mx, 438.0f, SCREEN_W - 20.0f, 438.0f, (SDL_Color){183, 221, 91, 255});
+            draw_line(ren, mx, 438.0f, SCREEN_W - 20.0f, 438.0f, c_selbg);
             draw_footer(ren, f_sm,
                 tr("[B] Insertar [L1] Borrar [R1] Aceptar [A] Cancelar [SELECT] Mayus/Num", "[B] Insert [L1] Delete [R1] Accept [A] Cancel [SELECT] Caps/Num"),
                 s_version);
@@ -5376,8 +5379,8 @@ int main(void)
              *  Cada bloque: título(14) + guiones(10) + N filas×(label+valor, 18px)
              */
             SDL_Color c_red = COL_RED;
-            SDL_Color c_row_bg = {28, 52, 40, 255};
-            SDL_Color c_si_title = {183, 221, 91, 255};
+            SDL_Color c_row_bg = COL_ROW_BG;
+            SDL_Color c_si_title = c_selbg;
             int si_row_idx = 0;
 
             /* Constantes de layout sysinfo: 1 columna ancha, 3 bloques por pagina */
@@ -5434,8 +5437,8 @@ int main(void)
       float _bh = 6.0f; \
       float _bar_right = (col_right) - (float)_fw - 10.0f; \
       float _bar_y = _text_y + ((float)_fh - _bh) / 2.0f; \
-      SDL_Color _c_bar_bg = {28, 52, 40, 255}; \
-      SDL_Color _c_bar_fill = {183, 221, 91, 255}; \
+      SDL_Color _c_bar_bg = COL_ROW_BG; \
+      SDL_Color _c_bar_fill = c_selbg; \
       draw_bar_rounded(ren, _bar_right - _bw, _bar_y, _bw, _bh, (pct) / 100.0f, _c_bar_bg, _c_bar_fill); \
     } \
 } while(0)
@@ -5530,7 +5533,7 @@ int main(void)
 #undef SI_ROW_BAR
 
             /* Barra inferior */
-            draw_line(ren, mx, 438.0f, SCREEN_W - 20.0f, 438.0f, (SDL_Color){183, 221, 91, 255});
+            draw_line(ren, mx, 438.0f, SCREEN_W - 20.0f, 438.0f, c_selbg);
             draw_footer(ren, f_sm, tr("[A] Volver  [L1/R1] Pagina", "[A] Back  [L1/R1] Page"), s_version);
         } else if (state == STATE_UPDATE) {
             const float UX = 20.0f;
@@ -5564,8 +5567,8 @@ int main(void)
                 /* Barra de progreso */
                 int pct = (int)(upd_progress * 100.0f);
                 char pct_buf[8]; snprintf(pct_buf, sizeof(pct_buf), "%d%%", pct);
-                { SDL_Color _c_upd_bg = {28, 52, 40, 255};
-                  SDL_Color _c_upd_fill = {183, 221, 91, 255};
+                { SDL_Color _c_upd_bg = COL_ROW_BG;
+                  SDL_Color _c_upd_fill = c_selbg;
                   draw_bar_rounded(ren, UX, 122.0f, 260.0f, 12.0f, upd_progress, _c_upd_bg, _c_upd_fill); }
                 draw_text(ren, f_sm, pct_buf, c_white, UX + 270.0f, 118.0f);
                 draw_text(ren, f_sm, tr("No apagues el dispositivo durante la descarga.", "Do not turn off the device during download."), c_gray, UX, 144.0f);
@@ -5585,7 +5588,7 @@ int main(void)
                 draw_text(ren, f_sm, upd_msg,  c_gray, UX, 118.0f);
             }
 
-            draw_line(ren, UX, 438.0f, SCREEN_W - 20.0f, 438.0f, (SDL_Color){183, 221, 91, 255});
+            draw_line(ren, UX, 438.0f, SCREEN_W - 20.0f, 438.0f, c_selbg);
             if (update_phase != UPD_DOWNLOADING)
                 draw_footer(ren, f_sm, tr("[A] Volver", "[A] Back"), s_version);
             else
@@ -5628,7 +5631,7 @@ int main(void)
                 draw_text_centered(ren, f_sm, tr("Stick Izq.", "Left Stick"), c_gray, stickL_cx, stickL_cy - 70.0f);
                 { SDL_Color ring_c = COL_SEL_BG; SDL_Color bg_c = COL_BG;
                   draw_rounded_rect_outline(ren, stickL_cx - stick_r, stickL_cy - stick_r, stick_r*2, stick_r*2, stick_r, 2.0f, ring_c, bg_c); }
-                { SDL_Color deadzone_c = {40, 65, 50, 255};
+                { SDL_Color deadzone_c = COL_DEADZONE;
                   draw_circle_filled(ren, stickL_cx, stickL_cy, stick_r * 0.10f, deadzone_c); }
                 Sint16 axL_x = SDL_GetJoystickAxis(joy, 0);
                 Sint16 axL_y = SDL_GetJoystickAxis(joy, 1);
@@ -5649,7 +5652,7 @@ int main(void)
                 draw_text_centered(ren, f_sm, tr("Stick Dcho.", "Right Stick"), c_gray, stickR_cx, stickR_cy - 70.0f);
                 { SDL_Color ring_c = COL_SEL_BG; SDL_Color bg_c = COL_BG;
                   draw_rounded_rect_outline(ren, stickR_cx - stick_r, stickR_cy - stick_r, stick_r*2, stick_r*2, stick_r, 2.0f, ring_c, bg_c); }
-                { SDL_Color deadzone_c = {40, 65, 50, 255};
+                { SDL_Color deadzone_c = COL_DEADZONE;
                   draw_circle_filled(ren, stickR_cx, stickR_cy, stick_r * 0.10f, deadzone_c); }
                 Sint16 axR_x = SDL_GetJoystickAxis(joy, 2);
                 Sint16 axR_y = SDL_GetJoystickAxis(joy, 3);
@@ -5761,7 +5764,7 @@ int main(void)
             if (joy && SDL_GetNumJoystickButtons(joy) > 6 && SDL_GetJoystickButton(joy, 6)) {
                 SDL_RumbleJoystick(joy, 0x4000, 0x8000, 50);
             }
-            draw_line(ren, CX, 438.0f, SCREEN_W - 20.0f, 438.0f, (SDL_Color){183, 221, 91, 255});
+            draw_line(ren, CX, 438.0f, SCREEN_W - 20.0f, 438.0f, c_selbg);
             draw_footer(ren, f_sm, tr("[SELECT+START] Volver  [L2] Test vibración", "[SELECT+START] Back  [L2] Vibration Test"), s_version);
         } /* end STATE_CONTROLLER_TEST */
 
