@@ -2861,6 +2861,14 @@ int main(void)
     size_t arexx_output_cap = 0;
     int arexx_scroll = 0;
     int arexx_user_scrolled = 0;
+    /* Cache del parseo de arexx_output en lineas: antes se hacia
+     * malloc+strtok en CADA frame mientras esta pantalla esta visible,
+     * incluso si el output no habia cambiado desde el frame anterior.
+     * Se re-parsea solo si arexx_output_len cambio. */
+    char **arxr_cached_lines = NULL;
+    char *arxr_cached_tmp = NULL;
+    int arxr_cached_nlines = 0;
+    size_t arxr_cached_len = (size_t)-1; /* invalido a proposito: fuerza el primer parseo */
     bool show_fps_counter = false;
     int fps_frame_count = 0;
     float fps_display = 0.0f;
@@ -3020,6 +3028,9 @@ int main(void)
     int  status_battery = -1;
     Uint64 last_status_update = 0;
     Uint64 last_bt_check_trigger = 0;
+    Uint64 last_bt_connected_poll = 0;
+    bool brightness_save_pending = false;
+    Uint64 brightness_save_pending_since = 0;
     char rt_bt_applied_mac[18] = "";
     bool rt_bt_applied_init = false;
 
@@ -3094,7 +3105,10 @@ int main(void)
                     if (brightness_pct < 5)   brightness_pct = 5;
                     if (brightness_pct > 100) brightness_pct = 100;
                     write_brightness((int)((int64_t)2499 * brightness_pct / 100));
-                    save_brightness_config(brightness_pct);
+                    /* Diferido: guardar (con fsync) solo tras 400ms sin
+                     * nuevas pulsaciones, no en cada pulsacion individual. */
+                    brightness_save_pending = true;
+                    brightness_save_pending_since = SDL_GetTicks();
                     continue;
                 }
             }
@@ -4103,8 +4117,11 @@ int main(void)
          * vinculo se elimine sin importar donde estuviera el usuario en el
          * momento exacto de la desconexion. Solo el lanzamiento del check
          * en background se restringe fuera de la pantalla BT (para no
-         * competir con su propio ciclo de escaneo). */
-        {
+         * competir con su propio ciclo de escaneo). Se lee el fichero como
+         * mucho cada 500ms (antes: cada frame, hasta 120 veces/seg) — un
+         * retraso de deteccion de 500ms es imperceptible para el usuario. */
+        if (last_bt_connected_poll == 0 || now_ticks - last_bt_connected_poll > 500) {
+            last_bt_connected_poll = now_ticks;
             char live_mac[18] = "";
             read_bt_connected(live_mac, sizeof(live_mac), NULL, 0);
             if (!bt_enabled) live_mac[0] = 0;
@@ -4294,6 +4311,10 @@ int main(void)
             }
         }
 
+        if (brightness_save_pending && now_ticks - brightness_save_pending_since > 400) {
+            save_brightness_config(brightness_pct);
+            brightness_save_pending = false;
+        }
         if ((state == STATE_MENU || state == STATE_SYSINFO) &&
             (last_cpu_temp_sample == 0 || now_ticks - last_cpu_temp_sample > 1000)) {
             read_cpu_temp(dash_cpu_temp, sizeof(dash_cpu_temp));
@@ -5133,26 +5154,31 @@ int main(void)
             }
             float arxr_y0 = 90.0f;
             float arxr_line_h = 16.0f;
-            int arxr_nlines = 0;
-            char **arxr_lines = NULL;
-            char *arxr_tmp = NULL;
-            if (arexx_output && arexx_output_len > 0) {
-                arxr_tmp = malloc(arexx_output_len + 1);
-                if (arxr_tmp) {
-                    memcpy(arxr_tmp, arexx_output, arexx_output_len + 1);
+            if (arexx_output && arexx_output_len > 0 && arexx_output_len != arxr_cached_len) {
+                free(arxr_cached_lines);
+                free(arxr_cached_tmp);
+                arxr_cached_lines = NULL;
+                arxr_cached_nlines = 0;
+                arxr_cached_tmp = malloc(arexx_output_len + 1);
+                if (arxr_cached_tmp) {
+                    memcpy(arxr_cached_tmp, arexx_output, arexx_output_len + 1);
                     int est_lines = 1;
                     for (size_t k = 0; k < arexx_output_len; k++)
-                        if (arxr_tmp[k] == '\n') est_lines++;
-                    arxr_lines = malloc(sizeof(char *) * (size_t)est_lines);
-                    if (arxr_lines) {
-                        char *tok = strtok(arxr_tmp, "\n");
-                        while (tok && arxr_nlines < est_lines) {
-                            arxr_lines[arxr_nlines++] = tok;
+                        if (arxr_cached_tmp[k] == '\n') est_lines++;
+                    arxr_cached_lines = malloc(sizeof(char *) * (size_t)est_lines);
+                    if (arxr_cached_lines) {
+                        char *tok = strtok(arxr_cached_tmp, "\n");
+                        while (tok && arxr_cached_nlines < est_lines) {
+                            arxr_cached_lines[arxr_cached_nlines++] = tok;
                             tok = strtok(NULL, "\n");
                         }
                     }
                 }
+                arxr_cached_len = arexx_output_len;
             }
+            int arxr_nlines = arxr_cached_nlines;
+            char **arxr_lines = arxr_cached_lines;
+            if (arexx_output_len == 0) { arxr_nlines = 0; arxr_lines = NULL; } /* run recien reiniciado: pantalla en blanco, igual que el comportamiento original */
             int arxr_max_visible = (int)((438.0f - arxr_y0) / arxr_line_h);
             if (arxr_max_visible < 1) arxr_max_visible = 1;
             int arxr_max_scroll = (arxr_nlines <= arxr_max_visible) ? 0 : (arxr_nlines - arxr_max_visible);
@@ -5179,8 +5205,6 @@ int main(void)
                          arxr_nlines);
                 draw_text_right(ren, f_xs, scroll_info, c_gray, SCREEN_W - 20.0f, 70.0f);
             }
-            free(arxr_lines);
-            free(arxr_tmp);
             draw_line(ren, mx, 438.0f, SCREEN_W - 20.0f, 438.0f, c_selbg);
             if (!arexx_still_running && arxr_nlines > arxr_max_visible)
                 draw_footer(ren, f_sm, tr("[DPAD] Navegar  [A] Volver", "[DPAD] Scroll  [A] Back"), s_version);
