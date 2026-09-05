@@ -5418,26 +5418,31 @@ int main(void)
 
 /* Macro fila: fondo alterno (zebra) + etiqueta + valor alineado a col_right */
 #define SI_ROW(xpos, ypos, col_right, lbl, val) do { \
+    float _row_top = (ypos) - 2.0f; \
     if (si_row_idx % 2 == 0) \
-        draw_rect_filled(ren, (xpos) - 4.0f, (ypos) - 2.0f, (col_right) - (xpos) + 8.0f, SI_ROW_H, c_row_bg); \
+        draw_rounded_rect_filled(ren, (xpos) - 10.0f, _row_top, (col_right) - (xpos) + 20.0f, SI_ROW_H, SI_ROW_H / 2.0f, c_row_bg); \
     si_row_idx++; \
-    draw_text(ren, f_sm,  (lbl), c_gray,  (xpos),       (ypos)); \
-    draw_text_right(ren, f_sm, (val), c_white, (col_right), (ypos)); \
+    { int _th = 0, _tw0 = 0; TTF_GetStringSize(f_sm, (lbl), 0, &_tw0, &_th); \
+      float _text_y = _row_top + (SI_ROW_H - (float)_th) / 2.0f; \
+      draw_text(ren, f_sm,  (lbl), c_gray,  (xpos),       _text_y); \
+      draw_text_right(ren, f_sm, (val), c_white, (col_right), _text_y); } \
 } while(0)
 
 /* Macro fila con barra: etiqueta, barra, valor */
 #define SI_ROW_BAR(xpos, ypos, col_right, lbl, val, pct) do { \
+    float _row_top = (ypos) - 2.0f; \
     if (si_row_idx % 2 == 0) \
-        draw_rect_filled(ren, (xpos) - 4.0f, (ypos) - 2.0f, (col_right) - (xpos) + 8.0f, SI_ROW_H, c_row_bg); \
+        draw_rounded_rect_filled(ren, (xpos) - 10.0f, _row_top, (col_right) - (xpos) + 20.0f, SI_ROW_H, SI_ROW_H / 2.0f, c_row_bg); \
     si_row_idx++; \
-    draw_text(ren, f_sm, (lbl), c_gray, (xpos), (ypos)); \
     { int _fw = 0, _fh = 0; \
       TTF_GetStringSize(f_sm, (val), 0, &_fw, &_fh); \
-      draw_text(ren, f_sm, (val), c_white, (col_right) - (float)_fw, (ypos)); \
+      float _text_y = _row_top + (SI_ROW_H - (float)_fh) / 2.0f; \
+      draw_text(ren, f_sm, (lbl), c_gray, (xpos), _text_y); \
+      draw_text(ren, f_sm, (val), c_white, (col_right) - (float)_fw, _text_y); \
       float _bw = 60.0f; \
       float _bh = 6.0f; \
       float _bar_right = (col_right) - (float)_fw - 10.0f; \
-      float _bar_y = (ypos) + ((float)_fh - _bh) / 2.0f; \
+      float _bar_y = _text_y + ((float)_fh - _bh) / 2.0f; \
       SDL_Color _c_bar_bg = {28, 52, 40, 255}; \
       SDL_Color _c_bar_fill = {183, 221, 91, 255}; \
       draw_bar_rounded(ren, _bar_right - _bw, _bar_y, _bw, _bh, (pct) / 100.0f, _c_bar_bg, _c_bar_fill); \
