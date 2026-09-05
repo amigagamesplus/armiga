@@ -147,6 +147,7 @@ typedef enum {
     STATE_SCREENDIM_CONFIG,
     STATE_BRIGHTNESS_CONFIG,
     STATE_PERF_CONFIG,
+    STATE_THEME_CONFIG,
     STATE_BLUETOOTH_CONFIG,
     STATE_AREXX_LIST,
     STATE_AREXX_RUN,
@@ -261,8 +262,10 @@ static const char *SETTINGS_MENU_ITEMS[][2] = {
     {"Frecuencia de refresco",       "Refresh Rate"},
     {"Restablecer valores de fábrica", "Factory reset"},
     {"Test de mando",                "Controller Test"},
+    {"Tema",                          "Theme"},
 };
-#define SETTINGS_MENU_COUNT 13
+#define SETTINGS_MENU_COUNT 14
+#define SETTINGS_ITEM_THEME 13
 #define SETTINGS_ACTION_FACTORY_RESET 11
 #define SETTINGS_ITEM_CONTROLLER_TEST 12
 
@@ -2594,8 +2597,8 @@ static void draw_active_dash_breadcrumbs(SDL_Renderer *ren, TTF_Font *font,
 {
     if (depth <= 0) return;
 
-    const SDL_Color c_prev_dot    = { 28,  52,  40, 255};
-    const SDL_Color c_active_dash = {183, 221,  91, 255};
+    const SDL_Color c_prev_dot    = g_theme.row_bg;
+    const SDL_Color c_active_dash = g_theme.accent;
     const SDL_Color c_text        = g_theme.text_light;
 
     float cur_x = x;
@@ -3037,6 +3040,15 @@ int main(void)
     float item_h  = 34.0f;
 
     while (running) {
+        /* Resincroniza las variables "maestras" de color con g_theme cada
+         * frame: se declararon una sola vez arriba (antes del bucle), asi
+         * que un cambio de tema en caliente (STATE_THEME_CONFIG) no las
+         * actualizaria sin esto. Coste despreciable (5 copias de struct). */
+        c_bg      = g_theme.bg;
+        c_green   = g_theme.text_light;
+        c_dkgreen = g_theme.text_light;
+        c_gray    = g_theme.text_light;
+        c_selbg   = g_theme.accent;
         while (SDL_PollEvent(&ev)) {
             if (ev.type == SDL_EVENT_KEY_DOWN || ev.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN ||
                 ev.type == SDL_EVENT_JOYSTICK_HAT_MOTION || ev.type == SDL_EVENT_JOYSTICK_AXIS_MOTION) {
@@ -3287,6 +3299,10 @@ int main(void)
                         case SETTINGS_ITEM_CONTROLLER_TEST:
                             state = STATE_CONTROLLER_TEST;
                             break;
+                        case SETTINGS_ITEM_THEME:
+                            theme_selected = read_theme_index();
+                            state = STATE_THEME_CONFIG;
+                            break;
                     }
                 }
                 if (ev.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN &&
@@ -3375,6 +3391,47 @@ int main(void)
                 if (ev.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN &&
                     ev.jbutton.button == BTN_SDL_B) {
                     perf_selected = g_cfg.perf_profile;
+                    state = STATE_SETTINGS;
+                }
+            }
+            else if (state == STATE_THEME_CONFIG) {
+                if (ev.type == SDL_EVENT_KEY_DOWN) {
+                    if (ev.key.key == SDLK_UP) {
+                        theme_selected = (theme_selected - 1 + THEME_COUNT) % THEME_COUNT;
+                        play_ui_click();
+                    }
+                    if (ev.key.key == SDLK_DOWN) {
+                        theme_selected = (theme_selected + 1) % THEME_COUNT;
+                        play_ui_click();
+                    }
+                    if (ev.key.key == SDLK_RETURN) {
+                        save_theme_index(theme_selected);
+                        g_theme = THEMES[theme_selected];
+                        state = STATE_SETTINGS;
+                    }
+                    if (ev.key.key == SDLK_ESCAPE) {
+                        theme_selected = read_theme_index();
+                        state = STATE_SETTINGS;
+                    }
+                }
+                if (ev.type == SDL_EVENT_JOYSTICK_HAT_MOTION) {
+                    if (ev.jhat.value == SDL_HAT_UP) {
+                        theme_selected = (theme_selected - 1 + THEME_COUNT) % THEME_COUNT;
+                        play_ui_click();
+                    } else if (ev.jhat.value == SDL_HAT_DOWN) {
+                        theme_selected = (theme_selected + 1) % THEME_COUNT;
+                        play_ui_click();
+                    }
+                }
+                if (ev.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN &&
+                    ev.jbutton.button == BTN_SDL_A) {
+                    save_theme_index(theme_selected);
+                    g_theme = THEMES[theme_selected];
+                    state = STATE_SETTINGS;
+                }
+                if (ev.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN &&
+                    ev.jbutton.button == BTN_SDL_B) {
+                    theme_selected = read_theme_index();
                     state = STATE_SETTINGS;
                 }
             }
@@ -4634,6 +4691,33 @@ int main(void)
                 }
                 draw_text(ren, f_med, perf_opts[i].title[current_lang], titlec, perf_x + 38.0f, iy);
                 draw_text_wrapped(ren, f_sm, desc_flat, titlec, perf_x + 38.0f, iy + 20.0f, perf_w - 30.0f, 15.0f);
+            }
+            draw_line(ren, mx, 438.0f, SCREEN_W - 20.0f, 438.0f, c_selbg);
+            draw_footer(ren, f_sm,
+                tr("[DPAD] Elegir  [B] Aplicar  [A] Volver", "[DPAD] Choose  [B] Apply  [A] Back"), s_version);
+
+        } else if (state == STATE_THEME_CONFIG) {
+            draw_statusbar(ren, f_sm, f_xs, status_time, status_wifi_up, status_battery, status_bt_up, wifi_icon_tex, battery_icon_tex, bt_icon_tex);
+            draw_active_dash_breadcrumbs(ren, f_sm, mx, 25.0f, 3, tr("Tema", "Theme"));
+            float theme_item_h = 40.0f;
+            float theme_y0 = 64.0f;
+            for (int i = 0; i < THEME_COUNT; i++) {
+                float iy = theme_y0 + i * theme_item_h;
+                bool sel = (i == theme_selected);
+                SDL_Color swatch_c = THEMES[i].accent;
+                SDL_Color labelc = sel ? THEMES[i].text_on_accent : c_menu_beige;
+                int lw = 0, lh = 0;
+                TTF_GetStringSize(f_med, THEME_NAMES[i][current_lang], 0, &lw, &lh);
+                float pill_h = theme_item_h - 6.0f;
+                float pill_top = iy - 3.0f;
+                float text_y = pill_top + (pill_h - (float)lh) / 2.0f;
+                float dot_y = pill_top + (pill_h - 20.0f) / 2.0f;
+                if (sel) {
+                    float pill_w = 48.0f + (float)lw + 30.0f;
+                    draw_rounded_rect_filled(ren, mx - 10.0f, pill_top, pill_w, pill_h, pill_h / 2.0f, swatch_c);
+                }
+                draw_rounded_rect_filled(ren, mx + 8.0f, dot_y, 20.0f, 20.0f, 10.0f, swatch_c);
+                draw_text(ren, f_med, THEME_NAMES[i][current_lang], labelc, mx + 40.0f, text_y);
             }
             draw_line(ren, mx, 438.0f, SCREEN_W - 20.0f, 438.0f, c_selbg);
             draw_footer(ren, f_sm,
