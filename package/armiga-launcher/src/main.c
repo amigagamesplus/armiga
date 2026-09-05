@@ -4154,21 +4154,21 @@ int main(void)
         }
 
         if ((state == STATE_MENU || state == STATE_SYSINFO) &&
-            (last_cpu_temp_sample == 0 || now_ticks - last_cpu_temp_sample > 5000)) {
+            (last_cpu_temp_sample == 0 || now_ticks - last_cpu_temp_sample > 1000)) {
             read_cpu_temp(dash_cpu_temp, sizeof(dash_cpu_temp));
             safe_copy(sysinfo_temp, dash_cpu_temp, sizeof(sysinfo_temp));
             { int td = 0; if (read_sysfs_int("/sys/class/thermal/thermal_zone2/temp", &td)) sysinfo_temp_pct = td / 1000; if (sysinfo_temp_pct > 100) sysinfo_temp_pct = 100; }
             last_cpu_temp_sample = now_ticks;
         }
         if (state == STATE_MENU &&
-            (last_menu_refresh == 0 || now_ticks - last_menu_refresh > 5000)) {
+            (last_menu_refresh == 0 || now_ticks - last_menu_refresh > 1000)) {
             read_disk_free_short("/media/amiga_data", menu_disk_free, sizeof(menu_disk_free));
             read_cpu_usage(dash_cpu_load, sizeof(dash_cpu_load), NULL);
             read_ram_usage(dash_ram, sizeof(dash_ram));
             last_menu_refresh = now_ticks;
         }
         if (state == STATE_SYSINFO &&
-            (last_sysinfo_update == 0 || now_ticks - last_sysinfo_update > 5000)) {
+            (last_sysinfo_update == 0 || now_ticks - last_sysinfo_update > 1000)) {
             read_ip_address(dev_ip, sizeof(dev_ip));
             read_uptime(dev_uptime, sizeof(dev_uptime));
             read_ram_usage(dev_ram, sizeof(dev_ram));
