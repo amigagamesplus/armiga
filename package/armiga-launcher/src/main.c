@@ -5746,6 +5746,26 @@ int main(void)
                             any_pressed = true;
                         }
                     }
+                    /* El D-pad es un HAT, no un boton digital: no lo cubre
+                     * el bucle de arriba. Se anaden sus 4 nombres (indices
+                     * 13-16 de CTRL_BTN_NAMES) segun el estado del hat. */
+                    {
+                        Uint8 hat = SDL_GetJoystickHat(joy, 0);
+                        static const struct { Uint8 mask; int name_idx; } hat_map[4] = {
+                            {SDL_HAT_UP, 13}, {SDL_HAT_DOWN, 14},
+                            {SDL_HAT_LEFT, 15}, {SDL_HAT_RIGHT, 16}
+                        };
+                        for (int hi = 0; hi < 4; hi++) {
+                            if ((hat & hat_map[hi].mask) && hat_map[hi].name_idx < n_names) {
+                                const char *nm = CTRL_BTN_NAMES[hat_map[hi].name_idx];
+                                if (any_pressed && strlen(active_btns_str) < sizeof(active_btns_str) - 24)
+                                    strcat(active_btns_str, " + ");
+                                if (strlen(active_btns_str) < sizeof(active_btns_str) - strlen(nm) - 1)
+                                    strcat(active_btns_str, nm);
+                                any_pressed = true;
+                            }
+                        }
+                    }
                     if (any_pressed) {
                         SDL_Color name_c = COL_SEL_BG;
                         draw_text_centered(ren, f_sm, active_btns_str, name_c, SCREEN_W / 2.0f, 385.0f);
