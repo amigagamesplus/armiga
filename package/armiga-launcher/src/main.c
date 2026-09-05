@@ -2880,6 +2880,7 @@ int main(void)
     AppState state = STATE_MENU;
     AppState prev_state = STATE_MENU;
     int menu_axis_prev = 0; /* reset al re-entrar a STATE_MENU, evita movimiento fantasma (B05) */
+    int stick_axis_prev = 0; /* debounce del eje Y del stick izq. traducido a HAT en pantallas fuera de STATE_MENU */
     ExecRequest exec_req = EXEC_NONE;
     int action   = ACTION_NONE;
     bool running = true;
@@ -2984,6 +2985,22 @@ int main(void)
                      * Maximum Performance activo antes de atenuar. */
                     apply_perf_profile(perf_selected);
                 }
+            }
+            /* Traduce el eje Y del stick izquierdo a eventos HAT sinteticos,
+             * para que cualquier pantalla que ya escucha
+             * SDL_EVENT_JOYSTICK_HAT_MOTION (D-pad) responda tambien al
+             * stick. STATE_MENU ya tiene su propio manejo de eje
+             * (menu_axis_prev, mas arriba) y queda excluido para no
+             * duplicar el movimiento. */
+            if (state != STATE_MENU && ev.type == SDL_EVENT_JOYSTICK_AXIS_MOTION &&
+                ev.jaxis.axis == 1) {
+                int v = ev.jaxis.value;
+                int zone = (v < -16000) ? -1 : (v > 16000) ? 1 : 0;
+                if (zone != stick_axis_prev && zone != 0) {
+                    ev.type = SDL_EVENT_JOYSTICK_HAT_MOTION;
+                    ev.jhat.value = (zone == -1) ? SDL_HAT_UP : SDL_HAT_DOWN;
+                }
+                stick_axis_prev = zone;
             }
 
             /* Atajo global: MODE + DPAD UP/DOWN ajusta brillo desde
