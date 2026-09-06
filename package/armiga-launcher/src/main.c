@@ -1770,8 +1770,26 @@ typedef struct {
     int w, h;
     Uint64 last_used;
     int generation;
+    Uint32 hash; /* discriminador rapido: evita strcmp/memcmp en slots que no coinciden */
 } CachedText;
 static CachedText s_text_cache[TEXT_CACHE_SIZE];
+/* FNV-1a sobre texto+puntero de fuente+color: descarta el 99% de los
+ * slots con una sola comparacion de enteros antes de caer al
+ * strcmp/memcmp real (solo si el hash ya coincide). No cambia el
+ * algoritmo de busqueda/LRU, solo abarata cada iteracion del bucle. */
+static Uint32 text_cache_hash(TTF_Font *f, const char *t, SDL_Color c)
+{
+    Uint32 h = 2166136261u;
+    for (const unsigned char *p = (const unsigned char *)t; *p; p++) {
+        h ^= *p;
+        h *= 16777619u;
+    }
+    h ^= (Uint32)(uintptr_t)f;
+    h *= 16777619u;
+    h ^= (Uint32)(c.r | (c.g << 8) | (c.b << 16) | (c.a << 24));
+    h *= 16777619u;
+    return h;
+}
 static void draw_text(SDL_Renderer *r, TTF_Font *f, const char *t,
                       SDL_Color c, float x, float y)
 {
@@ -1788,13 +1806,15 @@ static void draw_text(SDL_Renderer *r, TTF_Font *f, const char *t,
     }
 
     Uint64 now = SDL_GetTicks();
+    Uint32 h = text_cache_hash(f, t, c);
     int free_slot = -1;
     Uint64 oldest = SDL_MAX_UINT64;
     int oldest_slot = 0;
 
     for (int i = 0; i < TEXT_CACHE_SIZE; i++) {
         if (s_text_cache[i].texture && s_text_cache[i].generation == g_render_generation) {
-            if (s_text_cache[i].font == f &&
+            if (s_text_cache[i].hash == h &&
+                s_text_cache[i].font == f &&
                 memcmp(&s_text_cache[i].color, &c, sizeof(SDL_Color)) == 0 &&
                 strcmp(s_text_cache[i].text, t) == 0) {
                 s_text_cache[i].last_used = now;
@@ -1830,6 +1850,7 @@ static void draw_text(SDL_Renderer *r, TTF_Font *f, const char *t,
         s_text_cache[slot].h = s->h;
         s_text_cache[slot].last_used = now;
         s_text_cache[slot].generation = g_render_generation;
+        s_text_cache[slot].hash = h;
 
         SDL_FRect dst = {x, y, (float)s->w, (float)s->h};
         SDL_RenderTexture(r, tx, NULL, &dst);
