@@ -5971,6 +5971,15 @@ int main(void)
         SDL_RenderPresent(ren);
         /* VSync activo (SDL_SetRenderVSync) sustituye al SDL_Delay(16):
          * RenderPresent bloquea hasta el siguiente VBlank, 0% CPU en espera. */
+        /* Con la pantalla atenuada por inactividad (dim_active), el
+         * contenido apenas cambia: forzar ~15 FPS en vez de 60/120 reduce
+         * el consumo de GPU/SoC en reposo sin perder responsividad real,
+         * ya que cualquier input restaura el brillo y sale de este modo
+         * de inmediato (ver el bloque de arriba que hace continue en
+         * cuanto detecta un evento). */
+        if (dim_active) {
+            SDL_Delay(66);
+        }
         /* Confirmar arranque exitoso ante el mecanismo de rollback A/B,
          * una sola vez, tras el primer frame realmente dibujado en
          * pantalla (prueba de que SDL/DRM y el launcher arrancaron bien,
