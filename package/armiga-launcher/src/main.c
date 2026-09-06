@@ -4639,13 +4639,23 @@ int main(void)
                 if (i == settings_selected) {
                     int text_w = 0, text_h = 0;
                     TTF_GetStringSize(f_med, item_label, 0, &text_w, &text_h);
-                    float sel_w = (float)text_w + 32.0f;
+                    float sel_w = 46.0f + (float)text_w + 32.0f;
                     float pill_h = settings_item_h - 4.0f;
                     draw_rounded_rect_filled(ren, mx - 10.0f, settings_cursor_y - 5.0f,
                                      sel_w, pill_h, pill_h / 2.0f, c_menu_selbg);
-                    draw_text(ren, f_med, item_label, c_menu_gold, mx + 8.0f, iy);
+                    if (menu_icon_tex[4]) {
+                        SDL_SetTextureColorMod(menu_icon_tex[4], c_menu_gold.r, c_menu_gold.g, c_menu_gold.b);
+                        SDL_FRect icon_dst = {mx + 8.0f, iy, 20.0f, 20.0f};
+                        SDL_RenderTexture(ren, menu_icon_tex[4], NULL, &icon_dst);
+                    }
+                    draw_text(ren, f_med, item_label, c_menu_gold, mx + 46.0f, iy);
                 } else {
-                    draw_text(ren, f_med, item_label, c_menu_beige, mx + 8.0f, iy);
+                    if (menu_icon_tex[4]) {
+                        SDL_SetTextureColorMod(menu_icon_tex[4], c_menu_beige.r, c_menu_beige.g, c_menu_beige.b);
+                        SDL_FRect icon_dst = {mx + 8.0f, iy, 20.0f, 20.0f};
+                        SDL_RenderTexture(ren, menu_icon_tex[4], NULL, &icon_dst);
+                    }
+                    draw_text(ren, f_med, item_label, c_menu_beige, mx + 46.0f, iy);
                 }
             }
             if (settings_scroll + settings_visible < SETTINGS_MENU_COUNT) {
