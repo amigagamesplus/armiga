@@ -2536,7 +2536,7 @@ static float draw_statusbar(SDL_Renderer *ren, TTF_Font *f, TTF_Font *f_ampm,
     char batt_buf[12];
     SDL_Color batt_fg = c_gold;
     SDL_Color batt_bg = c_pill_on;
-    SDL_Color c_white_lit = COL_WHITE;
+    SDL_Color c_white_lit = COL_KEY_BG;
     if (battery >= 0) {
         if (s_status_charging) {
             snprintf(batt_buf, sizeof(batt_buf), "%d%% +", battery);
@@ -4245,7 +4245,7 @@ int main(void)
             if (led_lowbat_timer == 0 || now_ticks - led_lowbat_timer > 1000) {
                 bool pulse = (now_ticks / 1000) % 2 == 0;
                 if (pulse) {
-                    send_led_payload(led_brightness, 255, 0, 0, 255, 0, 0);
+                    send_led_payload(led_brightness, 64, 0, 0, 64, 0, 0);
                 } else {
                     send_led_payload(0, 0, 0, 0, 0, 0, 0);
                 }
