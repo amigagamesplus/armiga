@@ -68,9 +68,16 @@ static void clear_fb0(void)
 
 /* strncpy no garantiza null-terminacion si src >= sz; este helper si */
 static void safe_copy(char *dst, const char *src, size_t sz) {
-    if (sz == 0) return;
-    strncpy(dst, src, sz - 1);
-    dst[sz - 1] = '\0';
+    /* Antes usaba strncpy(), que rellena con ceros el resto del buffer
+     * hasta sz-1 aunque src sea mucho mas corto que sz (comun en este
+     * fichero: copiar una cadena de 5 caracteres a un buffer de 512).
+     * memcpy() de la longitud real evita esas escrituras inutiles. */
+    if (!dst || sz == 0) return;
+    if (!src) { dst[0] = '\0'; return; }
+    size_t len = strlen(src);
+    if (len >= sz) len = sz - 1;
+    memcpy(dst, src, len);
+    dst[len] = '\0';
 }
 
 #define SCREEN_W  640
