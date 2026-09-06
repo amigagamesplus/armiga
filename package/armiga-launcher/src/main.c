@@ -2902,6 +2902,8 @@ int main(void)
     char *arxr_cached_tmp = NULL;
     int arxr_cached_nlines = 0;
     size_t arxr_cached_len = (size_t)-1; /* invalido a proposito: fuerza el primer parseo */
+    Uint64 arxr_scroll_next_tick = 0; /* controla la velocidad del scroll continuo mientras se mantiene pulsado */
+    #define ARXR_SCROLL_REPEAT_MS 40
     bool show_fps_counter = false;
     int fps_frame_count = 0;
     float fps_display = 0.0f;
@@ -3578,14 +3580,14 @@ int main(void)
                      (ev.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN && ev.jbutton.button == BTN_SDL_B)))
                     state = STATE_AREXX_LIST;
                 if (s_arexx_pid <= 0) {
+                    /* Teclado (PC): paso unico por pulsacion. D-pad/stick:
+                     * gestionado como scroll continuo en el bloque de
+                     * render de STATE_AREXX_RUN (poll de estado, no evento),
+                     * para que mantener pulsado desplace sin soltar. */
                     int arexx_scroll_before = arexx_scroll;
                     if (ev.type == SDL_EVENT_KEY_DOWN) {
                         if (ev.key.key == SDLK_UP) arexx_scroll--;
                         if (ev.key.key == SDLK_DOWN) arexx_scroll++;
-                    }
-                    if (ev.type == SDL_EVENT_JOYSTICK_HAT_MOTION) {
-                        if (ev.jhat.value == SDL_HAT_UP) arexx_scroll--;
-                        else if (ev.jhat.value == SDL_HAT_DOWN) arexx_scroll++;
                     }
                     if (arexx_scroll < 0) arexx_scroll = 0;
                     if (arexx_scroll != arexx_scroll_before) arexx_user_scrolled = 1;
@@ -5187,6 +5189,28 @@ int main(void)
 
         } else if (state == STATE_AREXX_RUN) {
             int arexx_still_running = (poll_arexx_script(&arexx_output, &arexx_output_len, &arexx_output_cap) == 0);
+            /* Scroll continuo mientras se mantiene D-pad/stick, leido por
+             * estado (no por evento) para no depender de transiciones ni
+             * de rafagas de eventos del hardware. Velocidad fija por
+             * ARXR_SCROLL_REPEAT_MS, sin delay inicial: arranca en cuanto
+             * se detecta la direccion mantenida. */
+            if (!arexx_still_running && joy) {
+                Uint8 arxr_hat = SDL_GetJoystickHat(joy, 0);
+                Sint16 arxr_ay = SDL_GetJoystickAxis(joy, 1);
+                int arxr_dir = 0;
+                if ((arxr_hat & SDL_HAT_UP) || arxr_ay < -16000) arxr_dir = -1;
+                else if ((arxr_hat & SDL_HAT_DOWN) || arxr_ay > 16000) arxr_dir = 1;
+                if (arxr_dir != 0) {
+                    if (now_ticks >= arxr_scroll_next_tick) {
+                        arexx_scroll += arxr_dir;
+                        if (arexx_scroll < 0) arexx_scroll = 0;
+                        arexx_user_scrolled = 1;
+                        arxr_scroll_next_tick = now_ticks + ARXR_SCROLL_REPEAT_MS;
+                    }
+                } else {
+                    arxr_scroll_next_tick = 0;
+                }
+            }
             draw_statusbar(ren, f_sm, f_xs, status_time, status_wifi_up, status_battery, status_bt_up, wifi_icon_tex, battery_icon_tex, bt_icon_tex);
             draw_active_dash_breadcrumbs(ren, f_sm, mx, 25.0f, 3, tr("Ejecutando Script", "Running Script"));
             draw_text(ren, f_sm, arexx_scripts[arexx_selected].filename, c_menu_selbg, mx, 60.0f);
