@@ -2893,7 +2893,10 @@ int main(void)
      * malloc+strtok en CADA frame mientras esta pantalla esta visible,
      * incluso si el output no habia cambiado desde el frame anterior.
      * Se re-parsea solo si arexx_output_len cambio. */
+    typedef struct { char text[300]; int src; } ArxrWrapSeg;
     char **arxr_cached_lines = NULL;
+    ArxrWrapSeg *arxr_cached_wrap = NULL; /* lineas envueltas por ancho, cada una con indice a su linea logica origen (para el color) */
+    int arxr_cached_wrap_n = 0;
     char *arxr_cached_tmp = NULL;
     int arxr_cached_nlines = 0;
     size_t arxr_cached_len = (size_t)-1; /* invalido a proposito: fuerza el primer parseo */
@@ -5184,8 +5187,11 @@ int main(void)
             float arxr_line_h = 16.0f;
             if (arexx_output && arexx_output_len > 0 && arexx_output_len != arxr_cached_len) {
                 free(arxr_cached_lines);
+                free(arxr_cached_wrap);
                 free(arxr_cached_tmp);
                 arxr_cached_lines = NULL;
+                arxr_cached_wrap = NULL;
+                arxr_cached_wrap_n = 0;
                 arxr_cached_nlines = 0;
                 arxr_cached_tmp = malloc(arexx_output_len + 1);
                 if (arxr_cached_tmp) {
@@ -5202,11 +5208,56 @@ int main(void)
                         }
                     }
                 }
+                if (arxr_cached_nlines > 0) {
+                    /* Wrap real (no truncado): cada linea logica larga se parte en
+                     * N segmentos visuales que caben en pantalla, cortando en el
+                     * ultimo espacio disponible para no partir palabras. Cada
+                     * segmento guarda el indice de su linea logica de origen
+                     * (arxr_cached_lines[di]) para heredar el color correcto. */
+                    const float arxr_avail_w = (float)SCREEN_W - mx - mx;
+                    int wrap_cap = arxr_cached_nlines * 2;
+                    arxr_cached_wrap = malloc(sizeof(ArxrWrapSeg) * (size_t)wrap_cap);
+                    arxr_cached_wrap_n = 0;
+                    if (arxr_cached_wrap) {
+                        for (int di = 0; di < arxr_cached_nlines; di++) {
+                            const char *src = arxr_cached_lines[di];
+                            const char *cursor = src;
+                            size_t remaining_len = strlen(src);
+                            do {
+                                int fit_w = 0; size_t fit_len = 0;
+                                if (remaining_len > 0)
+                                    TTF_MeasureString(f_xsm, cursor, remaining_len, (int)arxr_avail_w, &fit_w, &fit_len);
+                                if (remaining_len > 0 && fit_len == 0) fit_len = 1; /* progreso garantizado */
+                                size_t break_len = fit_len;
+                                if (fit_len < remaining_len) {
+                                    size_t last_space = 0; int found_space = 0;
+                                    for (size_t k = 0; k < fit_len; k++)
+                                        if (cursor[k] == ' ') { last_space = k; found_space = 1; }
+                                    if (found_space && last_space > 0) break_len = last_space;
+                                }
+                                if (arxr_cached_wrap_n >= wrap_cap) {
+                                    wrap_cap *= 2;
+                                    ArxrWrapSeg *tmp = realloc(arxr_cached_wrap, sizeof(ArxrWrapSeg) * (size_t)wrap_cap);
+                                    if (!tmp) break;
+                                    arxr_cached_wrap = tmp;
+                                }
+                                size_t copy_len = break_len < sizeof(arxr_cached_wrap[0].text) - 1 ? break_len : sizeof(arxr_cached_wrap[0].text) - 1;
+                                memcpy(arxr_cached_wrap[arxr_cached_wrap_n].text, cursor, copy_len);
+                                arxr_cached_wrap[arxr_cached_wrap_n].text[copy_len] = 0;
+                                arxr_cached_wrap[arxr_cached_wrap_n].src = di;
+                                arxr_cached_wrap_n++;
+                                cursor += break_len;
+                                remaining_len -= break_len;
+                                while (remaining_len > 0 && *cursor == ' ') { cursor++; remaining_len--; }
+                            } while (remaining_len > 0);
+                        }
+                    }
+                }
                 arxr_cached_len = arexx_output_len;
             }
-            int arxr_nlines = arxr_cached_nlines;
-            char **arxr_lines = arxr_cached_lines;
-            if (arexx_output_len == 0) { arxr_nlines = 0; arxr_lines = NULL; } /* run recien reiniciado: pantalla en blanco, igual que el comportamiento original */
+            int arxr_nlines = arxr_cached_wrap_n;
+            ArxrWrapSeg *arxr_wrap = arxr_cached_wrap;
+            if (arexx_output_len == 0) { arxr_nlines = 0; arxr_wrap = NULL; } /* run recien reiniciado: pantalla en blanco, igual que el comportamiento original */
             int arxr_max_visible = (int)((438.0f - arxr_y0) / arxr_line_h);
             if (arxr_max_visible < 1) arxr_max_visible = 1;
             int arxr_max_scroll = (arxr_nlines <= arxr_max_visible) ? 0 : (arxr_nlines - arxr_max_visible);
@@ -5218,12 +5269,14 @@ int main(void)
             int arxr_start = arexx_scroll;
             SDL_Color c_arxr_lime = c_selbg;
             SDL_Color c_arxr_red  = g_theme.alert;
-            if (arxr_lines)
+            if (arxr_wrap)
                 for (int i = arxr_start; i < arxr_nlines && (i - arxr_start) < arxr_max_visible; i++) {
+                    const char *src_line = arxr_cached_lines[arxr_wrap[i].src];
                     SDL_Color line_c = c_gray;
-                    if (strstr(arxr_lines[i], "[CORRECTO]")) line_c = c_arxr_lime;
-                    else if (strstr(arxr_lines[i], "[INCORRECTO]")) line_c = c_arxr_red;
-                    draw_text(ren, f_xs, arxr_lines[i], line_c, mx, arxr_y0 + (i - arxr_start) * arxr_line_h);
+                    if (strstr(src_line, "[CORRECTO]") || strstr(src_line, "[OK]")) line_c = c_arxr_lime;
+                    else if (strstr(src_line, "[INCORRECTO]") || strstr(src_line, "[CRITICO]")) line_c = c_arxr_red;
+                    else if (strstr(src_line, "[AVISO]")) line_c = g_theme.accent;
+                    draw_text(ren, f_xsm, arxr_wrap[i].text, line_c, mx, arxr_y0 + (i - arxr_start) * arxr_line_h);
                 }
             if (!arexx_still_running && arxr_nlines > arxr_max_visible) {
                 char scroll_info[32];
