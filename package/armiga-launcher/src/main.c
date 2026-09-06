@@ -2535,19 +2535,21 @@ static float draw_statusbar(SDL_Renderer *ren, TTF_Font *f, TTF_Font *f_ampm,
 
     char batt_buf[12];
     SDL_Color batt_fg = c_gold;
+    SDL_Color batt_bg = c_pill_on;
+    SDL_Color c_white_lit = COL_WHITE;
     if (battery >= 0) {
         if (s_status_charging) {
             snprintf(batt_buf, sizeof(batt_buf), "%d%% +", battery);
             batt_fg = c_gold;
         } else {
             snprintf(batt_buf, sizeof(batt_buf), "%d%%", battery);
-            if (battery <= 20) batt_fg = c_red;
+            if (battery <= 15) { batt_fg = c_white_lit; batt_bg = c_red; }
             else                batt_fg = c_gold;
         }
     } else {
         strncpy(batt_buf, "--", sizeof(batt_buf));
     }
-    right -= draw_status_pill(ren, f, right, y, battery_icon_tex, batt_buf, batt_fg, c_pill_on, 24.0f);
+    right -= draw_status_pill(ren, f, right, y, battery_icon_tex, batt_buf, batt_fg, batt_bg, 24.0f);
     right -= gap;
 
     SDL_Color bt_fg = bt_up ? c_gold : c_dim_fg;
