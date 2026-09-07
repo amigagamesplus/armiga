@@ -59,10 +59,20 @@ Not sure which physical button does what on your controller? Head to **Settings 
 - **Amiga Catalog** — access your game collection
 - **System update** — check for and install new armiga versions
 - **System diagnostics** — technical device info (CPU, memory, network, versions)
+- **ARexx Scripts** — run diagnostic and utility scripts, with live scrolling output
 - **Settings** — all device settings
 - **Power off device**
 
-The main menu also shows a live status panel with CPU temperature, CPU load, RAM usage, and free storage space, updated automatically.
+The main menu also shows a live status panel with CPU temperature, CPU load, RAM usage, and free storage space, updated automatically. When Amiga Catalog is selected, the title of the last game you played appears above the footer — press `[X]` to jump straight back into it without going through the RetroArch menu.
+
+## ARexx Scripts
+
+Run small utility and diagnostic scripts directly from the device, with their output shown live on screen.
+
+- **Kickstart checker** — verifies the MD5 hashes of your installed kickstart ROMs and reports correct/incorrect/missing for each one.
+- **Disk integrity check** — checks that your data partition is mounted and writable, reports free space, scans for recent kernel I/O errors, and confirms your config files exist. Ends with an overall verdict: OK, WARNING, or CRITICAL.
+
+While a script is running, its output scrolls automatically. Once finished, hold the D-Pad or left stick up/down to scroll continuously through the full log; long lines wrap instead of being cut off.
 
 ## Settings
 
