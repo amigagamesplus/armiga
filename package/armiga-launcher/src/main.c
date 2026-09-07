@@ -4691,22 +4691,12 @@ int main(void)
             }
             int pill_text_w = 0, pill_text_h = 0;
             TTF_GetStringSize(f_sm, last_game_pill_buf, 0, &pill_text_w, &pill_text_h);
-            float pill_pad_x = 20.0f;
-            float pill_h = (float)pill_text_h + 20.0f;
-            float pill_w = (float)pill_text_w + pill_pad_x * 2.0f;
             float pill_max_w = SCREEN_W - 40.0f;
+            float pill_w = (float)pill_text_w;
             if (pill_w > pill_max_w) pill_w = pill_max_w;
-            float pill_x = (SCREEN_W - pill_w) / 2.0f;
-            float pill_bottom_gap = 10.0f;
-            float pill_y = 438.0f - pill_bottom_gap - pill_h - 4.0f;
-            draw_rounded_rect_outline(ren, pill_x, pill_y, pill_w, pill_h, 10.0f, 2.0f,
-                                       g_theme.accent, g_theme.bg);
-            draw_text_truncated(ren, f_sm, last_game_pill_buf, c_dkgreen,
-                                 pill_x + pill_pad_x, pill_y + (pill_h - (float)pill_text_h) / 2.0f, pill_w - pill_pad_x * 2.0f);
-            int pill_label_w = 0, pill_label_h = 0;
-            const char *pill_label = tr("Ultima partida", "Last played");
-            TTF_GetStringSize(f_sm, pill_label, 0, &pill_label_w, &pill_label_h);
-            draw_text(ren, f_sm, pill_label, c_menu_beige, pill_x + 6.0f, pill_y - (float)pill_label_h - 4.0f);
+            float pill_x = (SCREEN_W - (float)pill_text_w) / 2.0f;
+            float pill_y = 438.0f - 10.0f - (float)pill_text_h;
+            draw_text_truncated(ren, f_sm, last_game_pill_buf, c_dkgreen, pill_x, pill_y, pill_max_w);
         }
 
         /* Barra inferior */
