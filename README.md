@@ -31,7 +31,7 @@ ARMIGA is a minimal Linux distribution based on **Buildroot** for the **Anbernic
 
 ### Working components
 
-- ✅ Boot (U-Boot + kernel 7.3.0-rc1-armiga + DTB)
+- ✅ Boot (U-Boot + kernel 7.3.0-rc2-armiga + DTB)
 - ✅ **A/B** partition scheme with automatic rollback (see below)
 - ✅ Rootfs on **SquashFS + zstd** (system/system_b, 300MB per slot, ro)
 - ✅ RTL8821CS WiFi (`wpa_supplicant` + `udhcpc`, config generated in `/tmp` — `/etc` is ro)
@@ -42,14 +42,15 @@ ARMIGA is a minimal Linux distribution based on **Buildroot** for the **Anbernic
 - ✅ `amiga_data` partition (exFAT, auto-expands to 100% of the SD card on first boot)
 - ✅ Graphics stack: SDL3 3.4.16 (kmsdrm) + Mesa 26.2.2 (GBM + Panfrost, stripped `.so` in overlay)
 - ✅ Custom C/SDL3 launcher (`armiga-launcher`), bilingual **Spanish/English** interface (toggle `L1`, persistent)
-- ✅ RetroArch 1.22.2-nightly (34c069f) + PUAE 2021 core (`puae2021_libretro.so`, 2.6.1 68332b1)
+- ✅ RetroArch 1.22.2-nightly (34c069f) + PUAE 2021 core (`puae2021_libretro.so`, 2.6.1 297b347)
 - ✅ OTA update system (GitHub Releases → download → SHA256 verification → flash inactive slot, all async without blocking the UI)
 - ✅ Automatic A/B rollback on boot failure (attempt counter + slot reversion)
 - ✅ Settings menu: wireless network, backup (create/restore/delete), analog stick RGB LEDs, timezone, screensaver, brightness, performance profiles (maximum/balanced/power saving), SSH, factory reset
 - ✅ Redesigned "Workbench" interface (beige/gold palette on black, monochrome Tabler Icons iconography)
 - ✅ Developer mode (terminal, btop, CPU temperature graph + throttling detection) accessible with `SELECT+START+L1` combo
-- ✅ ARexx kickstart checker: MD5 verification of known kickstart ROMs, color-coded pass/fail output
-- ✅ Global brightness shortcut (`MODE+DPAD`), USB-C charging indicator, real-time telemetry dashboard (CPU temp/load, RAM), reactive RGB LEDs (screen dimming, low battery), UI navigation click sound (toggleable)
+- ✅ ARexx scripts: kickstart checker (MD5 verification, color-coded pass/fail), disk/partition integrity check with verdict (OK/WARNING/CRITICAL); script output view supports line wrapping (no truncation) and continuous D-pad/stick hold-to-scroll
+- ✅ Global brightness shortcut (`MODE+DPAD`), USB-C charging indicator, real-time telemetry dashboard (CPU temp/load, RAM), reactive RGB LEDs (screen dimming, low battery, dimmed at 25% for the critical-battery blink), UI navigation click sound (toggleable)
+- ✅ Last played game indicator on the main menu (reads RetroArch's history playlist): shows the title above the footer, `[X]` resumes it directly without going through the RetroArch menu
 
 ### Partitions (MBR, never GPT) — A/B scheme
 
