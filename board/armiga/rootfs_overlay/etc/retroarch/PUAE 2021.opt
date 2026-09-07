@@ -1,4 +1,4 @@
-# ARMIGA_CFG_VERSION=2
+# ARMIGA_CFG_VERSION=3
 puae_analogmouse = "both"
 puae_analogmouse_deadzone = "20"
 puae_analogmouse_speed = "1.0"
@@ -77,7 +77,7 @@ puae_model_cd = "CD32"
 puae_model_fd = "A500"
 puae_model_hd = "A600"
 puae_model_options_display = "disabled"
-puae_mouse_speed = "100"
+puae_mouse_speed = "50"
 puae_physical_keyboard_pass_through = "disabled"
 puae_physicalmouse = "enabled"
 puae_retropad_options = "disabled"
