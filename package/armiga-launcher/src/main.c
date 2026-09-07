@@ -1533,6 +1533,79 @@ static void delete_backup(const char *filename)
     snprintf(path, sizeof(path), BACKUP_DIR "/%s", filename);
     unlink(path);
 }
+#define RETROARCH_HISTORY_PATH "/media/amiga_data/retroarch/config/playlists/builtin/content_history.lpl"
+/* Extrae un campo de string JSON de una linea tipo "  "clave": "valor",
+ * (comillas simples, sin escapes complejos, formato fijo que escribe
+ * RetroArch). Devuelve true si encontro el campo en la linea dada. */
+static bool json_line_extract(const char *line, const char *key, char *out, size_t out_sz)
+{
+    char pattern[32];
+    snprintf(pattern, sizeof(pattern), "\"%s\":", key);
+    const char *p = strstr(line, pattern);
+    if (!p) return false;
+    const char *start = strchr(p + strlen(pattern), '"');
+    if (!start) return false;
+    start++;
+    const char *end = strchr(start, '"');
+    if (!end) return false;
+    size_t len = (size_t)(end - start);
+    if (len >= out_sz) len = out_sz - 1;
+    memcpy(out, start, len);
+    out[len] = '\0';
+    return true;
+}
+/* Lee la primera entrada (mas reciente) de content_history.lpl. RetroArch
+ * antepone cada partida nueva al inicio de la lista (verificado
+ * empiricamente: jugar un titulo distinto lo mueve al primer "items[0]").
+ * Devuelve true si encontro una entrada valida y el fichero de ROM sigue
+ * existiendo en disco (evita apuntar a un juego borrado/SD cambiada). */
+static bool get_last_played_game(char *clean_name_out, size_t name_sz,
+                                  char *rom_path_out, size_t path_sz,
+                                  char *core_path_out, size_t core_sz)
+{
+    if (name_sz > 0) clean_name_out[0] = '\0';
+    if (path_sz > 0) rom_path_out[0] = '\0';
+    if (core_sz > 0) core_path_out[0] = '\0';
+
+    FILE *f = fopen(RETROARCH_HISTORY_PATH, "r");
+    if (!f) return false;
+
+    char line[512];
+    char raw_path[400] = "", raw_label[256] = "", raw_core[256] = "";
+    bool in_first_item = false, got_path = false;
+    while (fgets(line, sizeof(line), f)) {
+        if (!in_first_item) {
+            if (strstr(line, "\"items\":")) continue;
+            if (strchr(line, '{')) { in_first_item = true; }
+            continue;
+        }
+        if (json_line_extract(line, "path", raw_path, sizeof(raw_path))) { got_path = true; }
+        json_line_extract(line, "label", raw_label, sizeof(raw_label));
+        json_line_extract(line, "core_path", raw_core, sizeof(raw_core));
+        if (strchr(line, '}')) break; /* fin de la primera entrada */
+    }
+    fclose(f);
+
+    if (!got_path || raw_path[0] == '\0') return false;
+    if (access(raw_path, F_OK) != 0) return false; /* ROM ya no existe: SD cambiada o fichero borrado */
+
+    safe_copy(rom_path_out, raw_path, path_sz);
+    safe_copy(core_path_out, raw_core[0] ? raw_core : "/usr/lib/libretro/puae2021_libretro.so", core_sz);
+
+    if (raw_label[0]) {
+        safe_copy(clean_name_out, raw_label, name_sz);
+    } else {
+        const char *base = strrchr(raw_path, '/');
+        base = base ? base + 1 : raw_path;
+        char clean[256];
+        safe_copy(clean, base, sizeof(clean));
+        char *dot = strrchr(clean, '.');
+        if (dot) *dot = '\0';
+        for (char *c = clean; *c; c++) if (*c == '_') *c = ' ';
+        safe_copy(clean_name_out, clean, name_sz);
+    }
+    return true;
+}
 #define AREXX_SCRIPTS_DIR "/usr/share/armiga/arexx_scripts"
 #define AREXX_MAX_SCRIPTS 16
 typedef struct {
@@ -2752,6 +2825,9 @@ int main(void)
 {
     for (;;) {
     bool relaunch_after_retroarch = false;
+    bool direct_launch_rom = false;
+    char direct_launch_rom_path[400] = "";
+    char direct_launch_core_path[256] = "";
     config_load();
 
     if (!SDL_Init(SDL_INIT_VIDEO | SDL_INIT_JOYSTICK | SDL_INIT_AUDIO)) {
@@ -2920,6 +2996,12 @@ int main(void)
     char backup_list[BACKUP_LIST_MAX][64];
     int backup_count = 0;
     int backup_list_selected = 0;
+    char last_game_name[96] = "";
+    char last_game_rom_path[400] = "";
+    char last_game_core_path[256] = "";
+    bool has_last_game = get_last_played_game(last_game_name, sizeof(last_game_name),
+                                               last_game_rom_path, sizeof(last_game_rom_path),
+                                               last_game_core_path, sizeof(last_game_core_path));
     char wifi_ssid[64] = "";
     char wifi_password[64] = "";
     int wifi_field_selected = 0;
@@ -3215,6 +3297,16 @@ int main(void)
                 if (ev.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN &&
                     ev.jbutton.button == BTN_SDL_A)
                     action = selected + 1;
+                if (ev.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN &&
+                    ev.jbutton.button == BTN_SDL_X &&
+                    selected == 0 && has_last_game && last_game_rom_path[0]) {
+                    play_ui_click();
+                    safe_copy(direct_launch_rom_path, last_game_rom_path, sizeof(direct_launch_rom_path));
+                    safe_copy(direct_launch_core_path, last_game_core_path, sizeof(direct_launch_core_path));
+                    direct_launch_rom = true;
+                    relaunch_after_retroarch = true;
+                    running = false;
+                }
             }
             else if (state == STATE_DEVMODE) {
                 if (ev.type == SDL_EVENT_KEY_DOWN) {
@@ -4586,6 +4678,35 @@ int main(void)
             draw_rounded_rect_outline(ren, ctx_box_x, ctx_box_y, ctx_box_w, ctx_box_h,
                                        10.0f, 2.0f, c_ctx_box_border, c_ctx_box_bg);
             draw_context_panel(ren, f_sm, rx, ctx_y, ctx_lines, ctx_n, c_dkgreen);
+        }
+        /* Pildora "Ultima partida", centrada, ancho ajustado al contenido.
+         * Solo visible con Catalogo Amiga seleccionado (selected==0). */
+        if (state == STATE_MENU && selected == 0) {
+            char last_game_pill_buf[160];
+            if (has_last_game && last_game_name[0]) {
+                snprintf(last_game_pill_buf, sizeof(last_game_pill_buf), "%s  %s",
+                         last_game_name, tr("[X] Continuar partida", "[X] Resume game"));
+            } else {
+                safe_copy(last_game_pill_buf, tr("Sin partidas recientes", "No recent games"), sizeof(last_game_pill_buf));
+            }
+            int pill_text_w = 0, pill_text_h = 0;
+            TTF_GetStringSize(f_sm, last_game_pill_buf, 0, &pill_text_w, &pill_text_h);
+            float pill_pad_x = 20.0f;
+            float pill_h = (float)pill_text_h + 20.0f;
+            float pill_w = (float)pill_text_w + pill_pad_x * 2.0f;
+            float pill_max_w = SCREEN_W - 40.0f;
+            if (pill_w > pill_max_w) pill_w = pill_max_w;
+            float pill_x = (SCREEN_W - pill_w) / 2.0f;
+            float pill_bottom_gap = 10.0f;
+            float pill_y = 438.0f - pill_bottom_gap - pill_h - 4.0f;
+            draw_rounded_rect_outline(ren, pill_x, pill_y, pill_w, pill_h, 10.0f, 2.0f,
+                                       g_theme.accent, g_theme.bg);
+            draw_text_truncated(ren, f_sm, last_game_pill_buf, c_dkgreen,
+                                 pill_x + pill_pad_x, pill_y + (pill_h - (float)pill_text_h) / 2.0f, pill_w - pill_pad_x * 2.0f);
+            int pill_label_w = 0, pill_label_h = 0;
+            const char *pill_label = tr("Ultima partida", "Last played");
+            TTF_GetStringSize(f_sm, pill_label, 0, &pill_label_w, &pill_label_h);
+            draw_text(ren, f_sm, pill_label, c_menu_beige, pill_x + 6.0f, pill_y - (float)pill_label_h - 4.0f);
         }
 
         /* Barra inferior */
@@ -6185,13 +6306,20 @@ int main(void)
                      * inittab con un entorno minimo (sin HOME), y
                      * RetroArch falla en silencio sin esa variable. */
                     setenv("HOME", "/root", 1);
-                    execl("/usr/bin/retroarch", "retroarch", (char *)NULL);
+                    if (direct_launch_rom && direct_launch_rom_path[0]) {
+                        execl("/usr/bin/retroarch", "retroarch",
+                              "-L", direct_launch_core_path[0] ? direct_launch_core_path : "/usr/lib/libretro/puae2021_libretro.so",
+                              direct_launch_rom_path, (char *)NULL);
+                    } else {
+                        execl("/usr/bin/retroarch", "retroarch", (char *)NULL);
+                    }
                     fprintf(stderr, "armiga-launcher: no se pudo ejecutar retroarch: %s\n",
                             strerror(errno));
                     _exit(1);
                 } else if (pid > 0) {
                     int status;
                     waitpid(pid, &status, 0);
+                    direct_launch_rom = false;
                     /* al terminar RetroArch, volvemos al inicio del for(;;)
                      * para reinicializar SDL/DRM desde cero */
                     continue;
