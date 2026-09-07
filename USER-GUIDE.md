@@ -45,8 +45,11 @@ Some RG40XX H units use a newer internal display panel revision ("v2"). There's 
 | **B**                               | Confirm / Select                    |
 | **A**                               | Cancel / Go back                    |
 | **X**                               | Delete (backup screen only)         |
-| **D-Pad**                           | Navigate menus                      |
+| **D-Pad / Left analog stick**       | Navigate menus                      |
 | **L1**                              | Switch language (Español/English)   |
+| **MODE + D-Pad Up/Down**           | Adjust screen brightness (±5%, any screen) |
+| **MODE + A**                        | Mute/unmute UI navigation click sound |
+| **MODE + START**                    | Restart the launcher (quick fix if the interface misbehaves) |
 | **SELECT + START + L1** (hold 3s)  | Developer mode                      |
 
 Not sure which physical button does what on your controller? Head to **Settings → Controller Test** — see below.
@@ -56,14 +59,26 @@ Not sure which physical button does what on your controller? Head to **Settings 
 - **Amiga Catalog** — access your game collection
 - **System update** — check for and install new armiga versions
 - **System diagnostics** — technical device info (CPU, memory, network, versions)
+- **ARexx Scripts** — run diagnostic and utility scripts, with live scrolling output
 - **Settings** — all device settings
 - **Power off device**
+
+The main menu also shows a live status panel with CPU temperature, CPU load, RAM usage, and free storage space, updated automatically. When Amiga Catalog is selected, the title of the last game you played appears above the footer — press `[X]` to jump straight back into it without going through the RetroArch menu.
+
+## ARexx Scripts
+
+Run small utility and diagnostic scripts directly from the device, with their output shown live on screen.
+
+- **Kickstart checker** — verifies the MD5 hashes of your installed kickstart ROMs and reports correct/incorrect/missing for each one.
+- **Disk integrity check** — checks that your data partition is mounted and writable, reports free space, scans for recent kernel I/O errors, and confirms your config files exist. Ends with an overall verdict: OK, WARNING, or CRITICAL.
+
+While a script is running, its output scrolls automatically. Once finished, hold the D-Pad or left stick up/down to scroll continuously through the full log; long lines wrap instead of being cut off.
 
 ## Settings
 
 ### Wireless network
 
-Enter your network name (SSID) and password with the on-screen keyboard. Use the D-Pad to move between keys, B to select a letter, and START to switch between uppercase, lowercase, and numbers.
+Enter your network name (SSID) and password with the on-screen keyboard. Use the D-Pad to move between keys, B to select a letter, and START to switch between uppercase, lowercase, and numbers. A third option below lets you turn WiFi ENABLED/DISABLED entirely — press B on it to toggle.
 
 ### Bluetooth
 
@@ -102,9 +117,11 @@ Not sure which physical button is A, B, X or Y on your specific controller? This
 
 Adjust the color and brightness of both analog sticks' LED rings independently. Use L1/R1 for quick jumps or the D-Pad to fine-tune each value.
 
+The LEDs also react automatically: they dim while the screensaver is active, and pulse red when the battery drops to 15% or below (unless charging).
+
 ### Timezone
 
-Select your timezone from a list of cities. Affects the time shown on the device.
+Select your timezone from a list of cities. Affects the time shown on the device. Use **L1/R1** to jump 5 entries at a time through the list.
 
 ### Screensaver
 
@@ -112,7 +129,11 @@ Configure how long the device must be idle before the screen dims, and to what b
 
 ### Screen brightness
 
-Adjust overall screen brightness with D-Pad up/down, in 5% steps.
+Adjust overall screen brightness with D-Pad up/down, in 5% steps. You can also adjust brightness from anywhere — no need to open Settings — by holding **MODE** and pressing D-Pad up/down.
+
+### Battery and charging
+
+The status bar shows your battery percentage at all times. A small **+** appears next to the percentage whenever the device is plugged in and charging.
 
 ### SSH
 
@@ -124,7 +145,7 @@ Erases all your custom settings (WiFi, preferences, backups) and resets the devi
 
 ## System updates
 
-armiga checks whether a newer version is available. If there is, you can download and install it directly from the menu — the download happens in the background, and the device reboots automatically once it's done. Just don't power off the device mid-update.
+armiga checks whether a newer version is available. If there is, a red **[!] New Update** label appears next to System Update in the main menu. Open it to download and install directly from the menu — the download happens in the background, and the device reboots automatically once it's done. Just don't power off the device mid-update.
 
 ## Having trouble?
 
