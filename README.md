@@ -49,7 +49,7 @@ ARMIGA is a minimal Linux distribution based on **Buildroot** for the **Anbernic
 - ✅ Redesigned "Workbench" interface (beige/gold palette on black, monochrome Tabler Icons iconography)
 - ✅ Developer mode (terminal, btop, CPU temperature graph + throttling detection) accessible with `SELECT+START+L1` combo
 - ✅ ARexx scripts: kickstart checker (MD5 verification, color-coded pass/fail), disk/partition integrity check with verdict (OK/WARNING/CRITICAL); script output view supports line wrapping (no truncation) and continuous D-pad/stick hold-to-scroll
-- ✅ Global brightness shortcut (`MODE+DPAD`), USB-C charging indicator, real-time telemetry dashboard (CPU temp/load, RAM), reactive RGB LEDs (screen dimming, low battery, dimmed at 25% for the critical-battery blink), UI navigation click sound (toggleable)
+- ✅ Global brightness shortcut (`MODE+DPAD`), USB-C charging indicator, real-time telemetry dashboard (CPU temp/load, RAM), reactive RGB LEDs (screen dimming, low battery — blinks red at 25% LED intensity when battery reaches 15%), UI navigation click sound (toggleable)
 - ✅ Last played game indicator on the main menu (reads RetroArch's history playlist): shows the title above the footer, `[X]` resumes it directly without going through the RetroArch menu
 
 ### Partitions (MBR, never GPT) — A/B scheme
