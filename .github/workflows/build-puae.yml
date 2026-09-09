@@ -48,7 +48,8 @@ jobs:
             --enable-languages=c,c++ \
             --disable-multilib \
             --disable-bootstrap \
-            --with-sysroot=/usr/${TARGET}
+            --with-sysroot=/usr/${TARGET} \
+            --with-native-system-header-dir=/include
           make -j$(nproc)
           sudo make install
 
