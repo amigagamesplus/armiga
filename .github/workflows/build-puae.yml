@@ -10,32 +10,14 @@ on:
 
 jobs:
   build:
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-22.04
     timeout-minutes: 60
 
     steps:
-      - name: Install aarch64 cross toolchain (GCC 16.2.0)
-  run: |
-    # Descargar GCC 16.2.0 precompilado de Linaro
-    TOOLCHAIN_URL="https://releases.linaro.org/components/toolchain/binaries/16.02-2025.02/aarch64-linux-gnu/gcc-linaro-16.2.0-2025.02-x86_64_aarch64-linux-gnu.tar.xz"
-    TOOLCHAIN_FILE="gcc-linaro-16.2.0-2025.02-x86_64_aarch64-linux-gnu.tar.xz"
-    
-    # Download with error checking
-    wget -q "$TOOLCHAIN_URL" -O "$TOOLCHAIN_FILE" || {
-      echo "Failed to download toolchain"
-      exit 1
-    }
-    
-    # Verify file integrity
-    file "$TOOLCHAIN_FILE" | grep -q "XZ compressed" || {
-      echo "ERROR: Downloaded file is not a valid XZ archive"
-      file "$TOOLCHAIN_FILE"
-      exit 1
-    }
-    
-    tar -xf "$TOOLCHAIN_FILE"
-    sudo mv gcc-linaro-16.2.0-2025.02-x86_64_aarch64-linux-gnu /opt/gcc-16.2.0
-    echo "/opt/gcc-16.2.0/bin" >> $GITHUB_PATH
+      - name: Install aarch64 cross toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-aarch64-linux-gnu g++-aarch64-linux-gnu
 
       - name: Clone libretro-uae
         run: |
