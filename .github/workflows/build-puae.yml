@@ -34,6 +34,16 @@ jobs:
           path: ${{ env.TOOLCHAIN_PREFIX }}
           key: gcc-${{ env.GCC_VERSION }}-${{ env.TARGET }}-ubuntu24.04-v1
 
+      - name: Debug sysroot layout
+        run: |
+          dpkg -L libc6-arm64-cross | grep -E '\.so|\.a$' | head -30
+          echo "---"
+          ls -la /usr/aarch64-linux-gnu/ 2>&1 || true
+          echo "---"
+          ls -la /usr/aarch64-linux-gnu/lib/ 2>&1 || true
+          echo "---"
+          ls -la /lib/aarch64-linux-gnu/ 2>&1 || true
+
       - name: Build gcc 16.1 aarch64 cross toolchain from source
         if: steps.cache-toolchain.outputs.cache-hit != 'true'
         run: |
