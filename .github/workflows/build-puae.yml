@@ -10,14 +10,15 @@ on:
 
 jobs:
   build:
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     timeout-minutes: 60
 
     steps:
-      - name: Install aarch64 cross toolchain
+      - name: Install aarch64 cross toolchain (GCC 16)
         run: |
+          sudo add-apt-repository ppa:ubuntu-toolchain-r/test -y
           sudo apt-get update
-          sudo apt-get install -y gcc-aarch64-linux-gnu g++-aarch64-linux-gnu
+          sudo apt-get install -y gcc-16-aarch64-linux-gnu g++-16-aarch64-linux-gnu
 
       - name: Clone libretro-uae
         run: |
@@ -38,8 +39,8 @@ jobs:
           make -j$(nproc) \
             platform=unix \
             ARCH=aarch64 \
-            CC=aarch64-linux-gnu-gcc \
-            CXX=aarch64-linux-gnu-g++
+            CC=aarch64-linux-gnu-gcc-16 \
+            CXX=aarch64-linux-gnu-g++-16
 
       - name: Rename, strip and collect artifact
         run: |
