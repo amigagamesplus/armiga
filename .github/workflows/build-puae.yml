@@ -52,7 +52,9 @@ jobs:
             exit 1
           fi
           echo "Archivo detectado: ${FOUND_FILE}"
-          mv "${FOUND_FILE}" puae2021_libretro.so
+          if [ "${FOUND_FILE}" != "./puae2021_libretro.so" ]; then
+            mv "${FOUND_FILE}" puae2021_libretro.so
+          fi
           aarch64-linux-gnu-strip --strip-unneeded puae2021_libretro.so
           file puae2021_libretro.so
 
