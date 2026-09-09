@@ -14,11 +14,13 @@ jobs:
     timeout-minutes: 60
 
     steps:
-      - name: Install aarch64 cross toolchain (GCC 16)
+      - name: Install aarch64 cross toolchain (GCC 16.2.0)
         run: |
-          sudo add-apt-repository ppa:ubuntu-toolchain-r/test -y
-          sudo apt-get update
-          sudo apt-get install -y gcc-16-aarch64-linux-gnu g++-16-aarch64-linux-gnu
+          # Descargar GCC 16.2.0 precompilado de Linaro
+          wget -q https://releases.linaro.org/components/toolchain/binaries/16.02-2025.02/aarch64-linux-gnu/gcc-linaro-16.2.0-2025.02-x86_64_aarch64-linux-gnu.tar.xz
+          tar -xf gcc-linaro-16.2.0-2025.02-x86_64_aarch64-linux-gnu.tar.xz
+          sudo mv gcc-linaro-16.2.0-2025.02-x86_64_aarch64-linux-gnu /opt/gcc-16.2.0
+          echo "/opt/gcc-16.2.0/bin" >> $GITHUB_PATH
 
       - name: Clone libretro-uae
         run: |
@@ -39,8 +41,8 @@ jobs:
           make -j$(nproc) \
             platform=unix \
             ARCH=aarch64 \
-            CC=aarch64-linux-gnu-gcc-16 \
-            CXX=aarch64-linux-gnu-g++-16
+            CC=aarch64-linux-gnu-gcc \
+            CXX=aarch64-linux-gnu-g++
 
       - name: Rename, strip and collect artifact
         run: |
