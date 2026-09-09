@@ -8,16 +8,57 @@ on:
         required: true
         default: '2.6.1'
 
+env:
+  GCC_VERSION: '16.1.0'
+  TARGET: aarch64-linux-gnu
+  TOOLCHAIN_PREFIX: /opt/gcc-16.1-aarch64
+
 jobs:
   build:
-    runs-on: ubuntu-22.04
-    timeout-minutes: 60
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
 
     steps:
-      - name: Install aarch64 cross toolchain
+      - name: Install build deps + cross libc/binutils
         run: |
           sudo apt-get update
-          sudo apt-get install -y gcc-aarch64-linux-gnu g++-aarch64-linux-gnu
+          sudo apt-get install -y \
+            build-essential libgmp-dev libmpfr-dev libmpc-dev libisl-dev \
+            flex bison texinfo wget \
+            binutils-aarch64-linux-gnu libc6-dev-arm64-cross libc6-arm64-cross
+
+      - name: Cache aarch64-linux-gnu-gcc 16.1
+        id: cache-toolchain
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.TOOLCHAIN_PREFIX }}
+          key: gcc-${{ env.GCC_VERSION }}-${{ env.TARGET }}-ubuntu24.04-v1
+
+      - name: Build gcc 16.1 aarch64 cross toolchain from source
+        if: steps.cache-toolchain.outputs.cache-hit != 'true'
+        run: |
+          cd /tmp
+          wget -q "https://ftpmirror.gnu.org/gcc/gcc-${GCC_VERSION}/gcc-${GCC_VERSION}.tar.xz"
+          tar xf "gcc-${GCC_VERSION}.tar.xz"
+          cd "gcc-${GCC_VERSION}"
+          mkdir build && cd build
+          ../configure \
+            --target=${TARGET} \
+            --prefix=${TOOLCHAIN_PREFIX} \
+            --enable-languages=c,c++ \
+            --disable-multilib \
+            --disable-bootstrap \
+            --with-sysroot=/usr/${TARGET}
+          make -j$(nproc)
+          sudo make install
+
+      - name: Export toolchain to PATH
+        run: echo "${TOOLCHAIN_PREFIX}/bin" >> "$GITHUB_PATH"
+
+      - name: Verify compiler version
+        run: |
+          ${TARGET}-gcc --version
+          ${TARGET}-g++ --version
 
       - name: Clone libretro-uae
         run: |
@@ -38,8 +79,8 @@ jobs:
           make -j$(nproc) \
             platform=unix \
             ARCH=aarch64 \
-            CC=aarch64-linux-gnu-gcc \
-            CXX=aarch64-linux-gnu-g++
+            CC=${TARGET}-gcc \
+            CXX=${TARGET}-g++
 
       - name: Rename, strip and collect artifact
         run: |
@@ -55,12 +96,9 @@ jobs:
           if [ "${FOUND_FILE}" != "./puae2021_libretro.so" ]; then
             mv "${FOUND_FILE}" puae2021_libretro.so
           fi
-          aarch64-linux-gnu-strip --strip-unneeded puae2021_libretro.so
+          ${TARGET}-strip --strip-unneeded puae2021_libretro.so
           file puae2021_libretro.so
 
-          # Deja constancia de la version+commit exacto embebido en el
-          # binario (patron ya usado por post-build.sh via strings sobre
-          # el .so, ver PUAE_VER en board/armiga/post-build.sh).
           strings puae2021_libretro.so | grep -E "^[0-9]+\.[0-9]+\.[0-9]+ [0-9a-f]{7}$" | head -1 || true
 
           mkdir -p ../artifacts
