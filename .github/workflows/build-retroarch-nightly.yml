@@ -132,6 +132,7 @@ jobs:
           export PKG_CONFIG_PATH=/sysroot-aarch64/usr/lib/aarch64-linux-gnu/pkgconfig
           export PKG_CONFIG_LIBDIR=/sysroot-aarch64/usr/lib/aarch64-linux-gnu/pkgconfig
           export PKG_CONFIG_SYSROOT_DIR=/sysroot-aarch64
+          export PKG_CONF_PATH=/usr/bin/pkg-config
 
           echo ">>> Diagnóstico freetype2.pc:"
           find /sysroot-aarch64 -iname "freetype2.pc" -exec echo {} \; -exec cat {} \;
