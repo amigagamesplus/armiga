@@ -265,6 +265,9 @@ jobs:
               echo "AVISO: no se encontró ${lib} en el sysroot"
             fi
           done
+          echo ">>> symlinks tras cp -a (verificacion antes de empaquetar):"
+          ls -la retroarch-artifacts/usr/lib/
+
           # strip solo sobre ficheros reales (no symlinks, para no seguirlos a un
           # destino que podría no existir aún en este punto)
           find retroarch-artifacts/usr/lib -type f -name "*.so*" \
