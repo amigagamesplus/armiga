@@ -69,6 +69,11 @@ jobs:
           for deb in /tmp/*.deb; do sudo dpkg-deb -x $deb /sysroot-aarch64 || true; done
           ls /sysroot-aarch64/usr/lib/aarch64-linux-gnu/ | head -10
 
+          echo ">>> Fix: crear symlink del interprete dinamico (ausente en debs recientes sin usrmerge)"
+          sudo mkdir -p /sysroot-aarch64/lib
+          sudo ln -sf ../usr/lib/aarch64-linux-gnu/ld-linux-aarch64.so.1 /sysroot-aarch64/lib/ld-linux-aarch64.so.1
+          ls -la /sysroot-aarch64/lib/ld-linux-aarch64.so.1
+
           echo ">>> Verificando headers EGL/GLES2/gbm..."
           MISSING=0
           for hdr in usr/include/EGL/egl.h usr/include/GLES2/gl2.h usr/include/gbm.h usr/include/KHR/khrplatform.h; do
