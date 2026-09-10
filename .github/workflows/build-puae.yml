@@ -26,13 +26,15 @@ jobs:
             build-essential libgmp-dev libmpfr-dev libmpc-dev libisl-dev \
             flex bison texinfo wget \
             binutils-aarch64-linux-gnu libc6-dev-arm64-cross libc6-arm64-cross
+          which ${TARGET}-as
+          which ${TARGET}-ld
 
       - name: Cache aarch64-linux-gnu-gcc 16.1
         id: cache-toolchain
         uses: actions/cache@v4
         with:
           path: ${{ env.TOOLCHAIN_PREFIX }}
-          key: gcc-${{ env.GCC_VERSION }}-${{ env.TARGET }}-ubuntu24.04-v1
+          key: gcc-${{ env.GCC_VERSION }}-${{ env.TARGET }}-ubuntu24.04-v2
 
       - name: Fix cross libc linker scripts with absolute paths
         run: |
@@ -64,7 +66,9 @@ jobs:
             --disable-multilib \
             --disable-bootstrap \
             --with-sysroot=/usr/${TARGET} \
-            --with-native-system-header-dir=/include
+            --with-native-system-header-dir=/include \
+            --with-as=/usr/bin/${TARGET}-as \
+            --with-ld=/usr/bin/${TARGET}-ld
           make -j$(nproc)
           sudo make install
 
@@ -75,6 +79,8 @@ jobs:
         run: |
           ${TARGET}-gcc --version
           ${TARGET}-g++ --version
+          ${TARGET}-gcc -print-prog-name=as
+          ${TARGET}-gcc -print-prog-name=ld
 
       - name: Clone libretro-uae
         run: |
