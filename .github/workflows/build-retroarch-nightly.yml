@@ -51,7 +51,7 @@ jobs:
           # libegl1-mesa-dev / libgles2-mesa-dev / libgbm-dev: SOLO para los headers
           # (EGL/egl.h, GLES2/gl2.h, gbm.h, KHR/khrplatform.h). Los .so que traen
           # estos paquetes se sobrescriben después con los reales de ARMIGA (Panfrost).
-          PKGS="libdrm2:arm64 libdrm-dev:arm64 libasound2:arm64 libasound2-dev:arm64 libfreetype6:arm64 libfreetype6-dev:arm64 libpng16-16:arm64 libpng-dev:arm64 libbrotli1:arm64 libbrotli-dev:arm64 libudev1:arm64 libudev-dev:arm64 zlib1g:arm64 zlib1g-dev:arm64 mesa-common-dev:arm64 libgl1-mesa-dev:arm64 libegl1-mesa-dev:arm64 libgles2-mesa-dev:arm64 libgbm-dev:arm64 libglvnd-dev:arm64 libegl-dev:arm64 libgles-dev:arm64 libc6:arm64 libc6-dev:arm64 linux-libc-dev:arm64"
+          PKGS="libdrm2:arm64 libdrm-dev:arm64 libasound2:arm64 libasound2-dev:arm64 libfreetype6:arm64 libfreetype6-dev:arm64 libpng16-16:arm64 libpng-dev:arm64 libbrotli1:arm64 libbrotli-dev:arm64 libbz2-1.0:arm64 libudev1:arm64 libudev-dev:arm64 zlib1g:arm64 zlib1g-dev:arm64 mesa-common-dev:arm64 libgl1-mesa-dev:arm64 libegl1-mesa-dev:arm64 libgles2-mesa-dev:arm64 libgbm-dev:arm64 libglvnd-dev:arm64 libegl-dev:arm64 libgles-dev:arm64 libc6:arm64 libc6-dev:arm64 linux-libc-dev:arm64"
           if [ -n "${KHR_PKG:-}" ]; then
             PKGS="${PKGS} ${KHR_PKG}:arm64"
           fi
@@ -255,7 +255,7 @@ jobs:
           # (a diferencia de Mesa), así que se recogen aquí del sysroot del runner
           # para que build.yml las inyecte igual que hace con Mesa GBM.
           SYSROOT_LIB="/sysroot-aarch64/usr/lib/aarch64-linux-gnu"
-          for lib in libfreetype.so.6 libpng16.so.16 libbrotlidec.so.1 libbrotlicommon.so.1; do
+          for lib in libfreetype.so.6 libpng16.so.16 libbrotlidec.so.1 libbrotlicommon.so.1 libbz2.so.1.0; do
             matches=$(find "${SYSROOT_LIB}" -name "${lib}*" 2>/dev/null)
             if [ -n "${matches}" ]; then
               # cp -a preserva symlinks; copiamos TODOS los matches (symlink corto
