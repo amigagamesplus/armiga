@@ -225,7 +225,17 @@ jobs:
           export CXX=aarch64-linux-gnu-g++
           export CFLAGS="--sysroot=/sysroot-aarch64 -I/sysroot-aarch64/usr/include -I/sysroot-aarch64/usr/include/aarch64-linux-gnu -I/sysroot-aarch64/usr/include/libdrm -I/sysroot-aarch64/usr/include/freetype2 -mcpu=cortex-a53+crc+simd -O3 -fomit-frame-pointer"
           export CXXFLAGS="${CFLAGS}"
-          export LDFLAGS="--sysroot=/sysroot-aarch64 -L/sysroot-aarch64/usr/lib/aarch64-linux-gnu -lstdc++ -lfreetype"
+          export LDFLAGS="--sysroot=/sysroot-aarch64 -L/sysroot-aarch64/usr/lib/aarch64-linux-gnu -lstdc++"
+
+          echo ">>> Fix: qb no genera FREETYPE_LIBS/CFLAGS via check_val, inyectar en config.mk"
+          if ! grep -q "^FREETYPE_LIBS" config.mk; then
+            echo "FREETYPE_LIBS = -L/sysroot-aarch64/usr/lib/aarch64-linux-gnu -lfreetype" >> config.mk
+          fi
+          if ! grep -q "^FREETYPE_CFLAGS" config.mk; then
+            echo "FREETYPE_CFLAGS = -I/sysroot-aarch64/usr/include/freetype2" >> config.mk
+          fi
+          grep -n "^FREETYPE" config.mk
+
           make -j$(nproc)
           aarch64-linux-gnu-strip --strip-unneeded retroarch
 
