@@ -34,13 +34,20 @@ jobs:
           path: ${{ env.TOOLCHAIN_PREFIX }}
           key: gcc-${{ env.GCC_VERSION }}-${{ env.TARGET }}-ubuntu24.04-v1
 
-      - name: Fix cross libc linker script absolute paths
+      - name: Fix cross libc linker scripts with absolute paths
         run: |
-          echo ">>> antes:"
-          cat /usr/aarch64-linux-gnu/lib/libc.so
-          sudo sed -i 's#/usr/aarch64-linux-gnu/lib/##g' /usr/aarch64-linux-gnu/lib/libc.so
-          echo ">>> despues:"
-          cat /usr/aarch64-linux-gnu/lib/libc.so
+          cd /usr/aarch64-linux-gnu/lib
+          for f in *.so; do
+            if file "$f" | grep -qv "symbolic link"; then
+              if grep -q "/usr/aarch64-linux-gnu/lib" "$f" 2>/dev/null; then
+                echo ">>> fixing $f"
+                cat "$f"
+                sudo sed -i 's#/usr/aarch64-linux-gnu/lib/##g' "$f"
+                echo ">>> after:"
+                cat "$f"
+              fi
+            fi
+          done
 
       - name: Build gcc 16.1 aarch64 cross toolchain from source
         if: steps.cache-toolchain.outputs.cache-hit != 'true'
