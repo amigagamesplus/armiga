@@ -207,7 +207,11 @@ jobs:
             --disable-parport \
             --disable-ssl \
             --disable-dbus \
-            --disable-microphone
+            --disable-microphone || {
+              echo ">>> configure fallo, volcando config.log:"
+              cat config.log 2>/dev/null | tail -150
+              exit 1
+            }
 
       - name: Build RetroArch
         run: |
