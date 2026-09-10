@@ -65,6 +65,10 @@ jobs:
           cd ..
           rm -rf genimage-17 genimage-17.tar.xz
 
+      - name: Fix install command (uutils/coreutils#12166)
+        run: |
+          sudo update-alternatives --install /usr/bin/install install /usr/bin/gnuinstall 100
+
       - name: Cache ccache
         uses: actions/cache@v4
         with:
