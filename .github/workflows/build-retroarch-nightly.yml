@@ -143,6 +143,11 @@ jobs:
           export CXXFLAGS="${CFLAGS}"
           export LDFLAGS="--sysroot=/sysroot-aarch64 -L/sysroot-aarch64/usr/lib/aarch64-linux-gnu -lstdc++"
 
+          echo ">>> Diagnostico HAVE_ZSTD en config.params.sh clonado:"
+          grep -n "ZSTD" qb/config.params.sh || echo "NO ENCONTRADO"
+          echo ">>> git log del commit clonado:"
+          git log -1 --format="%H %ci %s"
+
           ./configure \
             --host=aarch64-linux-gnu \
             --prefix=/usr \
