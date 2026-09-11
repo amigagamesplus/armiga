@@ -124,6 +124,11 @@ do_expand_if_needed() {
              "$AMIGA_DATA_MNT/retroarch/overlays" "$AMIGA_DATA_MNT/retroarch/assets" \
              "$AMIGA_DATA_MNT/retroarch/cheats" "$AMIGA_DATA_MNT/retroarch/records" \
              "$AMIGA_DATA_MNT/retroarch/records_config" "$AMIGA_DATA_MNT/retroarch/config/autoconfig"
+    for f in pixel-perfect.glsl pixel-perfect.glslp sharp-shimmerless.glsl sharp-shimmerless.glslp; do
+        if [ ! -f "$AMIGA_DATA_MNT/shaders/$f" ]; then
+            cp "/etc/retroarch/shaders/$f" "$AMIGA_DATA_MNT/shaders/$f"
+        fi
+    done
     # Comparar version del template con la instalada. El marcador de
     # version vive en un fichero APARTE (.armiga_cfg_version), no como
     # comentario dentro de retroarch.cfg: RetroArch reescribe el fichero
@@ -263,6 +268,11 @@ case "$1" in
                      "$AMIGA_DATA_MNT/retroarch/overlays" "$AMIGA_DATA_MNT/retroarch/assets" \
                      "$AMIGA_DATA_MNT/retroarch/cheats" "$AMIGA_DATA_MNT/retroarch/records" \
                      "$AMIGA_DATA_MNT/retroarch/records_config" "$AMIGA_DATA_MNT/retroarch/config/autoconfig"
+            for f in pixel-perfect.glsl pixel-perfect.glslp sharp-shimmerless.glsl sharp-shimmerless.glslp; do
+                if [ ! -f "$AMIGA_DATA_MNT/shaders/$f" ]; then
+                    cp "/etc/retroarch/shaders/$f" "$AMIGA_DATA_MNT/shaders/$f"
+                fi
+            done
         fi
         echo "OK"
         ;;
