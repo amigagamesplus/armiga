@@ -98,6 +98,10 @@ jobs:
           wget -q "https://buildroot.org/downloads/buildroot-${BR_VERSION}.tar.xz"
           tar xf "buildroot-${BR_VERSION}.tar.xz"
           mv "buildroot-${BR_VERSION}" buildroot
+          # Evitar colision con nuestros package/sdl3*/ propios (mismo simbolo BR2_PACKAGE_SDL3*)
+          # Solo aplica a partir de Buildroot 2026.08, que introdujo estos paquetes oficiales.
+          sed -i '/source "package\/sdl3\/Config.in"/d;/source "package\/sdl3_image\/Config.in"/d;/source "package\/sdl3_ttf\/Config.in"/d' buildroot/package/Config.in
+          grep -n "sdl3" buildroot/package/Config.in || echo "sdl3/sdl3_image/sdl3_ttf oficiales eliminados de package/Config.in (sdl3_gfx no usado por ARMIGA, permanece)"
 
 
 
