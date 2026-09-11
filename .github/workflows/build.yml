@@ -21,7 +21,7 @@ on:
         type: string
 
 env:
-  BR_VERSION: ${{ github.event.inputs.buildroot_version || '2026.05.2' }}
+  BR_VERSION: ${{ github.event.inputs.buildroot_version || '2026.08' }}
   BR_EXTERNAL: ${{ github.workspace }}
   BR_DL_DIR: ${{ github.workspace }}/dl
   BR_OUTPUT: ${{ github.workspace }}/output
