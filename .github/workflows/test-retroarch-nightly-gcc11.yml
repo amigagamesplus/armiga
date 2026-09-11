@@ -122,7 +122,10 @@ jobs:
           # equivalente a lo que compila el buildbot oficial de nightlies.
           # Esto puede incluir cambios muy recientes que aún no rompan la build
           # (o sí) ya que master no tiene la estabilidad garantizada de un tag.
-          git clone --depth=1 https://github.com/libretro/RetroArch.git retroarch-src
+          git clone https://github.com/libretro/RetroArch.git retroarch-src
+          cd retroarch-src
+          git checkout e740c50
+          cd ..
           cd retroarch-src
           git submodule update --init --depth=1
           echo ">>> Commit compilado:"
