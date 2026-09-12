@@ -1030,26 +1030,34 @@ static void save_brightness_config(int pct)
     snprintf(v, sizeof(v), "%d", pct);
     config_set_kv("BRIGHTNESS_PCT", v);
 }
-/* Lee el volumen actual real desde ALSA (control 'DAC', canal Front Left,
- * rango 0-63 segun `amixer -c 0 sget DAC`). Se usa como fuente de verdad
- * en vez de duplicar el valor en armiga.cfg, para no desincronizarse si
- * algo mas (RetroArch, etc.) toca el mismo control. */
-static int read_volume_pct(void)
+/* Lee VOLUME_PCT de armiga.cfg. Default: 80%. ALSA no persiste el estado
+ * del mixer entre reboots por si solo (siempre vuelve a 100% de fabrica),
+ * asi que la fuente de verdad es armiga.cfg, igual que brillo. */
+static int read_volume_config(void)
 {
-    FILE *f = popen("amixer -c 0 sget DAC 2>/dev/null | grep -m1 -oE '[0-9]+%'", "r");
-    if (!f) return 80;
-    char buf[16] = {0};
     int pct = 80;
-    if (fgets(buf, sizeof(buf), f)) {
-        int v = atoi(buf);
-        if (v >= 0 && v <= 100) pct = v;
+    FILE *f = fopen(ARMIGA_CONFIG_PATH, "r");
+    if (!f) return pct;
+    char line[128];
+    while (fgets(line, sizeof(line), f)) {
+        char key[32], val[96];
+        if (sscanf(line, "%31[^=]=%95s", key, val) == 2) {
+            if (!strcmp(key, "VOLUME_PCT")) pct = atoi(val);
+        }
     }
-    pclose(f);
+    fclose(f);
+    if (pct < 0) pct = 0;
+    if (pct > 100) pct = 100;
     return pct;
 }
-/* Ajusta el volumen real via amixer. No se persiste en armiga.cfg: ALSA
- * mantiene el valor entre reinicios del launcher (proceso, no reboot),
- * igual que el resto de mixers del sistema. */
+/* Guarda VOLUME_PCT en armiga.cfg. */
+static void save_volume_config(int pct)
+{
+    char v[16];
+    snprintf(v, sizeof(v), "%d", pct);
+    config_set_kv("VOLUME_PCT", v);
+}
+/* Ajusta el volumen real via amixer (control DAC, 0-100%). */
 static void write_volume_pct(int pct)
 {
     if (pct < 0) pct = 0;
@@ -3138,7 +3146,8 @@ int main(void)
     Uint64 devmode_hold_start = 0; /* 0 = combo no presionado */
     bool devmode_combo_held = false;
     Uint64 screenshot_flash_until = 0; /* ms hasta cuando mostrar flash */
-    int volume_pct = read_volume_pct();      /* volumen actual, leido de ALSA al arrancar */
+    int volume_pct = read_volume_config();   /* volumen guardado, aplicado a ALSA al arrancar */
+    write_volume_pct(volume_pct);
     Uint64 volume_popup_until = 0;           /* ms hasta cuando mostrar el popup de volumen */
     bool screenshot_capture_pending = false; /* diferir captura al final del frame */
 
@@ -3277,6 +3286,7 @@ int main(void)
                 if (volume_pct < 0) volume_pct = 0;
                 if (volume_pct > 100) volume_pct = 100;
                 write_volume_pct(volume_pct);
+                save_volume_config(volume_pct);
                 set_retroarch_volume_neutral();
                 volume_popup_until = SDL_GetTicks() + 1500;
             }
