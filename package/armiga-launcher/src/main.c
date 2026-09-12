@@ -2962,6 +2962,7 @@ int main(void)
     SDL_Texture *arexx_icon_tex = IMG_LoadTexture(ren, "/usr/share/armiga/icons/script.png");
     if (arexx_icon_tex) SDL_SetTextureScaleMode(arexx_icon_tex, SDL_SCALEMODE_LINEAR);
     SDL_Texture *update_icon_tex = IMG_LoadTexture(ren, "/usr/share/armiga/icons/arrow-big-up-lines.png");
+    SDL_Texture *volume_icon_tex = IMG_LoadTexture(ren, "/usr/share/armiga/icons/volume.png");
     if (update_icon_tex) SDL_SetTextureScaleMode(update_icon_tex, SDL_SCALEMODE_LINEAR);
 
     /* Leer versiones */
@@ -6245,16 +6246,30 @@ int main(void)
         }
         /* Flash blanco al hacer screenshot */
         if (volume_popup_until > 0 && SDL_GetTicks() < volume_popup_until) {
-            float pw = 200.0f, ph = 70.0f;
+            /* Pildora gruesa: icono de volumen a la izquierda dentro de
+             * la propia pildora, slider ocupando el resto. Sin texto ni
+             * porcentaje numerico, solo icono + barra (patron OSD tipico
+             * de volumen en handhelds). */
+            float pw = 220.0f, ph = 56.0f;
             float px = (SCREEN_W - pw) / 2.0f;
-            float py = SCREEN_H - ph - 40.0f;
-            draw_rounded_rect_filled(ren, px, py, pw, ph, 12.0f, g_theme.row_bg);
-            char vvalbuf[8];
-            snprintf(vvalbuf, sizeof(vvalbuf), "%d%%", volume_pct);
-            draw_text(ren, f_sm, tr("Volumen", "Volume"), g_theme.text_light, px + 16.0f, py + 10.0f);
-            draw_text(ren, f_med, vvalbuf, g_theme.text_light, px + 16.0f, py + 28.0f);
+            float py = SCREEN_H - ph - 85.0f;
+            draw_rounded_rect_filled(ren, px, py, pw, ph, ph / 2.0f, g_theme.row_bg);
+
+            float icon_size = 28.0f;
+            float icon_x = px + 14.0f;
+            float icon_y = py + (ph - icon_size) / 2.0f;
+            if (volume_icon_tex) {
+                SDL_SetTextureColorMod(volume_icon_tex, g_theme.text_light.r, g_theme.text_light.g, g_theme.text_light.b);
+                SDL_FRect icon_dst = {icon_x, icon_y, icon_size, icon_size};
+                SDL_RenderTexture(ren, volume_icon_tex, NULL, &icon_dst);
+            }
+
+            float bar_x = icon_x + icon_size + 14.0f;
+            float bar_w = px + pw - 16.0f - bar_x;
+            float bar_h = 10.0f;
+            float bar_y = py + (ph - bar_h) / 2.0f;
             float vfrac = volume_pct / 100.0f;
-            draw_bar_rounded(ren, px + 16.0f, py + 52.0f, pw - 32.0f, 10.0f, vfrac, g_theme.bg, g_theme.accent);
+            draw_bar_rounded(ren, bar_x, bar_y, bar_w, bar_h, vfrac, g_theme.bg, g_theme.accent);
         } else {
             volume_popup_until = 0;
         }
