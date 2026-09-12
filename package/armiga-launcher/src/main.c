@@ -1030,6 +1030,35 @@ static void save_brightness_config(int pct)
     snprintf(v, sizeof(v), "%d", pct);
     config_set_kv("BRIGHTNESS_PCT", v);
 }
+/* Lee el volumen actual real desde ALSA (control 'DAC', canal Front Left,
+ * rango 0-63 segun `amixer -c 0 sget DAC`). Se usa como fuente de verdad
+ * en vez de duplicar el valor en armiga.cfg, para no desincronizarse si
+ * algo mas (RetroArch, etc.) toca el mismo control. */
+static int read_volume_pct(void)
+{
+    FILE *f = popen("amixer -c 0 sget DAC 2>/dev/null | grep -m1 -oE '[0-9]+%'", "r");
+    if (!f) return 80;
+    char buf[16] = {0};
+    int pct = 80;
+    if (fgets(buf, sizeof(buf), f)) {
+        int v = atoi(buf);
+        if (v >= 0 && v <= 100) pct = v;
+    }
+    pclose(f);
+    return pct;
+}
+/* Ajusta el volumen real via amixer. No se persiste en armiga.cfg: ALSA
+ * mantiene el valor entre reinicios del launcher (proceso, no reboot),
+ * igual que el resto de mixers del sistema. */
+static void write_volume_pct(int pct)
+{
+    if (pct < 0) pct = 0;
+    if (pct > 100) pct = 100;
+    char cmd[64];
+    snprintf(cmd, sizeof(cmd), "amixer -c 0 sset DAC %d%% >/dev/null 2>&1", pct);
+    int unused_result = system(cmd);
+    (void)unused_result;
+}
 /* Lee REFRESH_120HZ de armiga.cfg. Default: desactivado (0, = 60Hz). */
 static int read_refresh_120hz(void)
 {
@@ -1108,9 +1137,8 @@ static void save_bt_enabled(int enabled)
  * "key = " en retroarch.cfg, preservando el resto del fichero linea a
  * linea. Evita el fork+exec de /bin/sh + sed que suponia system("sed -i").
  * new_line debe incluir el salto de linea final. */
-static void patch_retroarch_cfg_line(const char *key, const char *new_line)
+static void patch_cfg_line(const char *path, const char *key, const char *new_line)
 {
-    const char *path = "/media/amiga_data/retroarch/retroarch.cfg";
     char **lines = NULL;
     int n = 0, cap = 0;
     bool replaced = false;
@@ -1158,7 +1186,34 @@ static void set_retroarch_audio_device(const char *mac)
     } else {
         snprintf(line, sizeof(line), "audio_device = \"\"\n");
     }
-    patch_retroarch_cfg_line("audio_device", line);
+    patch_cfg_line("/media/amiga_data/retroarch/retroarch.cfg", "audio_device", line);
+}
+/* El volumen real se controla siempre via ALSA DAC (write_volume_pct),
+ * misma capa dentro y fuera de RetroArch. audio_volume de RetroArch se
+ * fija fijo en 0dB (neutro) para evitar doble atenuacion: si RetroArch
+ * tambien redujera su propia ganancia en proporcion al DAC, la senal
+ * quedaria atenuada dos veces (comprobado en hardware: DAC 10% + -20dB
+ * de RetroArch = silencio total, mucho mas de lo esperado). */
+static void set_retroarch_volume_neutral(void)
+{
+    /* audio_volume en retroarch.cfg global NO es lo que RetroArch usa en
+     * runtime: el core PUAE2021 tiene su propio override de contenido/core
+     * (PUAE 2021.cfg) que prevalece siempre sobre el global. Comprobado en
+     * hardware: ese override traia audio_volume=-16.0 fijo (~15% visual),
+     * ignorando cualquier cambio en el global. Hay que parchear el override
+     * directamente, o el volumen del launcher nunca coincidira con el real.
+     *
+     * Se fija una ganancia constante de +3.52dB (equivalente al 150% que
+     * muestra el slider visual de RetroArch: dB = 20*log10(150/100)),
+     * en vez de 0.0dB/100%, porque el audio de origen de PUAE es bajo y
+     * el DAC de hardware (control real y variable, ajustado en el
+     * launcher) no tiene margen suficiente por si solo para un volumen
+     * comodo al 100%. Este valor es fijo y NO varia con volume_pct del
+     * launcher -- el unico control variable real sigue siendo el DAC. */
+    patch_cfg_line("/media/amiga_data/retroarch/config/PUAE 2021/PUAE 2021.cfg",
+                    "audio_volume", "audio_volume = \"3.521825\"\n");
+    patch_cfg_line("/media/amiga_data/retroarch/retroarch.cfg",
+                    "audio_volume", "audio_volume = \"3.521825\"\n");
 }
 /* Fija video_refresh_rate en retroarch.cfg para que RetroArch (proceso
  * aparte, con su propio SDL/DRM) pida el mismo modo de pantalla que el
@@ -1168,7 +1223,7 @@ static void set_retroarch_refresh_rate(int hz)
 {
     char line[300];
     snprintf(line, sizeof(line), "video_refresh_rate = \"%d.000000\"\n", hz);
-    patch_retroarch_cfg_line("video_refresh_rate", line);
+    patch_cfg_line("/media/amiga_data/retroarch/retroarch.cfg", "video_refresh_rate", line);
 }
 static void apply_bt_enabled(int enabled)
 {
@@ -3082,6 +3137,8 @@ int main(void)
     Uint64 devmode_hold_start = 0; /* 0 = combo no presionado */
     bool devmode_combo_held = false;
     Uint64 screenshot_flash_until = 0; /* ms hasta cuando mostrar flash */
+    int volume_pct = read_volume_pct();      /* volumen actual, leido de ALSA al arrancar */
+    Uint64 volume_popup_until = 0;           /* ms hasta cuando mostrar el popup de volumen */
     bool screenshot_capture_pending = false; /* diferir captura al final del frame */
 
     char dev_ip[32]     = "sin red";
@@ -3206,6 +3263,21 @@ int main(void)
                     ev.jhat.value = (zone == -1) ? SDL_HAT_UP : SDL_HAT_DOWN;
                 }
                 stick_axis_prev = zone;
+            }
+
+            /* Atajo global: botones fisicos de volumen (gpio-keys-volume,
+             * KEY_VOLUMEUP/DOWN) ajustan volumen ALSA desde cualquier
+             * pantalla del launcher y muestran un popup temporal. No se
+             * excluye ningun estado: a diferencia de brillo, ninguna
+             * pantalla usa estas teclas para otra cosa. */
+            if (ev.type == SDL_EVENT_KEY_DOWN &&
+                (ev.key.key == SDLK_VOLUMEUP || ev.key.key == SDLK_VOLUMEDOWN)) {
+                volume_pct += (ev.key.key == SDLK_VOLUMEUP) ? 5 : -5;
+                if (volume_pct < 0) volume_pct = 0;
+                if (volume_pct > 100) volume_pct = 100;
+                write_volume_pct(volume_pct);
+                set_retroarch_volume_neutral();
+                volume_popup_until = SDL_GetTicks() + 1500;
             }
 
             /* Atajo global: MODE + DPAD UP/DOWN ajusta brillo desde
@@ -6172,6 +6244,21 @@ int main(void)
             screenshot_capture_pending = false;
         }
         /* Flash blanco al hacer screenshot */
+        if (volume_popup_until > 0 && SDL_GetTicks() < volume_popup_until) {
+            float pw = 200.0f, ph = 70.0f;
+            float px = (SCREEN_W - pw) / 2.0f;
+            float py = SCREEN_H - ph - 40.0f;
+            draw_rounded_rect_filled(ren, px, py, pw, ph, 12.0f, g_theme.row_bg);
+            char vvalbuf[8];
+            snprintf(vvalbuf, sizeof(vvalbuf), "%d%%", volume_pct);
+            draw_text(ren, f_sm, tr("Volumen", "Volume"), g_theme.text_light, px + 16.0f, py + 10.0f);
+            draw_text(ren, f_med, vvalbuf, g_theme.text_light, px + 16.0f, py + 28.0f);
+            float vfrac = volume_pct / 100.0f;
+            draw_bar_rounded(ren, px + 16.0f, py + 52.0f, pw - 32.0f, 10.0f, vfrac, g_theme.bg, g_theme.accent);
+        } else {
+            volume_popup_until = 0;
+        }
+
         if (screenshot_flash_until > 0 && SDL_GetTicks() < screenshot_flash_until) {
             SDL_SetRenderDrawBlendMode(ren, SDL_BLENDMODE_BLEND);
             SDL_SetRenderDrawColor(ren, 255, 255, 255, 180);
@@ -6296,6 +6383,14 @@ int main(void)
                      * inittab con un entorno minimo (sin HOME), y
                      * RetroArch falla en silencio sin esa variable. */
                     setenv("HOME", "/root", 1);
+                    /* Fuerza audio_volume=0.0 en el override de core justo
+                     * antes de lanzar, para que el volumen real (ALSA DAC,
+                     * fijado por el usuario en el launcher) sea siempre la
+                     * unica fuente de verdad, sin importar si una partida
+                     * anterior guardo un audio_volume distinto en el
+                     * override de PUAE2021 (comportamiento habitual al usar
+                     * "Guardar configuracion de core" en RetroArch). */
+                    set_retroarch_volume_neutral();
                     if (direct_launch_rom && direct_launch_rom_path[0]) {
                         execl("/usr/bin/retroarch", "retroarch",
                               "-L", direct_launch_core_path[0] ? direct_launch_core_path : "/usr/lib/libretro/puae2021_libretro.so",
