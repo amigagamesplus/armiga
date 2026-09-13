@@ -235,7 +235,6 @@ static const char *MENU_ITEMS[][2] = {
     {"ARexx Scripts",               "ARexx Scripts"},
     {"Configuración",               "Settings"},
     {"Apagar dispositivo",          "Power Off"},
-    {"Reiniciar dispositivo",       "Reboot"},
 };
 static const char *MENU_DESC[][2] = {
     {"Explora y lanza juegos\n" "Amiga desde tu biblioteca.",
@@ -248,12 +247,10 @@ static const char *MENU_DESC[][2] = {
      "System scripts for extra\n" "tasks and conveniences."},
     {"Ajustes del sistema:\n" "red inalambrica y mas.",
      "System settings:\n" "wireless network and more."},
-    {"Apaga el dispositivo\n" "de forma segura.",
-     "Shut down the device\n" "safely."},
-    {"Reinicia el dispositivo\n" "de forma segura.",
-     "Restart the device\n" "safely."},
+    {"Apaga o reinicia el\n" "dispositivo de forma segura.",
+     "Shut down or restart the\n" "device safely."},
 };
-#define MENU_COUNT 7
+#define MENU_COUNT 6
 
 static const char *SETTINGS_MENU_ITEMS[][2] = {
     {"Red inalámbrica",             "Wireless Network"},
@@ -274,6 +271,7 @@ static const char *SETTINGS_MENU_ITEMS[][2] = {
 #define SETTINGS_MENU_COUNT 14
 #define SETTINGS_ITEM_THEME 13
 #define SETTINGS_ACTION_FACTORY_RESET 11
+#define MENU_ACTION_POWER 100 /* valor fuera de cualquier rango de indices de menu, para evitar colision con confirm_target de otros contextos */
 #define SETTINGS_ITEM_CONTROLLER_TEST 12
 
 /* Tiempos de inactividad seleccionables, en segundos. 0 = Nunca. */
@@ -3066,6 +3064,7 @@ int main(void)
     float fps_display = 0.0f;
     Uint64 fps_last_update = SDL_GetTicksNS();
     int confirm_target = DEV_ACTION_REBOOT; /* cual de los dos confirm. */
+    int power_popup_selected = 0; /* 0=Apagar, 1=Reiniciar, solo para MENU_ACTION_POWER */
     AppState confirm_return_state = STATE_DEVMODE;
     int settings_selected = 0;
     int backup_selected = 0;
@@ -4164,22 +4163,39 @@ int main(void)
                 }
             }
             else if (state == STATE_CONFIRM) {
-                if ((ev.type == SDL_EVENT_KEY_DOWN && ev.key.key == SDLK_RETURN) ||
-                    (ev.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN &&
-                     ev.jbutton.button == BTN_SDL_A)) {
-                    if (confirm_target == SETTINGS_ACTION_FACTORY_RESET) {
-                        factory_reset();
-                        running = false;
-                        exec_req = EXEC_REBOOT;
-                    } else {
-                        running = false;
-                        exec_req = (confirm_target == DEV_ACTION_REBOOT)
-                                   ? EXEC_REBOOT : EXEC_SHUTDOWN;
-                    }
+                if (confirm_target == MENU_ACTION_POWER &&
+                    ev.type == SDL_EVENT_JOYSTICK_HAT_MOTION) {
+                    if (ev.jhat.value == SDL_HAT_LEFT)  power_popup_selected = 0;
+                    if (ev.jhat.value == SDL_HAT_RIGHT) power_popup_selected = 1;
                 }
-                if (ev.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN &&
-                    ev.jbutton.button == BTN_SDL_B)
-                    state = confirm_return_state;
+                if (confirm_target == MENU_ACTION_POWER) {
+                    if ((ev.type == SDL_EVENT_KEY_DOWN && ev.key.key == SDLK_RETURN) ||
+                        (ev.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN &&
+                         ev.jbutton.button == BTN_SDL_A)) {
+                        running = false;
+                        exec_req = (power_popup_selected == 1) ? EXEC_REBOOT : EXEC_SHUTDOWN;
+                    }
+                    if (ev.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN &&
+                        ev.jbutton.button == BTN_SDL_B)
+                        state = confirm_return_state;
+                } else {
+                    if ((ev.type == SDL_EVENT_KEY_DOWN && ev.key.key == SDLK_RETURN) ||
+                        (ev.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN &&
+                         ev.jbutton.button == BTN_SDL_A)) {
+                        if (confirm_target == SETTINGS_ACTION_FACTORY_RESET) {
+                            factory_reset();
+                            running = false;
+                            exec_req = EXEC_REBOOT;
+                        } else {
+                            running = false;
+                            exec_req = (confirm_target == DEV_ACTION_REBOOT)
+                                       ? EXEC_REBOOT : EXEC_SHUTDOWN;
+                        }
+                    }
+                    if (ev.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN &&
+                        ev.jbutton.button == BTN_SDL_B)
+                        state = confirm_return_state;
+                }
             }
             else if (state == STATE_SYSINFO) {
                 if (ev.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN &&
@@ -4290,13 +4306,12 @@ int main(void)
 
         if (action != ACTION_NONE) {
             if (action == ACTION_SHELL) {
-                /* "Apagar dispositivo" en menu principal */
-                exec_req = EXEC_SHUTDOWN;
-                running = false;
-            } else if (action == ACTION_REBOOT) {
-                /* "Reiniciar dispositivo" en menu principal */
-                exec_req = EXEC_REBOOT;
-                running = false;
+                /* "Apagar dispositivo" en menu principal: ahora abre un
+                 * popup con Apagar/Reiniciar en vez de apagar directo. */
+                confirm_target = MENU_ACTION_POWER;
+                confirm_return_state = STATE_MENU;
+                power_popup_selected = 0;
+                state = STATE_CONFIRM;
             } else if (action == ACTION_ROMS) {
                 running = false;
                 relaunch_after_retroarch = true;
@@ -5866,6 +5881,45 @@ int main(void)
 
             /* Barra inferior */
             draw_footer(ren, f_sm, tr("[B] Seleccionar  [A] Volver", "[B] Select  [A] Back"), s_version);
+
+        } else if (state == STATE_CONFIRM && confirm_target == MENU_ACTION_POWER) {
+            /* Popup dedicado: caja centrada con esquinas curvas, dos
+             * opciones lado a lado (Apagar | Reiniciar), navegables con
+             * D-pad izquierda/derecha. */
+            float box_w = 320.0f, box_h = 140.0f;
+            float box_x = (SCREEN_W - box_w) / 2.0f;
+            float box_y = (SCREEN_H - box_h) / 2.0f;
+            draw_rounded_rect_filled(ren, box_x, box_y, box_w, box_h, 16.0f, g_theme.row_bg);
+
+            draw_text_centered(ren, f_med, tr("¿Qué quieres hacer?", "What do you want to do?"),
+                               g_theme.text_light, SCREEN_W / 2.0f, box_y + 28.0f);
+
+            float opt_w = 130.0f, opt_h = 48.0f;
+            float opt_gap = 16.0f;
+            float opt_y = box_y + 60.0f;
+            float opt_x0 = SCREEN_W / 2.0f - opt_w - opt_gap / 2.0f;
+            float opt_x1 = SCREEN_W / 2.0f + opt_gap / 2.0f;
+
+            SDL_Color sel_bg = g_theme.accent;
+            SDL_Color unsel_bg = g_theme.bg;
+            SDL_Color sel_fg = g_theme.text_on_accent;
+            SDL_Color unsel_fg = g_theme.text_light;
+
+            draw_rounded_rect_filled(ren, opt_x0, opt_y, opt_w, opt_h, opt_h / 2.0f,
+                                     power_popup_selected == 0 ? sel_bg : unsel_bg);
+            draw_text_centered(ren, f_med, tr("Apagar", "Power Off"),
+                               power_popup_selected == 0 ? sel_fg : unsel_fg,
+                               opt_x0 + opt_w / 2.0f, opt_y + opt_h / 2.0f - 9.0f);
+
+            draw_rounded_rect_filled(ren, opt_x1, opt_y, opt_w, opt_h, opt_h / 2.0f,
+                                     power_popup_selected == 1 ? sel_bg : unsel_bg);
+            draw_text_centered(ren, f_med, tr("Reiniciar", "Reboot"),
+                               power_popup_selected == 1 ? sel_fg : unsel_fg,
+                               opt_x1 + opt_w / 2.0f, opt_y + opt_h / 2.0f - 9.0f);
+
+            draw_text_centered(ren, f_sm, tr("[DPAD] Elegir  [B] Confirmar  [A] Cancelar",
+                                             "[DPAD] Choose  [B] Confirm  [A] Cancel"),
+                               g_theme.text_light, SCREEN_W / 2.0f, box_y + box_h - 20.0f);
 
         } else if (state == STATE_CONFIRM) {
             const char *label = (confirm_target == SETTINGS_ACTION_FACTORY_RESET)
