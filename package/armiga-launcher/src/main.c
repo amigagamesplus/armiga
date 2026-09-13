@@ -2956,8 +2956,18 @@ int main(void)
     if (wifi_icon_tex) SDL_SetTextureScaleMode(wifi_icon_tex, SDL_SCALEMODE_LINEAR);
     SDL_Texture *bt_icon_tex = IMG_LoadTexture(ren, "/usr/share/armiga/icons/bluetooth.png");
     if (bt_icon_tex) SDL_SetTextureScaleMode(bt_icon_tex, SDL_SCALEMODE_LINEAR);
-    SDL_Texture *battery_icon_tex = IMG_LoadTexture(ren, "/usr/share/armiga/icons/battery-3.png");
-    if (battery_icon_tex) SDL_SetTextureScaleMode(battery_icon_tex, SDL_SCALEMODE_LINEAR);
+    /* 5 niveles de icono de bateria (Tabler battery/-1/-2/-3/-4), elegidos
+     * dinamicamente segun el porcentaje real en vez de un icono fijo. */
+    SDL_Texture *battery_icon_levels[5];
+    battery_icon_levels[0] = IMG_LoadTexture(ren, "/usr/share/armiga/icons/battery.png");
+    battery_icon_levels[1] = IMG_LoadTexture(ren, "/usr/share/armiga/icons/battery-1.png");
+    battery_icon_levels[2] = IMG_LoadTexture(ren, "/usr/share/armiga/icons/battery-2.png");
+    battery_icon_levels[3] = IMG_LoadTexture(ren, "/usr/share/armiga/icons/battery-3.png");
+    battery_icon_levels[4] = IMG_LoadTexture(ren, "/usr/share/armiga/icons/battery-4.png");
+    for (int bi = 0; bi < 5; bi++) {
+        if (battery_icon_levels[bi]) SDL_SetTextureScaleMode(battery_icon_levels[bi], SDL_SCALEMODE_LINEAR);
+    }
+    SDL_Texture *battery_icon_tex = battery_icon_levels[4]; /* valor inicial, se reasigna cada refresco de status */
     SDL_Texture *perf_bolt_tex = IMG_LoadTexture(ren, "/usr/share/armiga/icons/perf-bolt.png");
     if (perf_bolt_tex) SDL_SetTextureScaleMode(perf_bolt_tex, SDL_SCALEMODE_LINEAR);
     SDL_Texture *perf_scale_tex = IMG_LoadTexture(ren, "/usr/share/armiga/icons/perf-scale.png");
@@ -2971,6 +2981,7 @@ int main(void)
     if (arexx_icon_tex) SDL_SetTextureScaleMode(arexx_icon_tex, SDL_SCALEMODE_LINEAR);
     SDL_Texture *update_icon_tex = IMG_LoadTexture(ren, "/usr/share/armiga/icons/arrow-big-up-lines.png");
     SDL_Texture *volume_icon_tex = IMG_LoadTexture(ren, "/usr/share/armiga/icons/volume.png");
+    SDL_Texture *brightness_icon_tex = IMG_LoadTexture(ren, "/usr/share/armiga/icons/brightness.png");
     if (update_icon_tex) SDL_SetTextureScaleMode(update_icon_tex, SDL_SCALEMODE_LINEAR);
 
     /* Leer versiones */
@@ -3149,6 +3160,7 @@ int main(void)
     int volume_pct = read_volume_config();   /* volumen guardado, aplicado a ALSA al arrancar */
     write_volume_pct(volume_pct);
     Uint64 volume_popup_until = 0;           /* ms hasta cuando mostrar el popup de volumen */
+    Uint64 brightness_popup_until = 0;       /* ms hasta cuando mostrar el popup de brillo */
     bool screenshot_capture_pending = false; /* diferir captura al final del frame */
 
     char dev_ip[32]     = "sin red";
@@ -3309,6 +3321,7 @@ int main(void)
                      * nuevas pulsaciones, no en cada pulsacion individual. */
                     brightness_save_pending = true;
                     brightness_save_pending_since = SDL_GetTicks();
+                    brightness_popup_until = SDL_GetTicks() + 1500;
                     continue;
                 }
             }
@@ -4306,6 +4319,14 @@ int main(void)
             update_status(status_time, sizeof(status_time),
                          &status_wifi_up, &status_battery);
             status_bt_up = (bool)bt_enabled;
+            /* Selecciona el icono de bateria segun el rango real:
+             * 0-19 / 20-39 / 40-59 / 60-79 / 80-100. */
+            if (status_battery >= 0) {
+                int bi = status_battery / 20;
+                if (bi > 4) bi = 4;
+                if (bi < 0) bi = 0;
+                battery_icon_tex = battery_icon_levels[bi];
+            }
             last_status_update = now_ticks;
         }
         /* Enrutado transparente de audio BT -> RetroArch: comprobacion
@@ -6284,6 +6305,33 @@ int main(void)
             volume_popup_until = 0;
         }
 
+        if (brightness_popup_until > 0 && SDL_GetTicks() < brightness_popup_until) {
+            /* Misma pildora que el popup de volumen: icono a la izquierda,
+             * slider ocupando el resto, sin texto. */
+            float pw2 = 220.0f, ph2 = 56.0f;
+            float px2 = (SCREEN_W - pw2) / 2.0f;
+            float py2 = SCREEN_H - ph2 - 85.0f;
+            draw_rounded_rect_filled(ren, px2, py2, pw2, ph2, ph2 / 2.0f, g_theme.row_bg);
+
+            float icon_size2 = 28.0f;
+            float icon_x2 = px2 + 14.0f;
+            float icon_y2 = py2 + (ph2 - icon_size2) / 2.0f;
+            if (brightness_icon_tex) {
+                SDL_SetTextureColorMod(brightness_icon_tex, g_theme.text_light.r, g_theme.text_light.g, g_theme.text_light.b);
+                SDL_FRect icon_dst2 = {icon_x2, icon_y2, icon_size2, icon_size2};
+                SDL_RenderTexture(ren, brightness_icon_tex, NULL, &icon_dst2);
+            }
+
+            float bar_x2 = icon_x2 + icon_size2 + 14.0f;
+            float bar_w2 = px2 + pw2 - 16.0f - bar_x2;
+            float bar_h2 = 10.0f;
+            float bar_y2 = py2 + (ph2 - bar_h2) / 2.0f;
+            float bfrac = brightness_pct / 100.0f;
+            draw_bar_rounded(ren, bar_x2, bar_y2, bar_w2, bar_h2, bfrac, g_theme.bg, g_theme.accent);
+        } else {
+            brightness_popup_until = 0;
+        }
+
         if (screenshot_flash_until > 0 && SDL_GetTicks() < screenshot_flash_until) {
             SDL_SetRenderDrawBlendMode(ren, SDL_BLENDMODE_BLEND);
             SDL_SetRenderDrawColor(ren, 255, 255, 255, 180);
@@ -6336,7 +6384,9 @@ int main(void)
         if (menu_icon_tex[mi]) SDL_DestroyTexture(menu_icon_tex[mi]);
     if (wifi_icon_tex) SDL_DestroyTexture(wifi_icon_tex);
     if (bt_icon_tex) SDL_DestroyTexture(bt_icon_tex);
-    if (battery_icon_tex) SDL_DestroyTexture(battery_icon_tex);
+    for (int bi = 0; bi < 5; bi++) {
+        if (battery_icon_levels[bi]) SDL_DestroyTexture(battery_icon_levels[bi]);
+    }
     if (perf_bolt_tex) SDL_DestroyTexture(perf_bolt_tex);
     if (perf_scale_tex) SDL_DestroyTexture(perf_scale_tex);
     if (perf_battery_tex) SDL_DestroyTexture(perf_battery_tex);
