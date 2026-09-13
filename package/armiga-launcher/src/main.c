@@ -2632,13 +2632,19 @@ static float draw_status_pill(SDL_Renderer *ren, TTF_Font *f, float right_edge, 
                                SDL_Texture *icon, const char *label, SDL_Color fg, SDL_Color bg,
                                float icon_size_override)
 {
-    int w = 0, h = 0;
+    int w = 0, h = 0, h_ref = 0;
     TTF_GetStringSize(f, label, 0, &w, &h);
+    /* Altura de pildora fija: medir siempre contra "0" en vez del label
+     * real, para que todas las pildoras del statusbar (bateria, wifi,
+     * bluetooth, ssh) salgan con la misma altura y queden alineadas,
+     * sin importar si el label tiene ascendentes/descendentes distintos
+     * o esta vacio (icon_only). */
+    { int w_ref = 0; TTF_GetStringSize(f, "0", 0, &w_ref, &h_ref); }
     bool icon_only = (icon && w <= 10);
     float icon_w = icon ? (icon_size_override > 0.0f ? icon_size_override : 20.0f) : 0.0f;
     float icon_gap = (icon && !icon_only) ? 6.0f : 0.0f;
     float pad_x = icon_only ? 10.0f : 14.0f;
-    float pill_h = (float)h + 14.0f;
+    float pill_h = (float)h_ref + 14.0f;
     float pill_w = icon_only ? (pad_x * 2.0f + icon_w) : (pad_x * 2.0f + icon_w + icon_gap + (float)w);
     float pill_x = right_edge - pill_w;
     float pill_y = y_center - pill_h / 2.0f;
