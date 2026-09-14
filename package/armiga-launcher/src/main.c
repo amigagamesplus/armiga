@@ -2640,7 +2640,7 @@ static float draw_status_pill(SDL_Renderer *ren, TTF_Font *f, float right_edge, 
      * o esta vacio (icon_only). */
     { int w_ref = 0; TTF_GetStringSize(f, "0", 0, &w_ref, &h_ref); }
     bool icon_only = (icon && w <= 10);
-    float icon_w = icon ? (icon_size_override > 0.0f ? icon_size_override : 20.0f) : 0.0f;
+    float icon_w = icon ? (icon_size_override > 0.0f ? icon_size_override : 22.0f) : 0.0f;
     float icon_gap = (icon && !icon_only) ? 6.0f : 0.0f;
     float pad_x = icon_only ? 10.0f : 14.0f;
     float pill_h = (float)h_ref + 14.0f;
@@ -2692,7 +2692,7 @@ static float draw_statusbar(SDL_Renderer *ren, TTF_Font *f, TTF_Font *f_ampm,
     } else {
         strncpy(batt_buf, "--", sizeof(batt_buf));
     }
-    right -= draw_status_pill(ren, f, right, y, batt_icon_use, batt_buf, batt_fg, batt_bg, 24.0f);
+    right -= draw_status_pill(ren, f, right, y, batt_icon_use, batt_buf, batt_fg, batt_bg, 30.0f);
     right -= gap;
 
     SDL_Color bt_fg = bt_up ? c_gold : c_dim_fg;
@@ -2700,7 +2700,7 @@ static float draw_statusbar(SDL_Renderer *ren, TTF_Font *f, TTF_Font *f_ampm,
     right -= gap;
 
     SDL_Color wifi_fg = wifi_up ? c_gold : c_dim_fg;
-    right -= draw_status_pill(ren, f, right, y, wifi_icon_tex, " ", wifi_fg, wifi_up ? c_pill_on : c_pill_off, 0.0f);
+    right -= draw_status_pill(ren, f, right, y, wifi_icon_tex, " ", wifi_fg, wifi_up ? c_pill_on : c_pill_off, 26.0f);
     right -= gap;
 
     {
@@ -4740,10 +4740,10 @@ int main(void)
                 if (menu_icon_tex[i]) {
                     /* Respiracion sutil: pulso senoidal 20px-23px, ~1.8s de ciclo */
                     float breath = (SDL_sinf((float)now_ticks * 0.0035f) + 1.0f) * 0.5f;
-                    float icon_sz = 20.0f + (breath * 3.0f);
-                    float icon_offset = (icon_sz - 20.0f) / 2.0f;
+                    float icon_sz = 22.0f + (breath * 3.0f);
+                    float icon_offset = (icon_sz - 22.0f) / 2.0f;
                     float icon_x = (mx + 8.0f) - icon_offset;
-                    float icon_y = iy - icon_offset;
+                    float icon_y = iy - icon_offset - 1.0f;
                     SDL_SetTextureColorMod(menu_icon_tex[i], c_menu_gold.r, c_menu_gold.g, c_menu_gold.b);
                     SDL_FRect icon_dst = {icon_x, icon_y, icon_sz, icon_sz};
                     SDL_RenderTexture(ren, menu_icon_tex[i], NULL, &icon_dst);
@@ -4752,7 +4752,7 @@ int main(void)
             } else {
                 if (menu_icon_tex[i]) {
                     SDL_SetTextureColorMod(menu_icon_tex[i], c_menu_beige.r, c_menu_beige.g, c_menu_beige.b);
-                    SDL_FRect icon_dst = {mx + 8.0f, iy, 20.0f, 20.0f};
+                    SDL_FRect icon_dst = {mx + 8.0f, iy - 1.0f, 22.0f, 22.0f};
                     SDL_RenderTexture(ren, menu_icon_tex[i], NULL, &icon_dst);
                 }
                 draw_text(ren, f_med, MENU_ITEMS[i][current_lang], c_menu_beige, mx + 46.0f, iy);
@@ -4934,14 +4934,14 @@ int main(void)
                                      sel_w, pill_h, pill_h / 2.0f, c_menu_selbg);
                     if (menu_icon_tex[4]) {
                         SDL_SetTextureColorMod(menu_icon_tex[4], c_menu_gold.r, c_menu_gold.g, c_menu_gold.b);
-                        SDL_FRect icon_dst = {mx + 8.0f, iy, 20.0f, 20.0f};
+                        SDL_FRect icon_dst = {mx + 8.0f, iy - 2.0f, 22.0f, 22.0f};
                         SDL_RenderTexture(ren, menu_icon_tex[4], NULL, &icon_dst);
                     }
                     draw_text(ren, f_med, item_label, c_menu_gold, mx + 46.0f, iy);
                 } else {
                     if (menu_icon_tex[4]) {
                         SDL_SetTextureColorMod(menu_icon_tex[4], c_menu_beige.r, c_menu_beige.g, c_menu_beige.b);
-                        SDL_FRect icon_dst = {mx + 8.0f, iy, 20.0f, 20.0f};
+                        SDL_FRect icon_dst = {mx + 8.0f, iy - 2.0f, 22.0f, 22.0f};
                         SDL_RenderTexture(ren, menu_icon_tex[4], NULL, &icon_dst);
                     }
                     draw_text(ren, f_med, item_label, c_menu_beige, mx + 46.0f, iy);
