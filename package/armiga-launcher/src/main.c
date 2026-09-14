@@ -4710,7 +4710,7 @@ int main(void)
         SDL_Color c_menu_beige = g_theme.text_light;
         SDL_Color c_menu_selbg = c_selbg;
 
-        if (state == STATE_MENU) {
+        if (state == STATE_MENU || (state == STATE_CONFIRM && confirm_target == MENU_ACTION_POWER)) {
         /* Logo */
         if (logo_tex) {
             SDL_FRect logo_dst = {mx, 14.0f, (float)LOGO_W, (float)LOGO_H};
@@ -4843,6 +4843,50 @@ int main(void)
             float bar_y = SCREEN_H - 64.0f;
             SDL_Color c_devbar_lime = c_selbg;
             draw_bar_rounded(ren, bar_x, bar_y, bar_w, 4.0f, frac, c_devbar_lime, c_white);
+        }
+
+        /* Overlay Apagar/Reiniciar sobre el contenido principal ya dibujado */
+        if (state == STATE_CONFIRM && confirm_target == MENU_ACTION_POWER) {
+            SDL_SetRenderDrawBlendMode(ren, SDL_BLENDMODE_BLEND);
+            SDL_SetRenderDrawColor(ren, 0, 0, 0, 150);
+            SDL_FRect dim_rect = {0, 0, (float)SCREEN_W, (float)SCREEN_H};
+            SDL_RenderFillRect(ren, &dim_rect);
+            SDL_SetRenderDrawBlendMode(ren, SDL_BLENDMODE_NONE);
+
+            float box_w = 320.0f, box_h = 150.0f;
+            float box_x = (SCREEN_W - box_w) / 2.0f;
+            float box_y = (SCREEN_H - box_h) / 2.0f;
+            draw_rounded_rect_filled(ren, box_x, box_y, box_w, box_h, 16.0f, g_theme.row_bg);
+
+            draw_text_centered(ren, f_med, tr("¿Qué quieres hacer?", "What do you want to do?"),
+                               g_theme.text_light, SCREEN_W / 2.0f, box_y + 24.0f);
+
+            float opt_w = 130.0f, opt_h = 48.0f;
+            float opt_gap = 16.0f;
+            float opt_y = box_y + 52.0f;
+            float opt_x0 = SCREEN_W / 2.0f - opt_w - opt_gap / 2.0f;
+            float opt_x1 = SCREEN_W / 2.0f + opt_gap / 2.0f;
+
+            SDL_Color sel_bg = g_theme.accent;
+            SDL_Color unsel_bg = g_theme.bg;
+            SDL_Color sel_fg = g_theme.text_on_accent;
+            SDL_Color unsel_fg = g_theme.text_light;
+
+            draw_rounded_rect_filled(ren, opt_x0, opt_y, opt_w, opt_h, opt_h / 2.0f,
+                                     power_popup_selected == 0 ? sel_bg : unsel_bg);
+            draw_text_centered(ren, f_med, tr("Apagar", "Power Off"),
+                               power_popup_selected == 0 ? sel_fg : unsel_fg,
+                               opt_x0 + opt_w / 2.0f, opt_y + opt_h / 2.0f - 9.0f);
+
+            draw_rounded_rect_filled(ren, opt_x1, opt_y, opt_w, opt_h, opt_h / 2.0f,
+                                     power_popup_selected == 1 ? sel_bg : unsel_bg);
+            draw_text_centered(ren, f_med, tr("Reiniciar", "Reboot"),
+                               power_popup_selected == 1 ? sel_fg : unsel_fg,
+                               opt_x1 + opt_w / 2.0f, opt_y + opt_h / 2.0f - 9.0f);
+
+            draw_text_centered(ren, f_sm, tr("[DPAD] Elegir  [B] Confirmar  [A] Cancelar",
+                                             "[DPAD] Choose  [B] Confirm  [A] Cancel"),
+                               g_theme.text_light, SCREEN_W / 2.0f, box_y + box_h - 22.0f);
         }
 
         } else if (state == STATE_SETTINGS) {
@@ -5886,45 +5930,6 @@ int main(void)
 
             /* Barra inferior */
             draw_footer(ren, f_sm, tr("[B] Seleccionar  [A] Volver", "[B] Select  [A] Back"), s_version);
-
-        } else if (state == STATE_CONFIRM && confirm_target == MENU_ACTION_POWER) {
-            /* Popup dedicado: caja centrada con esquinas curvas, dos
-             * opciones lado a lado (Apagar | Reiniciar), navegables con
-             * D-pad izquierda/derecha. */
-            float box_w = 320.0f, box_h = 140.0f;
-            float box_x = (SCREEN_W - box_w) / 2.0f;
-            float box_y = (SCREEN_H - box_h) / 2.0f;
-            draw_rounded_rect_filled(ren, box_x, box_y, box_w, box_h, 16.0f, g_theme.row_bg);
-
-            draw_text_centered(ren, f_med, tr("¿Qué quieres hacer?", "What do you want to do?"),
-                               g_theme.text_light, SCREEN_W / 2.0f, box_y + 28.0f);
-
-            float opt_w = 130.0f, opt_h = 48.0f;
-            float opt_gap = 16.0f;
-            float opt_y = box_y + 60.0f;
-            float opt_x0 = SCREEN_W / 2.0f - opt_w - opt_gap / 2.0f;
-            float opt_x1 = SCREEN_W / 2.0f + opt_gap / 2.0f;
-
-            SDL_Color sel_bg = g_theme.accent;
-            SDL_Color unsel_bg = g_theme.bg;
-            SDL_Color sel_fg = g_theme.text_on_accent;
-            SDL_Color unsel_fg = g_theme.text_light;
-
-            draw_rounded_rect_filled(ren, opt_x0, opt_y, opt_w, opt_h, opt_h / 2.0f,
-                                     power_popup_selected == 0 ? sel_bg : unsel_bg);
-            draw_text_centered(ren, f_med, tr("Apagar", "Power Off"),
-                               power_popup_selected == 0 ? sel_fg : unsel_fg,
-                               opt_x0 + opt_w / 2.0f, opt_y + opt_h / 2.0f - 9.0f);
-
-            draw_rounded_rect_filled(ren, opt_x1, opt_y, opt_w, opt_h, opt_h / 2.0f,
-                                     power_popup_selected == 1 ? sel_bg : unsel_bg);
-            draw_text_centered(ren, f_med, tr("Reiniciar", "Reboot"),
-                               power_popup_selected == 1 ? sel_fg : unsel_fg,
-                               opt_x1 + opt_w / 2.0f, opt_y + opt_h / 2.0f - 9.0f);
-
-            draw_text_centered(ren, f_sm, tr("[DPAD] Elegir  [B] Confirmar  [A] Cancelar",
-                                             "[DPAD] Choose  [B] Confirm  [A] Cancel"),
-                               g_theme.text_light, SCREEN_W / 2.0f, box_y + box_h - 20.0f);
 
         } else if (state == STATE_CONFIRM) {
             const char *label = (confirm_target == SETTINGS_ACTION_FACTORY_RESET)
