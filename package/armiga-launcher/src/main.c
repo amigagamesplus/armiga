@@ -880,6 +880,7 @@ static bool read_sysfs_int(const char *path, int *out)
 }
 
 static bool s_status_charging = false;
+static SDL_Texture *s_battery_charging_icon_tex = NULL;
 static void update_status(char *time_str, size_t time_str_sz,
                           bool *wifi_up, int *battery_pct)
 {
@@ -2677,10 +2678,12 @@ static float draw_statusbar(SDL_Renderer *ren, TTF_Font *f, TTF_Font *f_ampm,
     SDL_Color batt_fg = c_gold;
     SDL_Color batt_bg = c_pill_on;
     SDL_Color c_white_lit = COL_KEY_BG;
+    SDL_Texture *batt_icon_use = battery_icon_tex;
     if (battery >= 0) {
         if (s_status_charging) {
-            snprintf(batt_buf, sizeof(batt_buf), "%d%% +", battery);
+            snprintf(batt_buf, sizeof(batt_buf), "%d%%", battery);
             batt_fg = c_gold;
+            if (s_battery_charging_icon_tex) batt_icon_use = s_battery_charging_icon_tex;
         } else {
             snprintf(batt_buf, sizeof(batt_buf), "%d%%", battery);
             if (battery <= 15) { batt_fg = c_white_lit; batt_bg = c_red; }
@@ -2689,7 +2692,7 @@ static float draw_statusbar(SDL_Renderer *ren, TTF_Font *f, TTF_Font *f_ampm,
     } else {
         strncpy(batt_buf, "--", sizeof(batt_buf));
     }
-    right -= draw_status_pill(ren, f, right, y, battery_icon_tex, batt_buf, batt_fg, batt_bg, 24.0f);
+    right -= draw_status_pill(ren, f, right, y, batt_icon_use, batt_buf, batt_fg, batt_bg, 24.0f);
     right -= gap;
 
     SDL_Color bt_fg = bt_up ? c_gold : c_dim_fg;
@@ -2972,6 +2975,8 @@ int main(void)
         if (battery_icon_levels[bi]) SDL_SetTextureScaleMode(battery_icon_levels[bi], SDL_SCALEMODE_LINEAR);
     }
     SDL_Texture *battery_icon_tex = battery_icon_levels[4]; /* valor inicial, se reasigna cada refresco de status */
+    s_battery_charging_icon_tex = IMG_LoadTexture(ren, "/usr/share/armiga/icons/battery-charging-2.png");
+    if (s_battery_charging_icon_tex) SDL_SetTextureScaleMode(s_battery_charging_icon_tex, SDL_SCALEMODE_LINEAR);
     SDL_Texture *perf_bolt_tex = IMG_LoadTexture(ren, "/usr/share/armiga/icons/perf-bolt.png");
     if (perf_bolt_tex) SDL_SetTextureScaleMode(perf_bolt_tex, SDL_SCALEMODE_LINEAR);
     SDL_Texture *perf_scale_tex = IMG_LoadTexture(ren, "/usr/share/armiga/icons/perf-scale.png");
@@ -6447,6 +6452,7 @@ int main(void)
     for (int bi = 0; bi < 5; bi++) {
         if (battery_icon_levels[bi]) SDL_DestroyTexture(battery_icon_levels[bi]);
     }
+    if (s_battery_charging_icon_tex) SDL_DestroyTexture(s_battery_charging_icon_tex);
     if (perf_bolt_tex) SDL_DestroyTexture(perf_bolt_tex);
     if (perf_scale_tex) SDL_DestroyTexture(perf_scale_tex);
     if (perf_battery_tex) SDL_DestroyTexture(perf_battery_tex);
