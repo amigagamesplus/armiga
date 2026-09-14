@@ -4859,11 +4859,11 @@ int main(void)
             draw_rounded_rect_filled(ren, box_x, box_y, box_w, box_h, 16.0f, g_theme.row_bg);
 
             draw_text_centered(ren, f_med, tr("¿Qué quieres hacer?", "What do you want to do?"),
-                               g_theme.text_light, SCREEN_W / 2.0f, box_y + 24.0f);
+                               g_theme.text_light, SCREEN_W / 2.0f, box_y + 18.0f);
 
             float opt_w = 130.0f, opt_h = 48.0f;
             float opt_gap = 16.0f;
-            float opt_y = box_y + 52.0f;
+            float opt_y = box_y + 51.0f;
             float opt_x0 = SCREEN_W / 2.0f - opt_w - opt_gap / 2.0f;
             float opt_x1 = SCREEN_W / 2.0f + opt_gap / 2.0f;
 
@@ -4878,15 +4878,19 @@ int main(void)
                                power_popup_selected == 0 ? sel_fg : unsel_fg,
                                opt_x0 + opt_w / 2.0f, opt_y + opt_h / 2.0f - 9.0f);
 
-            draw_rounded_rect_filled(ren, opt_x1, opt_y, opt_w, opt_h, opt_h / 2.0f,
-                                     power_popup_selected == 1 ? sel_bg : unsel_bg);
+            if (power_popup_selected == 1) {
+                draw_rounded_rect_filled(ren, opt_x1, opt_y, opt_w, opt_h, opt_h / 2.0f, sel_bg);
+            } else {
+                draw_rounded_rect_outline(ren, opt_x1, opt_y, opt_w, opt_h, opt_h / 2.0f,
+                                           2.0f, c_selbg, unsel_bg);
+            }
             draw_text_centered(ren, f_med, tr("Reiniciar", "Reboot"),
                                power_popup_selected == 1 ? sel_fg : unsel_fg,
                                opt_x1 + opt_w / 2.0f, opt_y + opt_h / 2.0f - 9.0f);
 
             draw_text_centered(ren, f_sm, tr("[DPAD] Elegir  [B] Confirmar  [A] Cancelar",
                                              "[DPAD] Choose  [B] Confirm  [A] Cancel"),
-                               g_theme.text_light, SCREEN_W / 2.0f, box_y + box_h - 22.0f);
+                               g_theme.text_light, SCREEN_W / 2.0f, box_y + 116.0f);
         }
 
         } else if (state == STATE_SETTINGS) {
