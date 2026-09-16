@@ -273,6 +273,8 @@ static const char *SETTINGS_MENU_ITEMS[][2] = {
 #define SETTINGS_MENU_COUNT 14
 #define SETTINGS_ITEM_THEME 13
 #define SETTINGS_ACTION_FACTORY_RESET 11
+#define BACKUP_ACTION_RESTORE 12
+#define BACKUP_ACTION_DELETE 13
 #define MENU_ACTION_POWER 100 /* valor fuera de cualquier rango de indices de menu, para evitar colision con confirm_target de otros contextos */
 #define SETTINGS_ITEM_CONTROLLER_TEST 12
 
@@ -3112,6 +3114,7 @@ int main(void)
     int confirm_target = DEV_ACTION_REBOOT; /* cual de los dos confirm. */
     int power_popup_selected = 0; /* 0=Apagar, 1=Reiniciar, solo para MENU_ACTION_POWER */
     AppState confirm_return_state = STATE_DEVMODE;
+    char confirm_backup_filename[64] = "";
     int settings_selected = 0;
     int backup_selected = 0;
     Uint64 backup_msg_until = 0;
@@ -4087,16 +4090,17 @@ int main(void)
                 }
                 if (ev.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN &&
                     ev.jbutton.button == BTN_SDL_A && backup_count > 0) {
-                    restore_backup(backup_list[backup_list_selected]);
-                    running = false;
-                    exec_req = EXEC_REBOOT;
+                    safe_copy(confirm_backup_filename, backup_list[backup_list_selected], sizeof(confirm_backup_filename));
+                    confirm_target = BACKUP_ACTION_RESTORE;
+                    confirm_return_state = STATE_BACKUP_LIST;
+                    state = STATE_CONFIRM;
                 }
                 if (ev.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN &&
                     ev.jbutton.button == BTN_SDL_X && backup_count > 0) {
-                    delete_backup(backup_list[backup_list_selected]);
-                    backup_count = list_backups(backup_list, BACKUP_LIST_MAX);
-                    if (backup_list_selected >= backup_count)
-                        backup_list_selected = backup_count > 0 ? backup_count - 1 : 0;
+                    safe_copy(confirm_backup_filename, backup_list[backup_list_selected], sizeof(confirm_backup_filename));
+                    confirm_target = BACKUP_ACTION_DELETE;
+                    confirm_return_state = STATE_BACKUP_LIST;
+                    state = STATE_CONFIRM;
                 }
                 if (ev.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN &&
                     ev.jbutton.button == BTN_SDL_B)
@@ -4232,6 +4236,16 @@ int main(void)
                             factory_reset();
                             running = false;
                             exec_req = EXEC_REBOOT;
+                        } else if (confirm_target == BACKUP_ACTION_RESTORE) {
+                            restore_backup(confirm_backup_filename);
+                            running = false;
+                            exec_req = EXEC_REBOOT;
+                        } else if (confirm_target == BACKUP_ACTION_DELETE) {
+                            delete_backup(confirm_backup_filename);
+                            backup_count = list_backups(backup_list, BACKUP_LIST_MAX);
+                            if (backup_list_selected >= backup_count)
+                                backup_list_selected = backup_count > 0 ? backup_count - 1 : 0;
+                            state = confirm_return_state;
                         } else {
                             running = false;
                             exec_req = (confirm_target == DEV_ACTION_REBOOT)
@@ -5977,11 +5991,23 @@ int main(void)
             draw_footer(ren, f_sm, tr("[B] Seleccionar  [A] Volver", "[B] Select  [A] Back"), s_version);
 
         } else if (state == STATE_CONFIRM) {
-            const char *label = (confirm_target == SETTINGS_ACTION_FACTORY_RESET)
-                                 ? tr("¿Restablecer valores de fábrica?", "Factory reset?")
-                                 : (confirm_target == DEV_ACTION_REBOOT)
-                                 ? tr("¿Reiniciar el dispositivo?", "Reboot the device?")
-                                 : tr("¿Apagar el dispositivo?", "Shut down the device?");
+            char confirm_label_buf[128];
+            const char *label;
+            if (confirm_target == SETTINGS_ACTION_FACTORY_RESET) {
+                label = tr("¿Restablecer valores de fábrica?", "Factory reset?");
+            } else if (confirm_target == BACKUP_ACTION_RESTORE) {
+                snprintf(confirm_label_buf, sizeof(confirm_label_buf),
+                         tr("¿Restaurar %s?", "Restore %s?"), confirm_backup_filename);
+                label = confirm_label_buf;
+            } else if (confirm_target == BACKUP_ACTION_DELETE) {
+                snprintf(confirm_label_buf, sizeof(confirm_label_buf),
+                         tr("¿Eliminar %s?", "Delete %s?"), confirm_backup_filename);
+                label = confirm_label_buf;
+            } else if (confirm_target == DEV_ACTION_REBOOT) {
+                label = tr("¿Reiniciar el dispositivo?", "Reboot the device?");
+            } else {
+                label = tr("¿Apagar el dispositivo?", "Shut down the device?");
+            }
             draw_text_centered(ren, f_med, label, c_white,
                                SCREEN_W / 2.0f, SCREEN_H / 2.0f - 30.0f);
             draw_text_centered(ren, f_med, tr("[B] Si        [A] No", "[B] Yes       [A] No"), c_green,
