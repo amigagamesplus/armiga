@@ -52,6 +52,16 @@ Some RG40XX H units use a newer internal display panel revision ("v2"). There's 
 | **MODE + START**                    | Restart the launcher (quick fix if the interface misbehaves) |
 | **SELECT + START + L1** (hold 3s)  | Developer mode                      |
 
+### In-game (RetroArch)
+
+While playing a game, these shortcuts work inside RetroArch itself:
+
+| Physical button    | Function              |
+| ------------------- | ---------------------- |
+| **MODE + R1**       | Take a screenshot      |
+| **MODE + R2**       | Toggle FPS display     |
+| **MODE + L2**       | Toggle fast-forward    |
+
 Not sure which physical button does what on your controller? Head to **Settings → Controller Test** — see below.
 
 ## Main menu
