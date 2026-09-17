@@ -232,7 +232,7 @@ static const char *MENU_ICONS[] = {
 
 static const char *MENU_ITEMS[][2] = {
     {"Catálogo Amiga",              "Amiga Catalog"},
-    {"Actualización de sistema",    "System Update"},
+    {"Actualización",    "System Update"},
     {"Diagnóstico del sistema",     "System Diagnostics"},
     {"ARexx Scripts",               "ARexx Scripts"},
     {"Configuración",               "Settings"},
@@ -4817,7 +4817,10 @@ int main(void)
                 float sel_w = 46.0f + (float)label_w + 32.0f;
                 float txt_x = (mx - 10.0f) + sel_w + 10.0f;
                 const char *upd_txt = tr("[!] Nueva Actualización", "[!] New Update");
-                draw_text(ren, f_sm, upd_txt, c_red, txt_x, iy);
+                float upd_max_w = (rx - 10.0f) - txt_x;
+                if (upd_max_w > 20.0f) {
+                    draw_text_truncated(ren, f_sm, upd_txt, c_red, txt_x, iy, upd_max_w);
+                }
             }
         }
 
