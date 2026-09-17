@@ -5021,6 +5021,10 @@ int main(void)
                     draw_text(ren, f_med, item_label, c_menu_beige, mx + 46.0f, iy);
                 }
             }
+            if (settings_scroll > 0) {
+                draw_text(ren, f_xs, tr("más arriba ↑", "more above ↑"), c_menu_selbg,
+                          mx + 8.0f, settings_y0 - 16.0f);
+            }
             if (settings_scroll + settings_visible < SETTINGS_MENU_COUNT) {
                 draw_text(ren, f_xs, tr("más abajo ↓", "more below ↓"), c_menu_selbg,
                           mx + 8.0f, settings_y0 + settings_visible * settings_item_h + 2.0f);
@@ -5197,6 +5201,7 @@ int main(void)
                 float bt_y0 = 134.0f;
                 float bt_item_h = 30.0f;
                 int bt_visible = 9;
+                bool bt_show_up_indicator = false; /* se decide tras calcular bt_scroll */
                 bool bt_has_more = bt_device_count > bt_visible;
                 /* Si hay mas de los que caben, se reserva la ultima fila
                  * solo para el indicador "+N mas" (nunca comparte fila con
@@ -5208,6 +5213,11 @@ int main(void)
                 if (bt_scroll > bt_device_count - bt_list_rows)
                     bt_scroll = bt_device_count - bt_list_rows;
                 if (bt_scroll < 0) bt_scroll = 0;
+                bt_show_up_indicator = (bt_scroll > 0);
+                if (bt_show_up_indicator) {
+                    draw_text_right(ren, f_xs, tr("más arriba ↑", "more above ↑"), c_menu_selbg,
+                                     SCREEN_W - mx - 6.0f, 112.0f);
+                }
                 {
                     float target_y = bt_y0 + (bt_selected - bt_scroll) * bt_item_h;
                     bt_cursor_y = target_y;
@@ -5296,6 +5306,15 @@ int main(void)
             if (tz_scroll > TIMEZONE_LIST_COUNT - tz_visible)
                 tz_scroll = TIMEZONE_LIST_COUNT - tz_visible;
             if (tz_scroll < 0) tz_scroll = 0;
+
+            if (tz_scroll > 0) {
+                draw_text(ren, f_xs, tr("más arriba ↑", "more above ↑"), c_menu_selbg,
+                          mx + 8.0f, tz_y0 - 14.0f);
+            }
+            if (tz_scroll + tz_visible < TIMEZONE_LIST_COUNT) {
+                draw_text(ren, f_xs, tr("más abajo ↓", "more below ↓"), c_menu_selbg,
+                          mx + 8.0f, tz_y0 + tz_visible * tz_item_h + 2.0f);
+            }
 
             {
                 float target_y = tz_y0 + (timezone_selected - tz_scroll) * tz_item_h;
