@@ -3224,6 +3224,7 @@ int main(void)
 
     Uint64 devmode_hold_start = 0; /* 0 = combo no presionado */
     bool devmode_combo_held = false;
+    bool screenshot_combo_held = false; /* edge-detect SELECT+R2, evita retrigger sin bloquear */
     Uint64 screenshot_flash_until = 0; /* ms hasta cuando mostrar flash */
     int volume_pct = read_volume_config();   /* volumen guardado, aplicado a ALSA al arrancar */
     write_volume_pct(volume_pct);
@@ -4366,7 +4367,12 @@ int main(void)
         if (joy && state != STATE_CONTROLLER_TEST) {
             bool sel = SDL_GetJoystickButton(joy, BTN_SDL_SELECT);
             bool r1  = SDL_GetJoystickButton(joy, BTN_SDL_R2);
-            if (sel && r1) {
+            bool combo_now = sel && r1;
+            if (combo_now && !screenshot_combo_held) {
+                /* Flanco de subida: dispara una unica vez, sin bucle de
+                 * espera. Mientras screenshot_combo_held siga a true no
+                 * se puede retriggerar aunque se mantengan pulsados. */
+                screenshot_combo_held = true;
                 /* No capturar aqui: en este punto del bucle (antes de que
                  * este frame dibuje nada) el backbuffer puede contener
                  * estado indefinido tras el ultimo Present (double
@@ -4375,21 +4381,9 @@ int main(void)
                  * flash y draw_screen_corners, cuando el contenido de ESTE
                  * frame ya esta completamente dibujado y es valido. */
                 screenshot_capture_pending = true;
-                SDL_PumpEvents();
-                /* Esperar a que suelten los botones para evitar disparos multiples */
-                SDL_PumpEvents();
-                while (SDL_GetJoystickButton(joy, BTN_SDL_SELECT) ||
-                       SDL_GetJoystickButton(joy, BTN_SDL_R2)) {
-                    SDL_PumpEvents();
-                    SDL_Delay(20);
-                }
-                SDL_Delay(200); /* debounce tras soltar */
-                /* La ventana del flash se fija AQUI, tras soltar los
-                 * botones: si se fijara antes del bucle de espera, un
-                 * usuario que mantenga la combinacion pulsada mas de
-                 * 500ms nunca veria el flash (ventana ya expirada al
-                 * reanudar el dibujado del bucle principal). */
                 screenshot_flash_until = SDL_GetTicks() + 500;
+            } else if (!combo_now) {
+                screenshot_combo_held = false;
             }
         }
 
