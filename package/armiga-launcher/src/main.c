@@ -5859,7 +5859,25 @@ int main(void)
 
             draw_rect_filled(ren, mx, 56.0f, SCREEN_W - 40.0f, 30.0f, c_selbg);
             SDL_Color c_kb_val = c_menu_gold;
-            draw_text(ren, f_med, kb_buffer[0] ? kb_buffer : "", c_kb_val, mx + 8.0f, 62.0f);
+            char kb_display[64];
+            if (wifi_field_selected == 1 && !wifi_show_password && kb_buffer[0]) {
+                size_t klen = strlen(kb_buffer);
+                if (klen >= sizeof(kb_display)) klen = sizeof(kb_display) - 1;
+                memset(kb_display, '*', klen);
+                kb_display[klen] = 0;
+            } else {
+                safe_copy(kb_display, kb_buffer, sizeof(kb_display));
+            }
+            float kb_box_max_w = (SCREEN_W - 40.0f) - 16.0f;
+            draw_text_truncated(ren, f_med, kb_display[0] ? kb_display : "", c_kb_val, mx + 8.0f, 62.0f, kb_box_max_w);
+            if ((SDL_GetTicks() / 500) % 2 == 0) {
+                int dw = 0, dh = 0;
+                TTF_GetStringSize(f_med, kb_display, 0, &dw, &dh);
+                float cursor_x = mx + 8.0f + (float)dw + 2.0f;
+                if (cursor_x < mx + 8.0f + kb_box_max_w) {
+                    draw_text(ren, f_med, "|", c_kb_val, cursor_x, 62.0f);
+                }
+            }
 
             SDL_Color c_keybg = COL_KEY_BG;
             float kb_y0 = 130.0f;
