@@ -5847,8 +5847,19 @@ int main(void)
                 draw_text(ren, f_sm, valbuf, labelc, bar_x + led_bar_w + 10.0f, iy);
             }
 
-            SDL_Color preview_right = {(Uint8)led_r_right, (Uint8)led_g_right, (Uint8)led_b_right, 255};
-            SDL_Color preview_left  = {(Uint8)led_r_left,  (Uint8)led_g_left,  (Uint8)led_b_left,  255};
+            /* La preview debe reflejar el brillo global igual que el LED
+             * fisico: el protocolo escala cada canal RGB por brightness/255
+             * en firmware (ver send_led_payload), asi que se replica aqui
+             * para que "Vista previa" no muestre siempre el color a maxima
+             * intensidad independientemente del slider de brillo. */
+            int pr_r = (led_r_right * led_brightness) / 255;
+            int pr_g = (led_g_right * led_brightness) / 255;
+            int pr_b = (led_b_right * led_brightness) / 255;
+            int pl_r = (led_r_left  * led_brightness) / 255;
+            int pl_g = (led_g_left  * led_brightness) / 255;
+            int pl_b = (led_b_left  * led_brightness) / 255;
+            SDL_Color preview_right = {(Uint8)pr_r, (Uint8)pr_g, (Uint8)pr_b, 255};
+            SDL_Color preview_left  = {(Uint8)pl_r, (Uint8)pl_g, (Uint8)pl_b, 255};
             float preview_y = led_y0 + LED_SLIDER_COUNT * led_item_h + 16.0f;
             draw_text(ren, f_sm, tr("Vista previa", "Preview"), c_menu_beige, mx, preview_y);
             float sw_size = 60.0f;
