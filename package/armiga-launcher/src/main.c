@@ -3197,6 +3197,7 @@ int main(void)
     char kb_buffer[64] = "";
     int  kb_row = 0;
     int  kb_col = 0;
+    int  kb_prev_col = 0; /* columna recordada al entrar en una fila de 1 elemento (barra espaciadora) */
     int  kb_mode = KB_MODE_LOWER;
     AppState kb_return_state = STATE_WIFI_CONFIG;
     AppState state = STATE_MENU;
@@ -4169,13 +4170,24 @@ int main(void)
                         dir_left  = (ev.jhat.value == SDL_HAT_LEFT);
                         dir_right = (ev.jhat.value == SDL_HAT_RIGHT);
                     }
-                    if (dir_up)    kb_row = (kb_row - 1 + KB_ROWS) % KB_ROWS;
-                    if (dir_down)  kb_row = (kb_row + 1) % KB_ROWS;
                     if (dir_left)  kb_col = (kb_col - 1 + row_len) % row_len;
                     if (dir_right) kb_col = (kb_col + 1) % row_len;
-                    /* al cambiar de fila, si la columna actual no existe en la nueva fila, recolocar */
-                    int new_row_len = kb_row_len(kb_mode, kb_row);
-                    if (new_row_len > 0 && kb_col >= new_row_len) kb_col = new_row_len - 1;
+                    if (dir_up || dir_down) {
+                        int old_row_len = row_len;
+                        if (dir_up)    kb_row = (kb_row - 1 + KB_ROWS) % KB_ROWS;
+                        if (dir_down)  kb_row = (kb_row + 1) % KB_ROWS;
+                        int new_row_len = kb_row_len(kb_mode, kb_row);
+                        if (new_row_len == 1 && old_row_len > 1) {
+                            /* entrando en fila de un solo elemento (espaciadora): recordar columna previa */
+                            kb_prev_col = kb_col;
+                            kb_col = 0;
+                        } else if (old_row_len == 1 && new_row_len > 1) {
+                            /* saliendo de la espaciadora: restaurar columna previa */
+                            kb_col = (kb_prev_col < new_row_len) ? kb_prev_col : new_row_len - 1;
+                        } else if (new_row_len > 0 && kb_col >= new_row_len) {
+                            kb_col = new_row_len - 1;
+                        }
+                    }
                 }
                 if (ev.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN &&
                     ev.jbutton.button == BTN_SDL_A) {
