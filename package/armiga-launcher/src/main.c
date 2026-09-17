@@ -3772,11 +3772,15 @@ int main(void)
                         bt_connect_status[0] = 0;
                     }
                 }
-                if (ev.type == SDL_EVENT_KEY_DOWN && ev.key.key == SDLK_ESCAPE)
+                if ((ev.type == SDL_EVENT_KEY_DOWN && ev.key.key == SDLK_ESCAPE) ||
+                    (ev.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN &&
+                     ev.jbutton.button == BTN_SDL_B)) {
+                    if (bt_connecting) {
+                        system("pkill -f armiga-bt-connect >/dev/null 2>&1");
+                        bt_connecting = false;
+                    }
                     state = STATE_SETTINGS;
-                if (ev.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN &&
-                    ev.jbutton.button == BTN_SDL_B)
-                    state = STATE_SETTINGS;
+                }
             }
             else if (state == STATE_AREXX_LIST) {
                 if (arexx_count > 0) {
