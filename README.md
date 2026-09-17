@@ -40,7 +40,7 @@ ARMIGA is a minimal Linux distribution based on **Buildroot** for the **Anbernic
 - ✅ GPU governor forced to `performance` (fixed 648MHz — `simple_ondemand` didn't scale well under real load)
 - ✅ ZRAM swap (512MB, LZ4, `swappiness=100`)
 - ✅ `amiga_data` partition (exFAT, auto-expands to 100% of the SD card on first boot)
-- ✅ Graphics stack: SDL3 3.4.16 (kmsdrm) + Mesa 26.2.2 (GBM + Panfrost, stripped `.so` in overlay)
+- ✅ Graphics stack: SDL3 3.4.16 (kmsdrm) + Mesa 26.2.3 (GBM + Panfrost, stripped `.so` in overlay)
 - ✅ Custom C/SDL3 launcher (`armiga-launcher`), bilingual **Spanish/English** interface (toggle `L1`, persistent)
 - ✅ RetroArch 1.22.2-nightly (9b2038c) + PUAE 2021 core (`puae2021_libretro.so`, 2.6.1 297b347)
 - ✅ OTA update system (GitHub Releases → download → SHA256 verification → flash inactive slot, all async without blocking the UI)
@@ -72,8 +72,8 @@ On boot, `S02bootcheck` compares the active slot (read from `/proc/cmdline`) aga
 ```
 armiga-launcher / RetroArch (PUAE)
     └── SDL3 3.4.16 (backend: kmsdrm)
-        ├── libgbm.so.1.0.0 (Mesa 26.2.2)
-        │   └── dri_gbm.so → libgallium-26.2.2.so (Panfrost)
+        ├── libgbm.so.1.0.0 (Mesa 26.2.3)
+        │   └── dri_gbm.so → libgallium-26.2.3.so (Panfrost)
         ├── libEGL.so.1.0.0
         ├── libGLESv2.so.2.0.0
         └── libdrm
