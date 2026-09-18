@@ -101,7 +101,7 @@ static void safe_copy(char *dst, const char *src, size_t sz) {
 #define COL_KEY_BG   { 22,  22,  22, 255}
 #define COL_ROW_BG   {28, 52, 40, 255}
 #define COL_DEADZONE {40, 65, 50, 255}
-#define THEME_COUNT 7
+#define THEME_COUNT 10
 /* Estructura de tema: acento/texto + fondo general + rojo de alerta,
  * segun lo acordado (no cubre colores de datos como RGB de LEDs). */
 typedef struct {
@@ -120,6 +120,9 @@ static const char *THEME_NAMES[THEME_COUNT][2] = {
     {"Carmesi",           "Crimson"},
     {"Fosforo verde",     "Green phosphor"},
     {"Monocromo / Plata", "Monochrome / Silver"},
+    {"Workbench 1.3",     "Workbench 1.3"},
+    {"Workbench 3.1",     "Workbench 3.1"},
+    {"Kickstart Purpura", "Kickstart Purple"},
 };
 static const Theme THEMES[THEME_COUNT] = {
     /* 1. Lima (original) */
@@ -136,6 +139,12 @@ static const Theme THEMES[THEME_COUNT] = {
     { {8, 8, 8, 255}, {80, 255, 120, 255}, {8, 8, 8, 255}, {200, 255, 210, 255}, {20, 26, 20, 255}, {255, 90, 60, 255} },
     /* 7. Monocromo / Plata */
     { {20, 20, 20, 255}, {216, 216, 216, 255}, {24, 24, 24, 255}, {232, 232, 232, 255}, {36, 36, 36, 255}, {220, 80, 80, 255} },
+    /* 8. Workbench 1.3 (Amiga 500/2000, 1987) */
+    { {0, 85, 170, 255}, {255, 170, 0, 255}, {0, 0, 0, 255}, {255, 255, 255, 255}, {20, 70, 140, 255}, {220, 60, 40, 255} },
+    /* 9. Workbench 3.1 (Amiga 1200/4000, 1993) */
+    { {160, 160, 160, 255}, {0, 85, 170, 255}, {255, 255, 255, 255}, {0, 0, 0, 255}, {200, 200, 200, 255}, {200, 40, 40, 255} },
+    /* 10. Kickstart Purple (pantalla de insercion de disquete) */
+    { {42, 22, 53, 255}, {255, 255, 238, 255}, {26, 12, 32, 255}, {229, 168, 35, 255}, {60, 34, 74, 255}, {225, 70, 90, 255} },
 };
 static Theme g_theme; /* tema activo, fijado en main() tras leer config */
 
@@ -5167,8 +5176,16 @@ int main(void)
             draw_active_dash_breadcrumbs(ren, f_sm, mx, 25.0f, 3, tr("Tema", "Theme"));
             float theme_item_h = 40.0f;
             float theme_y0 = 64.0f;
-            for (int i = 0; i < THEME_COUNT; i++) {
-                float iy = theme_y0 + i * theme_item_h;
+            int theme_visible = 8;
+            int theme_scroll = 0;
+            if (theme_selected >= theme_visible)
+                theme_scroll = theme_selected - theme_visible + 1;
+            if (theme_scroll > THEME_COUNT - theme_visible)
+                theme_scroll = THEME_COUNT - theme_visible;
+            if (theme_scroll < 0) theme_scroll = 0;
+            for (int row = 0; row < theme_visible && (row + theme_scroll) < THEME_COUNT; row++) {
+                int i = row + theme_scroll;
+                float iy = theme_y0 + row * theme_item_h;
                 bool sel = (i == theme_selected);
                 SDL_Color swatch_c = THEMES[i].accent;
                 SDL_Color labelc = sel ? THEMES[i].text_on_accent : c_menu_beige;
@@ -5184,6 +5201,14 @@ int main(void)
                 }
                 draw_rounded_rect_filled(ren, mx + 8.0f, dot_y, 20.0f, 20.0f, 10.0f, swatch_c);
                 draw_text(ren, f_med, THEME_NAMES[i][current_lang], labelc, mx + 40.0f, text_y);
+            }
+            if (theme_scroll > 0) {
+                draw_text(ren, f_xs, tr("más arriba ↑", "more above ↑"), c_menu_selbg,
+                          mx + 8.0f, theme_y0 - 16.0f);
+            }
+            if (theme_scroll + theme_visible < THEME_COUNT) {
+                draw_text(ren, f_xs, tr("más abajo ↓", "more below ↓"), c_menu_selbg,
+                          mx + 8.0f, theme_y0 + theme_visible * theme_item_h + 2.0f);
             }
             draw_line(ren, mx, 438.0f, SCREEN_W - 20.0f, 438.0f, c_selbg);
             draw_footer(ren, f_sm,
