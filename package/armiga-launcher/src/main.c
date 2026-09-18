@@ -5499,7 +5499,7 @@ int main(void)
             draw_line(ren, mx, 438.0f, SCREEN_W - 20.0f, 438.0f, c_selbg);
             draw_footer(ren, f_sm, tr("[B] Seleccionar  [A] Volver", "[B] Select  [A] Back"), s_version);
 
-        } else if (state == STATE_BACKUP_LIST) {
+        } else if (state == STATE_BACKUP_LIST || (state == STATE_CONFIRM && confirm_return_state == STATE_BACKUP_LIST)) {
             draw_statusbar(ren, f_status_bold, status_time, status_wifi_up, status_battery, status_bt_up, bg_update_available, wifi_icon_tex, battery_icon_tex, bt_icon_tex, ssh_icon_tex, update_badge_tex);
             draw_active_dash_breadcrumbs(ren, f_sm, mx, 25.0f, 4, tr("Restaurar copia", "Restore Backup"));
             float bkl_y0 = 64.0f;
@@ -5530,6 +5530,34 @@ int main(void)
             }
             draw_line(ren, mx, 438.0f, SCREEN_W - 20.0f, 438.0f, c_selbg);
             draw_footer(ren, f_sm, tr("[B] Restaurar  [X] Eliminar  [A] Volver", "[B] Restore  [X] Delete  [A] Back"), s_version);
+
+            /* Overlay de confirmacion (restaurar/eliminar backup) sobre la
+             * lista de copias ya dibujada, mismo patron que el popup de
+             * Apagar/Reiniciar. */
+            if (state == STATE_CONFIRM &&
+                (confirm_target == BACKUP_ACTION_RESTORE || confirm_target == BACKUP_ACTION_DELETE)) {
+                SDL_SetRenderDrawBlendMode(ren, SDL_BLENDMODE_BLEND);
+                SDL_SetRenderDrawColor(ren, 0, 0, 0, 150);
+                SDL_FRect dim_rect = {0, 0, (float)SCREEN_W, (float)SCREEN_H};
+                SDL_RenderFillRect(ren, &dim_rect);
+                SDL_SetRenderDrawBlendMode(ren, SDL_BLENDMODE_NONE);
+
+                char bkl_confirm_label[144];
+                snprintf(bkl_confirm_label, sizeof(bkl_confirm_label),
+                         confirm_target == BACKUP_ACTION_RESTORE
+                             ? tr("¿Restaurar %s?", "Restore %s?")
+                             : tr("¿Eliminar %s?", "Delete %s?"),
+                         confirm_backup_filename);
+
+                float box_w = 320.0f, box_h = 100.0f;
+                float box_x = (SCREEN_W - box_w) / 2.0f;
+                float box_y = (SCREEN_H - box_h) / 2.0f;
+                draw_rounded_rect_filled(ren, box_x, box_y, box_w, box_h, 16.0f, g_theme.row_bg);
+                draw_text_centered(ren, f_med, bkl_confirm_label, g_theme.text_light,
+                                   SCREEN_W / 2.0f, box_y + 30.0f);
+                draw_text_centered(ren, f_sm, tr("[B] Si        [A] No", "[B] Yes       [A] No"),
+                                   g_theme.accent, SCREEN_W / 2.0f, box_y + 66.0f);
+            }
 
         } else if (state == STATE_AREXX_LIST) {
             draw_statusbar(ren, f_status_bold, status_time, status_wifi_up, status_battery, status_bt_up, bg_update_available, wifi_icon_tex, battery_icon_tex, bt_icon_tex, ssh_icon_tex, update_badge_tex);
@@ -6113,29 +6141,6 @@ int main(void)
                 draw_text_centered(ren, f_sm, tr("[B] Si        [A] No", "[B] Yes       [A] No"),
                                    g_theme.accent, SCREEN_W / 2.0f, box_y + 66.0f);
             }
-
-        } else if (state == STATE_CONFIRM) {
-            char confirm_label_buf[128];
-            const char *label;
-            if (confirm_target == SETTINGS_ACTION_FACTORY_RESET) {
-                label = tr("¿Restablecer valores de fábrica?", "Factory reset?");
-            } else if (confirm_target == BACKUP_ACTION_RESTORE) {
-                snprintf(confirm_label_buf, sizeof(confirm_label_buf),
-                         tr("¿Restaurar %s?", "Restore %s?"), confirm_backup_filename);
-                label = confirm_label_buf;
-            } else if (confirm_target == BACKUP_ACTION_DELETE) {
-                snprintf(confirm_label_buf, sizeof(confirm_label_buf),
-                         tr("¿Eliminar %s?", "Delete %s?"), confirm_backup_filename);
-                label = confirm_label_buf;
-            } else if (confirm_target == DEV_ACTION_REBOOT) {
-                label = tr("¿Reiniciar el dispositivo?", "Reboot the device?");
-            } else {
-                label = tr("¿Apagar el dispositivo?", "Shut down the device?");
-            }
-            draw_text_centered(ren, f_med, label, c_white,
-                               SCREEN_W / 2.0f, SCREEN_H / 2.0f - 30.0f);
-            draw_text_centered(ren, f_med, tr("[B] Si        [A] No", "[B] Yes       [A] No"), c_green,
-                               SCREEN_W / 2.0f, SCREEN_H / 2.0f + 10.0f);
 
         } else if (state == STATE_SYSINFO) {
             /* ── Layout: cuadrícula 2 columnas × 3 bloques ──────────────────
