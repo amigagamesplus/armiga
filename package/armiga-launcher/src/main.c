@@ -4891,7 +4891,7 @@ int main(void)
             if (frac > 1.0f) frac = 1.0f;
             float bar_w = 200.0f;
             float bar_x = (SCREEN_W - bar_w) / 2.0f;
-            float bar_y = SCREEN_H - 64.0f;
+            float bar_y = SCREEN_H - 94.0f; /* +30px arriba en total, se solapaba con otro texto */
             SDL_Color c_devbar_lime = c_selbg;
             draw_bar_rounded(ren, bar_x, bar_y, bar_w, 4.0f, frac, c_devbar_lime, c_white);
         }
