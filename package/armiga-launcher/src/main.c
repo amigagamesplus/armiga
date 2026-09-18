@@ -84,6 +84,8 @@ static void safe_copy(char *dst, const char *src, size_t sz) {
 #define SCREEN_H  480
 
 #define FONT_PATH    "/usr/share/armiga/fonts/JetBrainsMonoNL-ExtraBold.ttf"
+#define FONT_PATH_BOLD "/usr/share/armiga/fonts/InterUI-Bold.ttf"
+#define FONT_STATUSBAR 16
 #define FONT_MED     13
 #define FONT_SM      12
 #define FONT_XS      9
@@ -230,12 +232,11 @@ static const char *MENU_ICONS[] = {
 
 static const char *MENU_ITEMS[][2] = {
     {"Catálogo Amiga",              "Amiga Catalog"},
-    {"Actualización de sistema",    "System Update"},
+    {"Actualización",    "System Update"},
     {"Diagnóstico del sistema",     "System Diagnostics"},
     {"ARexx Scripts",               "ARexx Scripts"},
     {"Configuración",               "Settings"},
     {"Apagar dispositivo",          "Power Off"},
-    {"Reiniciar dispositivo",       "Reboot"},
 };
 static const char *MENU_DESC[][2] = {
     {"Explora y lanza juegos\n" "Amiga desde tu biblioteca.",
@@ -248,12 +249,10 @@ static const char *MENU_DESC[][2] = {
      "System scripts for extra\n" "tasks and conveniences."},
     {"Ajustes del sistema:\n" "red inalambrica y mas.",
      "System settings:\n" "wireless network and more."},
-    {"Apaga el dispositivo\n" "de forma segura.",
-     "Shut down the device\n" "safely."},
-    {"Reinicia el dispositivo\n" "de forma segura.",
-     "Restart the device\n" "safely."},
+    {"Apaga o reinicia el\n" "dispositivo de forma segura.",
+     "Shut down or restart the\n" "device safely."},
 };
-#define MENU_COUNT 7
+#define MENU_COUNT 6
 
 static const char *SETTINGS_MENU_ITEMS[][2] = {
     {"Red inalámbrica",             "Wireless Network"},
@@ -274,6 +273,9 @@ static const char *SETTINGS_MENU_ITEMS[][2] = {
 #define SETTINGS_MENU_COUNT 14
 #define SETTINGS_ITEM_THEME 13
 #define SETTINGS_ACTION_FACTORY_RESET 11
+#define BACKUP_ACTION_RESTORE 12
+#define BACKUP_ACTION_DELETE 13
+#define MENU_ACTION_POWER 100 /* valor fuera de cualquier rango de indices de menu, para evitar colision con confirm_target de otros contextos */
 #define SETTINGS_ITEM_CONTROLLER_TEST 12
 
 /* Tiempos de inactividad seleccionables, en segundos. 0 = Nunca. */
@@ -882,6 +884,7 @@ static bool read_sysfs_int(const char *path, int *out)
 }
 
 static bool s_status_charging = false;
+static SDL_Texture *s_battery_charging_icon_tex = NULL;
 static void update_status(char *time_str, size_t time_str_sz,
                           bool *wifi_up, int *battery_pct)
 {
@@ -1030,6 +1033,43 @@ static void save_brightness_config(int pct)
     snprintf(v, sizeof(v), "%d", pct);
     config_set_kv("BRIGHTNESS_PCT", v);
 }
+/* Lee VOLUME_PCT de armiga.cfg. Default: 80%. ALSA no persiste el estado
+ * del mixer entre reboots por si solo (siempre vuelve a 100% de fabrica),
+ * asi que la fuente de verdad es armiga.cfg, igual que brillo. */
+static int read_volume_config(void)
+{
+    int pct = 80;
+    FILE *f = fopen(ARMIGA_CONFIG_PATH, "r");
+    if (!f) return pct;
+    char line[128];
+    while (fgets(line, sizeof(line), f)) {
+        char key[32], val[96];
+        if (sscanf(line, "%31[^=]=%95s", key, val) == 2) {
+            if (!strcmp(key, "VOLUME_PCT")) pct = atoi(val);
+        }
+    }
+    fclose(f);
+    if (pct < 0) pct = 0;
+    if (pct > 100) pct = 100;
+    return pct;
+}
+/* Guarda VOLUME_PCT en armiga.cfg. */
+static void save_volume_config(int pct)
+{
+    char v[16];
+    snprintf(v, sizeof(v), "%d", pct);
+    config_set_kv("VOLUME_PCT", v);
+}
+/* Ajusta el volumen real via amixer (control DAC, 0-100%). */
+static void write_volume_pct(int pct)
+{
+    if (pct < 0) pct = 0;
+    if (pct > 100) pct = 100;
+    char cmd[64];
+    snprintf(cmd, sizeof(cmd), "amixer -c 0 sset DAC %d%% >/dev/null 2>&1", pct);
+    int unused_result = system(cmd);
+    (void)unused_result;
+}
 /* Lee REFRESH_120HZ de armiga.cfg. Default: desactivado (0, = 60Hz). */
 static int read_refresh_120hz(void)
 {
@@ -1108,9 +1148,8 @@ static void save_bt_enabled(int enabled)
  * "key = " en retroarch.cfg, preservando el resto del fichero linea a
  * linea. Evita el fork+exec de /bin/sh + sed que suponia system("sed -i").
  * new_line debe incluir el salto de linea final. */
-static void patch_retroarch_cfg_line(const char *key, const char *new_line)
+static void patch_cfg_line(const char *path, const char *key, const char *new_line)
 {
-    const char *path = "/media/amiga_data/retroarch/retroarch.cfg";
     char **lines = NULL;
     int n = 0, cap = 0;
     bool replaced = false;
@@ -1158,7 +1197,34 @@ static void set_retroarch_audio_device(const char *mac)
     } else {
         snprintf(line, sizeof(line), "audio_device = \"\"\n");
     }
-    patch_retroarch_cfg_line("audio_device", line);
+    patch_cfg_line("/media/amiga_data/retroarch/retroarch.cfg", "audio_device", line);
+}
+/* El volumen real se controla siempre via ALSA DAC (write_volume_pct),
+ * misma capa dentro y fuera de RetroArch. audio_volume de RetroArch se
+ * fija fijo en 0dB (neutro) para evitar doble atenuacion: si RetroArch
+ * tambien redujera su propia ganancia en proporcion al DAC, la senal
+ * quedaria atenuada dos veces (comprobado en hardware: DAC 10% + -20dB
+ * de RetroArch = silencio total, mucho mas de lo esperado). */
+static void set_retroarch_volume_neutral(void)
+{
+    /* audio_volume en retroarch.cfg global NO es lo que RetroArch usa en
+     * runtime: el core PUAE2021 tiene su propio override de contenido/core
+     * (PUAE 2021.cfg) que prevalece siempre sobre el global. Comprobado en
+     * hardware: ese override traia audio_volume=-16.0 fijo (~15% visual),
+     * ignorando cualquier cambio en el global. Hay que parchear el override
+     * directamente, o el volumen del launcher nunca coincidira con el real.
+     *
+     * Se fija una ganancia constante de +3.52dB (equivalente al 150% que
+     * muestra el slider visual de RetroArch: dB = 20*log10(150/100)),
+     * en vez de 0.0dB/100%, porque el audio de origen de PUAE es bajo y
+     * el DAC de hardware (control real y variable, ajustado en el
+     * launcher) no tiene margen suficiente por si solo para un volumen
+     * comodo al 100%. Este valor es fijo y NO varia con volume_pct del
+     * launcher -- el unico control variable real sigue siendo el DAC. */
+    patch_cfg_line("/media/amiga_data/retroarch/config/PUAE 2021/PUAE 2021.cfg",
+                    "audio_volume", "audio_volume = \"3.521825\"\n");
+    patch_cfg_line("/media/amiga_data/retroarch/retroarch.cfg",
+                    "audio_volume", "audio_volume = \"3.521825\"\n");
 }
 /* Fija video_refresh_rate en retroarch.cfg para que RetroArch (proceso
  * aparte, con su propio SDL/DRM) pida el mismo modo de pantalla que el
@@ -1168,7 +1234,7 @@ static void set_retroarch_refresh_rate(int hz)
 {
     char line[300];
     snprintf(line, sizeof(line), "video_refresh_rate = \"%d.000000\"\n", hz);
-    patch_retroarch_cfg_line("video_refresh_rate", line);
+    patch_cfg_line("/media/amiga_data/retroarch/retroarch.cfg", "video_refresh_rate", line);
 }
 static void apply_bt_enabled(int enabled)
 {
@@ -2569,13 +2635,19 @@ static float draw_status_pill(SDL_Renderer *ren, TTF_Font *f, float right_edge, 
                                SDL_Texture *icon, const char *label, SDL_Color fg, SDL_Color bg,
                                float icon_size_override)
 {
-    int w = 0, h = 0;
+    int w = 0, h = 0, h_ref = 0;
     TTF_GetStringSize(f, label, 0, &w, &h);
+    /* Altura de pildora fija: medir siempre contra "0" en vez del label
+     * real, para que todas las pildoras del statusbar (bateria, wifi,
+     * bluetooth, ssh) salgan con la misma altura y queden alineadas,
+     * sin importar si el label tiene ascendentes/descendentes distintos
+     * o esta vacio (icon_only). */
+    { int w_ref = 0; TTF_GetStringSize(f, "0", 0, &w_ref, &h_ref); }
     bool icon_only = (icon && w <= 10);
-    float icon_w = icon ? (icon_size_override > 0.0f ? icon_size_override : 20.0f) : 0.0f;
+    float icon_w = icon ? (icon_size_override > 0.0f ? icon_size_override : 22.0f) : 0.0f;
     float icon_gap = (icon && !icon_only) ? 6.0f : 0.0f;
     float pad_x = icon_only ? 10.0f : 14.0f;
-    float pill_h = (float)h + 14.0f;
+    float pill_h = (float)h_ref + 14.0f;
     float pill_w = icon_only ? (pad_x * 2.0f + icon_w) : (pad_x * 2.0f + icon_w + icon_gap + (float)w);
     float pill_x = right_edge - pill_w;
     float pill_y = y_center - pill_h / 2.0f;
@@ -2591,73 +2663,122 @@ static float draw_status_pill(SDL_Renderer *ren, TTF_Font *f, float right_edge, 
         draw_text(ren, f, label, fg, cursor_x, y_center - (float)h / 2.0f);
     return pill_w;
 }
-static float draw_statusbar(SDL_Renderer *ren, TTF_Font *f, TTF_Font *f_ampm,
+static void draw_line(SDL_Renderer *r, float x1, float y1,
+                      float x2, float y2, SDL_Color c);
+
+static float draw_statusbar(SDL_Renderer *ren, TTF_Font *f_status,
                             const char *time_str, bool wifi_up, int battery, bool bt_up,
+                            bool update_available,
                             SDL_Texture *wifi_icon_tex, SDL_Texture *battery_icon_tex,
-                            SDL_Texture *bt_icon_tex)
+                            SDL_Texture *bt_icon_tex, SDL_Texture *ssh_icon_tex,
+                            SDL_Texture *update_icon_tex)
 {
-    SDL_Color c_cream    = g_theme.text_light;
-    SDL_Color c_gold     = g_theme.text_on_accent;
-    SDL_Color c_red      = g_theme.alert;
-    SDL_Color c_pill_on  = g_theme.accent;
-    SDL_Color c_pill_off = g_theme.row_bg;
-    SDL_Color c_dim_fg   = {70, 90, 80, 255};
+    SDL_Color c_cream     = g_theme.text_light;
+    SDL_Color c_lime      = g_theme.accent;
+    SDL_Color c_red       = g_theme.alert;
+    SDL_Color c_pill_off  = g_theme.row_bg;
+    SDL_Color c_dim_fg    = {70, 90, 80, 255};
+    SDL_Color c_white_lit = COL_KEY_BG;
     float right = SCREEN_W - 20.0f;
     float y     = 25.0f;
-    float gap   = 9.0f;
+    float gap   = 10.0f;
+    float bare_icon_sz = 26.0f;
 
-    char batt_buf[12];
-    SDL_Color batt_fg = c_gold;
-    SDL_Color batt_bg = c_pill_on;
-    SDL_Color c_white_lit = COL_KEY_BG;
-    if (battery >= 0) {
-        if (s_status_charging) {
-            snprintf(batt_buf, sizeof(batt_buf), "%d%% +", battery);
-            batt_fg = c_gold;
-        } else {
-            snprintf(batt_buf, sizeof(batt_buf), "%d%%", battery);
-            if (battery <= 15) { batt_fg = c_white_lit; batt_bg = c_red; }
-            else                batt_fg = c_gold;
-        }
-    } else {
-        strncpy(batt_buf, "--", sizeof(batt_buf));
-    }
-    right -= draw_status_pill(ren, f, right, y, battery_icon_tex, batt_buf, batt_fg, batt_bg, 24.0f);
-    right -= gap;
-
-    SDL_Color bt_fg = bt_up ? c_gold : c_dim_fg;
-    right -= draw_status_pill(ren, f, right, y, bt_icon_tex, " ", bt_fg, bt_up ? c_pill_on : c_pill_off, 0.0f);
-    right -= gap;
-
-    SDL_Color wifi_fg = wifi_up ? c_gold : c_dim_fg;
-    right -= draw_status_pill(ren, f, right, y, wifi_icon_tex, " ", wifi_fg, wifi_up ? c_pill_on : c_pill_off, 0.0f);
-    right -= gap;
-
+    /* Diseno definitivo (mockup Photoshop): pildora hora+bateria a la
+     * derecha; wifi/bluetooth/ssh como iconos desnudos a su izquierda,
+     * en ese orden (ssh mas a la izquierda). */
     {
         int hh = 0, mm = 0;
         sscanf(time_str, "%d:%d", &hh, &mm);
-        const char *ampm = (hh < 12) ? "AM" : "PM";
-        bool colon_visible = (SDL_GetTicks() / 500) % 2 == 0;
-        char time_display[16];
-        snprintf(time_display, sizeof(time_display), "%02d%s%02d", hh, colon_visible ? ":" : " ", mm);
-        int tw = 0, th = 0, aw = 0, ah = 0;
-        TTF_GetStringSize(f, time_str, 0, &tw, &th);
-        TTF_GetStringSize(f_ampm, ampm, 0, &aw, &ah);
-        float pad_x = 14.0f;
-        float ampm_gap = 4.0f;
-        float pill_h = (float)th + 14.0f;
-        float pill_w = pad_x * 2.0f + (float)tw + ampm_gap + (float)aw;
+        const char *ampm = (hh < 12) ? "am" : "pm";
+        char time_display[24];
+        snprintf(time_display, sizeof(time_display), "%02d:%02d %s", hh, mm, ampm);
+
+        char batt_buf[12];
+        SDL_Color batt_fg = c_cream;
+        SDL_Color pill_bg = c_pill_off;
+        SDL_Texture *batt_icon_use = battery_icon_tex;
+        if (battery >= 0) {
+            snprintf(batt_buf, sizeof(batt_buf), "%d%%", battery);
+            if (s_status_charging) {
+                if (s_battery_charging_icon_tex) batt_icon_use = s_battery_charging_icon_tex;
+            } else if (battery <= 15) {
+                batt_fg = c_white_lit;
+                pill_bg = c_red;
+            }
+        } else {
+            strncpy(batt_buf, "--", sizeof(batt_buf));
+        }
+
+        int tw = 0, th = 0, bw = 0, bh = 0;
+        TTF_GetStringSize(f_status, time_display, 0, &tw, &th);
+        TTF_GetStringSize(f_status, batt_buf, 0, &bw, &bh);
+
+        float pad_x = 16.0f;
+        float divider_gap = 12.0f;
+        float batt_icon_sz = 20.0f;
+        float batt_icon_gap = 6.0f;
+        float pill_h = (float)th + 16.0f;
+        float pill_w = pad_x + (float)tw
+                       + divider_gap + 1.0f + divider_gap
+                       + batt_icon_sz + batt_icon_gap + (float)bw + pad_x;
         float pill_x = right - pill_w;
         float pill_y = y - pill_h / 2.0f;
-        draw_rounded_rect_filled(ren, pill_x, pill_y, pill_w, pill_h, pill_h / 2.0f, c_pill_off);
-        draw_text(ren, f, time_display, c_cream, pill_x + pad_x, y - (float)th / 2.0f);
-        draw_text(ren, f_ampm, ampm, c_cream, pill_x + pad_x + (float)tw + ampm_gap, y - (float)ah / 2.0f);
+
+        draw_rounded_rect_filled(ren, pill_x, pill_y, pill_w, pill_h, pill_h / 2.0f, pill_bg);
+
+        float cx = pill_x + pad_x;
+        draw_text(ren, f_status, time_display, batt_fg, cx, y - (float)th / 2.0f);
+        cx += (float)tw + divider_gap;
+        draw_line(ren, cx, y - 9.0f, cx, y + 9.0f, batt_fg);
+        cx += 1.0f + divider_gap;
+        if (batt_icon_use) {
+            SDL_SetTextureColorMod(batt_icon_use, batt_fg.r, batt_fg.g, batt_fg.b);
+            SDL_FRect icon_dst = {cx, y - batt_icon_sz / 2.0f, batt_icon_sz, batt_icon_sz};
+            SDL_RenderTexture(ren, batt_icon_use, NULL, &icon_dst);
+        }
+        cx += batt_icon_sz + batt_icon_gap;
+        draw_text(ren, f_status, batt_buf, batt_fg, cx, y - (float)bh / 2.0f);
+
         right -= pill_w;
+    }
+    right -= gap + 3.0f;
+
+    SDL_Color wifi_fg = wifi_up ? c_lime : c_dim_fg;
+    if (wifi_icon_tex) {
+        SDL_SetTextureColorMod(wifi_icon_tex, wifi_fg.r, wifi_fg.g, wifi_fg.b);
+        SDL_FRect icon_dst = {right - bare_icon_sz, y - bare_icon_sz / 2.0f, bare_icon_sz, bare_icon_sz};
+        SDL_RenderTexture(ren, wifi_icon_tex, NULL, &icon_dst);
+        right -= bare_icon_sz;
+    }
+    right -= gap;
+
+    SDL_Color bt_fg = bt_up ? c_lime : c_dim_fg;
+    if (bt_icon_tex) {
+        SDL_SetTextureColorMod(bt_icon_tex, bt_fg.r, bt_fg.g, bt_fg.b);
+        SDL_FRect icon_dst = {right - bare_icon_sz, y - bare_icon_sz / 2.0f, bare_icon_sz, bare_icon_sz};
+        SDL_RenderTexture(ren, bt_icon_tex, NULL, &icon_dst);
+        right -= bare_icon_sz;
     }
     right -= gap;
 
     int ssh_on = g_cfg.ssh_enabled;
-    right -= draw_status_pill(ren, f, right, y, NULL, "SSH", ssh_on ? c_gold : c_dim_fg, ssh_on ? c_pill_on : c_pill_off, 0.0f);
+    SDL_Color ssh_fg = ssh_on ? c_lime : c_dim_fg;
+    if (ssh_icon_tex) {
+        SDL_SetTextureColorMod(ssh_icon_tex, ssh_fg.r, ssh_fg.g, ssh_fg.b);
+        SDL_FRect icon_dst = {right - bare_icon_sz, y - bare_icon_sz / 2.0f, bare_icon_sz, bare_icon_sz};
+        SDL_RenderTexture(ren, ssh_icon_tex, NULL, &icon_dst);
+        right -= bare_icon_sz;
+    }
+    right -= gap + 4.0f;
+
+    SDL_Color update_fg = update_available ? c_lime : c_dim_fg;
+    if (update_icon_tex) {
+        SDL_SetTextureColorMod(update_icon_tex, update_fg.r, update_fg.g, update_fg.b);
+        SDL_FRect icon_dst = {right - bare_icon_sz, y - bare_icon_sz / 2.0f, bare_icon_sz, bare_icon_sz};
+        SDL_RenderTexture(ren, update_icon_tex, NULL, &icon_dst);
+        right -= bare_icon_sz;
+    }
     return right;
 }
 /* Circulo relleno via barrido por filas (mismo principio que
@@ -2857,7 +2978,8 @@ int main(void)
     TTF_Font *f_lg    = TTF_OpenFont(FONT_PATH, FONT_LG);
     TTF_Font *f_xs    = TTF_OpenFont(FONT_PATH, FONT_XS);
     TTF_Font *f_xsm   = TTF_OpenFont(FONT_PATH, FONT_XSM);
-    if (!f_med || !f_sm || !f_lg || !f_xs || !f_xsm) {
+    TTF_Font *f_status_bold = TTF_OpenFont(FONT_PATH_BOLD, FONT_STATUSBAR);
+    if (!f_med || !f_sm || !f_lg || !f_xs || !f_xsm || !f_status_bold) {
         fprintf(stderr, "TTF_OpenFont: %s\n", SDL_GetError());
         SDL_DestroyRenderer(ren); SDL_DestroyWindow(win);
         TTF_Quit(); SDL_Quit(); return 1;
@@ -2893,10 +3015,26 @@ int main(void)
     if (wifi_icon_tex) SDL_SetTextureScaleMode(wifi_icon_tex, SDL_SCALEMODE_LINEAR);
     SDL_Texture *bt_icon_tex = IMG_LoadTexture(ren, "/usr/share/armiga/icons/bluetooth.png");
     if (bt_icon_tex) SDL_SetTextureScaleMode(bt_icon_tex, SDL_SCALEMODE_LINEAR);
-    SDL_Texture *battery_icon_tex = IMG_LoadTexture(ren, "/usr/share/armiga/icons/battery-3.png");
-    if (battery_icon_tex) SDL_SetTextureScaleMode(battery_icon_tex, SDL_SCALEMODE_LINEAR);
+    SDL_Texture *ssh_icon_tex = IMG_LoadTexture(ren, "/usr/share/armiga/icons/ssh-terminal.png");
+    if (ssh_icon_tex) SDL_SetTextureScaleMode(ssh_icon_tex, SDL_SCALEMODE_LINEAR);
+    /* 5 niveles de icono de bateria (Tabler battery/-1/-2/-3/-4), elegidos
+     * dinamicamente segun el porcentaje real en vez de un icono fijo. */
+    SDL_Texture *battery_icon_levels[5];
+    battery_icon_levels[0] = IMG_LoadTexture(ren, "/usr/share/armiga/icons/battery.png");
+    battery_icon_levels[1] = IMG_LoadTexture(ren, "/usr/share/armiga/icons/battery-1.png");
+    battery_icon_levels[2] = IMG_LoadTexture(ren, "/usr/share/armiga/icons/battery-2.png");
+    battery_icon_levels[3] = IMG_LoadTexture(ren, "/usr/share/armiga/icons/battery-3.png");
+    battery_icon_levels[4] = IMG_LoadTexture(ren, "/usr/share/armiga/icons/battery-4.png");
+    for (int bi = 0; bi < 5; bi++) {
+        if (battery_icon_levels[bi]) SDL_SetTextureScaleMode(battery_icon_levels[bi], SDL_SCALEMODE_LINEAR);
+    }
+    SDL_Texture *battery_icon_tex = battery_icon_levels[4]; /* valor inicial, se reasigna cada refresco de status */
+    s_battery_charging_icon_tex = IMG_LoadTexture(ren, "/usr/share/armiga/icons/battery-charging-2.png");
+    if (s_battery_charging_icon_tex) SDL_SetTextureScaleMode(s_battery_charging_icon_tex, SDL_SCALEMODE_LINEAR);
     SDL_Texture *perf_bolt_tex = IMG_LoadTexture(ren, "/usr/share/armiga/icons/perf-bolt.png");
     if (perf_bolt_tex) SDL_SetTextureScaleMode(perf_bolt_tex, SDL_SCALEMODE_LINEAR);
+    SDL_Texture *update_badge_tex = IMG_LoadTexture(ren, "/usr/share/armiga/icons/update-badge.png");
+    if (update_badge_tex) SDL_SetTextureScaleMode(update_badge_tex, SDL_SCALEMODE_LINEAR);
     SDL_Texture *perf_scale_tex = IMG_LoadTexture(ren, "/usr/share/armiga/icons/perf-scale.png");
     if (perf_scale_tex) SDL_SetTextureScaleMode(perf_scale_tex, SDL_SCALEMODE_LINEAR);
     SDL_Texture *perf_battery_tex = IMG_LoadTexture(ren, "/usr/share/armiga/icons/perf-battery.png");
@@ -2907,6 +3045,8 @@ int main(void)
     SDL_Texture *arexx_icon_tex = IMG_LoadTexture(ren, "/usr/share/armiga/icons/script.png");
     if (arexx_icon_tex) SDL_SetTextureScaleMode(arexx_icon_tex, SDL_SCALEMODE_LINEAR);
     SDL_Texture *update_icon_tex = IMG_LoadTexture(ren, "/usr/share/armiga/icons/arrow-big-up-lines.png");
+    SDL_Texture *volume_icon_tex = IMG_LoadTexture(ren, "/usr/share/armiga/icons/volume.png");
+    SDL_Texture *brightness_icon_tex = IMG_LoadTexture(ren, "/usr/share/armiga/icons/brightness.png");
     if (update_icon_tex) SDL_SetTextureScaleMode(update_icon_tex, SDL_SCALEMODE_LINEAR);
 
     /* Leer versiones */
@@ -2985,7 +3125,9 @@ int main(void)
     float fps_display = 0.0f;
     Uint64 fps_last_update = SDL_GetTicksNS();
     int confirm_target = DEV_ACTION_REBOOT; /* cual de los dos confirm. */
+    int power_popup_selected = 0; /* 0=Apagar, 1=Reiniciar, solo para MENU_ACTION_POWER */
     AppState confirm_return_state = STATE_DEVMODE;
+    char confirm_backup_filename[64] = "";
     int settings_selected = 0;
     int backup_selected = 0;
     Uint64 backup_msg_until = 0;
@@ -3068,6 +3210,7 @@ int main(void)
     char kb_buffer[64] = "";
     int  kb_row = 0;
     int  kb_col = 0;
+    int  kb_prev_col = 0; /* columna recordada al entrar en una fila de 1 elemento (barra espaciadora) */
     int  kb_mode = KB_MODE_LOWER;
     AppState kb_return_state = STATE_WIFI_CONFIG;
     AppState state = STATE_MENU;
@@ -3081,7 +3224,12 @@ int main(void)
 
     Uint64 devmode_hold_start = 0; /* 0 = combo no presionado */
     bool devmode_combo_held = false;
+    bool screenshot_combo_held = false; /* edge-detect SELECT+R2, evita retrigger sin bloquear */
     Uint64 screenshot_flash_until = 0; /* ms hasta cuando mostrar flash */
+    int volume_pct = read_volume_config();   /* volumen guardado, aplicado a ALSA al arrancar */
+    write_volume_pct(volume_pct);
+    Uint64 volume_popup_until = 0;           /* ms hasta cuando mostrar el popup de volumen */
+    Uint64 brightness_popup_until = 0;       /* ms hasta cuando mostrar el popup de brillo */
     bool screenshot_capture_pending = false; /* diferir captura al final del frame */
 
     char dev_ip[32]     = "sin red";
@@ -3208,6 +3356,22 @@ int main(void)
                 stick_axis_prev = zone;
             }
 
+            /* Atajo global: botones fisicos de volumen (gpio-keys-volume,
+             * KEY_VOLUMEUP/DOWN) ajustan volumen ALSA desde cualquier
+             * pantalla del launcher y muestran un popup temporal. No se
+             * excluye ningun estado: a diferencia de brillo, ninguna
+             * pantalla usa estas teclas para otra cosa. */
+            if (ev.type == SDL_EVENT_KEY_DOWN &&
+                (ev.key.key == SDLK_VOLUMEUP || ev.key.key == SDLK_VOLUMEDOWN)) {
+                volume_pct += (ev.key.key == SDLK_VOLUMEUP) ? 5 : -5;
+                if (volume_pct < 0) volume_pct = 0;
+                if (volume_pct > 100) volume_pct = 100;
+                write_volume_pct(volume_pct);
+                save_volume_config(volume_pct);
+                set_retroarch_volume_neutral();
+                volume_popup_until = SDL_GetTicks() + 1500;
+            }
+
             /* Atajo global: MODE + DPAD UP/DOWN ajusta brillo desde
              * cualquier pantalla, salvo dentro de STATE_BRIGHTNESS_CONFIG
              * (donde el D-pad ya tiene su propio uso LEFT/RIGHT). */
@@ -3226,6 +3390,7 @@ int main(void)
                      * nuevas pulsaciones, no en cada pulsacion individual. */
                     brightness_save_pending = true;
                     brightness_save_pending_since = SDL_GetTicks();
+                    brightness_popup_until = SDL_GetTicks() + 1500;
                     continue;
                 }
             }
@@ -3621,11 +3786,15 @@ int main(void)
                         bt_connect_status[0] = 0;
                     }
                 }
-                if (ev.type == SDL_EVENT_KEY_DOWN && ev.key.key == SDLK_ESCAPE)
+                if ((ev.type == SDL_EVENT_KEY_DOWN && ev.key.key == SDLK_ESCAPE) ||
+                    (ev.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN &&
+                     ev.jbutton.button == BTN_SDL_B)) {
+                    if (bt_connecting) {
+                        system("pkill -f armiga-bt-connect >/dev/null 2>&1");
+                        bt_connecting = false;
+                    }
                     state = STATE_SETTINGS;
-                if (ev.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN &&
-                    ev.jbutton.button == BTN_SDL_B)
-                    state = STATE_SETTINGS;
+                }
             }
             else if (state == STATE_AREXX_LIST) {
                 if (arexx_count > 0) {
@@ -3744,6 +3913,7 @@ int main(void)
                         } else {
                             dim_percent -= 5;
                             if (dim_percent < 5) dim_percent = 5;
+                            write_brightness((int)((int64_t)2499 * brightness_pct / 100 * dim_percent / 100));
                         }
                     }
                     if (ev.key.key == SDLK_RIGHT) {
@@ -3753,6 +3923,7 @@ int main(void)
                         } else {
                             dim_percent += 5;
                             if (dim_percent > 95) dim_percent = 95;
+                            write_brightness((int)((int64_t)2499 * brightness_pct / 100 * dim_percent / 100));
                         }
                     }
                 }
@@ -3770,6 +3941,7 @@ int main(void)
                         } else {
                             dim_percent -= 5;
                             if (dim_percent < 5) dim_percent = 5;
+                            write_brightness((int)((int64_t)2499 * brightness_pct / 100 * dim_percent / 100));
                         }
                     }
                     else if (ev.jhat.value == SDL_HAT_RIGHT) {
@@ -3779,6 +3951,7 @@ int main(void)
                         } else {
                             dim_percent += 5;
                             if (dim_percent > 95) dim_percent = 95;
+                            write_brightness((int)((int64_t)2499 * brightness_pct / 100 * dim_percent / 100));
                         }
                     }
                 }
@@ -3790,13 +3963,25 @@ int main(void)
                         write_brightness(dim_saved_brightness);
                         dim_active = false;
                         apply_perf_profile(perf_selected);
+                    } else {
+                        /* Restaurar brillo normal tras la preview en vivo
+                         * del atenuado (screendim), que pudo dejar la
+                         * pantalla mas oscura de lo normal. */
+                        write_brightness((int)((int64_t)2499 * brightness_pct / 100));
                     }
                     last_input_ticks = SDL_GetTicks();
                     state = STATE_SETTINGS;
                 }
                 if (ev.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN &&
-                    ev.jbutton.button == BTN_SDL_B)
+                    ev.jbutton.button == BTN_SDL_B) {
+                    if (!dim_active) {
+                        /* Mismo motivo que en el guardado: descartar
+                         * cambios no debe dejar la pantalla atenuada por
+                         * la preview en vivo. */
+                        write_brightness((int)((int64_t)2499 * brightness_pct / 100));
+                    }
                     state = STATE_SETTINGS;
+                }
             }
             else if (state == STATE_BACKUP_MENU) {
                 if (ev.type == SDL_EVENT_KEY_DOWN) {
@@ -3940,16 +4125,17 @@ int main(void)
                 }
                 if (ev.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN &&
                     ev.jbutton.button == BTN_SDL_A && backup_count > 0) {
-                    restore_backup(backup_list[backup_list_selected]);
-                    running = false;
-                    exec_req = EXEC_REBOOT;
+                    safe_copy(confirm_backup_filename, backup_list[backup_list_selected], sizeof(confirm_backup_filename));
+                    confirm_target = BACKUP_ACTION_RESTORE;
+                    confirm_return_state = STATE_BACKUP_LIST;
+                    state = STATE_CONFIRM;
                 }
                 if (ev.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN &&
                     ev.jbutton.button == BTN_SDL_X && backup_count > 0) {
-                    delete_backup(backup_list[backup_list_selected]);
-                    backup_count = list_backups(backup_list, BACKUP_LIST_MAX);
-                    if (backup_list_selected >= backup_count)
-                        backup_list_selected = backup_count > 0 ? backup_count - 1 : 0;
+                    safe_copy(confirm_backup_filename, backup_list[backup_list_selected], sizeof(confirm_backup_filename));
+                    confirm_target = BACKUP_ACTION_DELETE;
+                    confirm_return_state = STATE_BACKUP_LIST;
+                    state = STATE_CONFIRM;
                 }
                 if (ev.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN &&
                     ev.jbutton.button == BTN_SDL_B)
@@ -4018,13 +4204,24 @@ int main(void)
                         dir_left  = (ev.jhat.value == SDL_HAT_LEFT);
                         dir_right = (ev.jhat.value == SDL_HAT_RIGHT);
                     }
-                    if (dir_up)    kb_row = (kb_row - 1 + KB_ROWS) % KB_ROWS;
-                    if (dir_down)  kb_row = (kb_row + 1) % KB_ROWS;
                     if (dir_left)  kb_col = (kb_col - 1 + row_len) % row_len;
                     if (dir_right) kb_col = (kb_col + 1) % row_len;
-                    /* al cambiar de fila, si la columna actual no existe en la nueva fila, recolocar */
-                    int new_row_len = kb_row_len(kb_mode, kb_row);
-                    if (new_row_len > 0 && kb_col >= new_row_len) kb_col = new_row_len - 1;
+                    if (dir_up || dir_down) {
+                        int old_row_len = row_len;
+                        if (dir_up)    kb_row = (kb_row - 1 + KB_ROWS) % KB_ROWS;
+                        if (dir_down)  kb_row = (kb_row + 1) % KB_ROWS;
+                        int new_row_len = kb_row_len(kb_mode, kb_row);
+                        if (new_row_len == 1 && old_row_len > 1) {
+                            /* entrando en fila de un solo elemento (espaciadora): recordar columna previa */
+                            kb_prev_col = kb_col;
+                            kb_col = 0;
+                        } else if (old_row_len == 1 && new_row_len > 1) {
+                            /* saliendo de la espaciadora: restaurar columna previa */
+                            kb_col = (kb_prev_col < new_row_len) ? kb_prev_col : new_row_len - 1;
+                        } else if (new_row_len > 0 && kb_col >= new_row_len) {
+                            kb_col = new_row_len - 1;
+                        }
+                    }
                 }
                 if (ev.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN &&
                     ev.jbutton.button == BTN_SDL_A) {
@@ -4062,22 +4259,49 @@ int main(void)
                 }
             }
             else if (state == STATE_CONFIRM) {
-                if ((ev.type == SDL_EVENT_KEY_DOWN && ev.key.key == SDLK_RETURN) ||
-                    (ev.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN &&
-                     ev.jbutton.button == BTN_SDL_A)) {
-                    if (confirm_target == SETTINGS_ACTION_FACTORY_RESET) {
-                        factory_reset();
-                        running = false;
-                        exec_req = EXEC_REBOOT;
-                    } else {
-                        running = false;
-                        exec_req = (confirm_target == DEV_ACTION_REBOOT)
-                                   ? EXEC_REBOOT : EXEC_SHUTDOWN;
-                    }
+                if (confirm_target == MENU_ACTION_POWER &&
+                    ev.type == SDL_EVENT_JOYSTICK_HAT_MOTION) {
+                    if (ev.jhat.value == SDL_HAT_LEFT)  power_popup_selected = 0;
+                    if (ev.jhat.value == SDL_HAT_RIGHT) power_popup_selected = 1;
                 }
-                if (ev.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN &&
-                    ev.jbutton.button == BTN_SDL_B)
-                    state = confirm_return_state;
+                if (confirm_target == MENU_ACTION_POWER) {
+                    if ((ev.type == SDL_EVENT_KEY_DOWN && ev.key.key == SDLK_RETURN) ||
+                        (ev.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN &&
+                         ev.jbutton.button == BTN_SDL_A)) {
+                        running = false;
+                        exec_req = (power_popup_selected == 1) ? EXEC_REBOOT : EXEC_SHUTDOWN;
+                    }
+                    if (ev.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN &&
+                        ev.jbutton.button == BTN_SDL_B)
+                        state = confirm_return_state;
+                } else {
+                    if ((ev.type == SDL_EVENT_KEY_DOWN && ev.key.key == SDLK_RETURN) ||
+                        (ev.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN &&
+                         ev.jbutton.button == BTN_SDL_A)) {
+                        if (confirm_target == SETTINGS_ACTION_FACTORY_RESET) {
+                            factory_reset();
+                            running = false;
+                            exec_req = EXEC_REBOOT;
+                        } else if (confirm_target == BACKUP_ACTION_RESTORE) {
+                            restore_backup(confirm_backup_filename);
+                            running = false;
+                            exec_req = EXEC_REBOOT;
+                        } else if (confirm_target == BACKUP_ACTION_DELETE) {
+                            delete_backup(confirm_backup_filename);
+                            backup_count = list_backups(backup_list, BACKUP_LIST_MAX);
+                            if (backup_list_selected >= backup_count)
+                                backup_list_selected = backup_count > 0 ? backup_count - 1 : 0;
+                            state = confirm_return_state;
+                        } else {
+                            running = false;
+                            exec_req = (confirm_target == DEV_ACTION_REBOOT)
+                                       ? EXEC_REBOOT : EXEC_SHUTDOWN;
+                        }
+                    }
+                    if (ev.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN &&
+                        ev.jbutton.button == BTN_SDL_B)
+                        state = confirm_return_state;
+                }
             }
             else if (state == STATE_SYSINFO) {
                 if (ev.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN &&
@@ -4159,7 +4383,12 @@ int main(void)
         if (joy && state != STATE_CONTROLLER_TEST) {
             bool sel = SDL_GetJoystickButton(joy, BTN_SDL_SELECT);
             bool r1  = SDL_GetJoystickButton(joy, BTN_SDL_R2);
-            if (sel && r1) {
+            bool combo_now = sel && r1;
+            if (combo_now && !screenshot_combo_held) {
+                /* Flanco de subida: dispara una unica vez, sin bucle de
+                 * espera. Mientras screenshot_combo_held siga a true no
+                 * se puede retriggerar aunque se mantengan pulsados. */
+                screenshot_combo_held = true;
                 /* No capturar aqui: en este punto del bucle (antes de que
                  * este frame dibuje nada) el backbuffer puede contener
                  * estado indefinido tras el ultimo Present (double
@@ -4168,33 +4397,20 @@ int main(void)
                  * flash y draw_screen_corners, cuando el contenido de ESTE
                  * frame ya esta completamente dibujado y es valido. */
                 screenshot_capture_pending = true;
-                SDL_PumpEvents();
-                /* Esperar a que suelten los botones para evitar disparos multiples */
-                SDL_PumpEvents();
-                while (SDL_GetJoystickButton(joy, BTN_SDL_SELECT) ||
-                       SDL_GetJoystickButton(joy, BTN_SDL_R2)) {
-                    SDL_PumpEvents();
-                    SDL_Delay(20);
-                }
-                SDL_Delay(200); /* debounce tras soltar */
-                /* La ventana del flash se fija AQUI, tras soltar los
-                 * botones: si se fijara antes del bucle de espera, un
-                 * usuario que mantenga la combinacion pulsada mas de
-                 * 500ms nunca veria el flash (ventana ya expirada al
-                 * reanudar el dibujado del bucle principal). */
                 screenshot_flash_until = SDL_GetTicks() + 500;
+            } else if (!combo_now) {
+                screenshot_combo_held = false;
             }
         }
 
         if (action != ACTION_NONE) {
             if (action == ACTION_SHELL) {
-                /* "Apagar dispositivo" en menu principal */
-                exec_req = EXEC_SHUTDOWN;
-                running = false;
-            } else if (action == ACTION_REBOOT) {
-                /* "Reiniciar dispositivo" en menu principal */
-                exec_req = EXEC_REBOOT;
-                running = false;
+                /* "Apagar dispositivo" en menu principal: ahora abre un
+                 * popup con Apagar/Reiniciar en vez de apagar directo. */
+                confirm_target = MENU_ACTION_POWER;
+                confirm_return_state = STATE_MENU;
+                power_popup_selected = 0;
+                state = STATE_CONFIRM;
             } else if (action == ACTION_ROMS) {
                 running = false;
                 relaunch_after_retroarch = true;
@@ -4223,6 +4439,14 @@ int main(void)
             update_status(status_time, sizeof(status_time),
                          &status_wifi_up, &status_battery);
             status_bt_up = (bool)bt_enabled;
+            /* Selecciona el icono de bateria segun el rango real:
+             * 0-19 / 20-39 / 40-59 / 60-79 / 80-100. */
+            if (status_battery >= 0) {
+                int bi = status_battery / 20;
+                if (bi > 4) bi = 4;
+                if (bi < 0) bi = 0;
+                battery_icon_tex = battery_icon_levels[bi];
+            }
             last_status_update = now_ticks;
         }
         /* Enrutado transparente de audio BT -> RetroArch: comprobacion
@@ -4580,7 +4804,7 @@ int main(void)
         SDL_Color c_menu_beige = g_theme.text_light;
         SDL_Color c_menu_selbg = c_selbg;
 
-        if (state == STATE_MENU) {
+        if (state == STATE_MENU || (state == STATE_CONFIRM && confirm_target == MENU_ACTION_POWER)) {
         /* Logo */
         if (logo_tex) {
             SDL_FRect logo_dst = {mx, 14.0f, (float)LOGO_W, (float)LOGO_H};
@@ -4590,7 +4814,7 @@ int main(void)
         /* Slogan */
         draw_text(ren, f_sm, "68K SOUL, ARM64 HEART.", c_dkgreen, mx + 2.0f, 94.0f);
 
-        draw_statusbar(ren, f_sm, f_xs, status_time, status_wifi_up, status_battery, status_bt_up, wifi_icon_tex, battery_icon_tex, bt_icon_tex);
+        draw_statusbar(ren, f_status_bold, status_time, status_wifi_up, status_battery, status_bt_up, bg_update_available, wifi_icon_tex, battery_icon_tex, bt_icon_tex, ssh_icon_tex, update_badge_tex);
 
         /* Menú */
         {
@@ -4610,10 +4834,10 @@ int main(void)
                 if (menu_icon_tex[i]) {
                     /* Respiracion sutil: pulso senoidal 20px-23px, ~1.8s de ciclo */
                     float breath = (SDL_sinf((float)now_ticks * 0.0035f) + 1.0f) * 0.5f;
-                    float icon_sz = 20.0f + (breath * 3.0f);
-                    float icon_offset = (icon_sz - 20.0f) / 2.0f;
+                    float icon_sz = 22.0f + (breath * 3.0f);
+                    float icon_offset = (icon_sz - 22.0f) / 2.0f;
                     float icon_x = (mx + 8.0f) - icon_offset;
-                    float icon_y = iy - icon_offset;
+                    float icon_y = iy - icon_offset - 1.0f;
                     SDL_SetTextureColorMod(menu_icon_tex[i], c_menu_gold.r, c_menu_gold.g, c_menu_gold.b);
                     SDL_FRect icon_dst = {icon_x, icon_y, icon_sz, icon_sz};
                     SDL_RenderTexture(ren, menu_icon_tex[i], NULL, &icon_dst);
@@ -4622,18 +4846,12 @@ int main(void)
             } else {
                 if (menu_icon_tex[i]) {
                     SDL_SetTextureColorMod(menu_icon_tex[i], c_menu_beige.r, c_menu_beige.g, c_menu_beige.b);
-                    SDL_FRect icon_dst = {mx + 8.0f, iy, 20.0f, 20.0f};
+                    SDL_FRect icon_dst = {mx + 8.0f, iy - 1.0f, 22.0f, 22.0f};
                     SDL_RenderTexture(ren, menu_icon_tex[i], NULL, &icon_dst);
                 }
                 draw_text(ren, f_med, MENU_ITEMS[i][current_lang], c_menu_beige, mx + 46.0f, iy);
             }
-            if (i == 1 && bg_update_available) {
-                SDL_Color c_red = g_theme.alert;
-                float sel_w = 46.0f + (float)label_w + 32.0f;
-                float txt_x = (mx - 10.0f) + sel_w + 10.0f;
-                const char *upd_txt = tr("[!] Nueva Actualización", "[!] New Update");
-                draw_text(ren, f_sm, upd_txt, c_red, txt_x, iy);
-            }
+
         }
 
         /* Panel derecho: contexto de la opcion seleccionada */
@@ -4715,8 +4933,56 @@ int main(void)
             draw_bar_rounded(ren, bar_x, bar_y, bar_w, 4.0f, frac, c_devbar_lime, c_white);
         }
 
-        } else if (state == STATE_SETTINGS) {
-            draw_statusbar(ren, f_sm, f_xs, status_time, status_wifi_up, status_battery, status_bt_up, wifi_icon_tex, battery_icon_tex, bt_icon_tex);
+        /* Overlay Apagar/Reiniciar sobre el contenido principal ya dibujado */
+        if (state == STATE_CONFIRM && confirm_target == MENU_ACTION_POWER) {
+            SDL_SetRenderDrawBlendMode(ren, SDL_BLENDMODE_BLEND);
+            SDL_SetRenderDrawColor(ren, 0, 0, 0, 150);
+            SDL_FRect dim_rect = {0, 0, (float)SCREEN_W, (float)SCREEN_H};
+            SDL_RenderFillRect(ren, &dim_rect);
+            SDL_SetRenderDrawBlendMode(ren, SDL_BLENDMODE_NONE);
+
+            float box_w = 320.0f, box_h = 150.0f;
+            float box_x = (SCREEN_W - box_w) / 2.0f;
+            float box_y = (SCREEN_H - box_h) / 2.0f;
+            draw_rounded_rect_filled(ren, box_x, box_y, box_w, box_h, 16.0f, g_theme.row_bg);
+
+            draw_text_centered(ren, f_med, tr("¿Qué quieres hacer?", "What do you want to do?"),
+                               g_theme.text_light, SCREEN_W / 2.0f, box_y + 18.0f);
+
+            float opt_w = 130.0f, opt_h = 48.0f;
+            float opt_gap = 16.0f;
+            float opt_y = box_y + 51.0f;
+            float opt_x0 = SCREEN_W / 2.0f - opt_w - opt_gap / 2.0f;
+            float opt_x1 = SCREEN_W / 2.0f + opt_gap / 2.0f;
+
+            SDL_Color sel_bg = g_theme.accent;
+            SDL_Color unsel_bg = g_theme.bg;
+            SDL_Color sel_fg = g_theme.text_on_accent;
+            SDL_Color unsel_fg = g_theme.text_light;
+
+            draw_rounded_rect_filled(ren, opt_x0, opt_y, opt_w, opt_h, opt_h / 2.0f,
+                                     power_popup_selected == 0 ? sel_bg : unsel_bg);
+            draw_text_centered(ren, f_med, tr("Apagar", "Power Off"),
+                               power_popup_selected == 0 ? sel_fg : unsel_fg,
+                               opt_x0 + opt_w / 2.0f, opt_y + opt_h / 2.0f - 9.0f);
+
+            if (power_popup_selected == 1) {
+                draw_rounded_rect_filled(ren, opt_x1, opt_y, opt_w, opt_h, opt_h / 2.0f, sel_bg);
+            } else {
+                draw_rounded_rect_outline(ren, opt_x1, opt_y, opt_w, opt_h, opt_h / 2.0f,
+                                           2.0f, c_selbg, unsel_bg);
+            }
+            draw_text_centered(ren, f_med, tr("Reiniciar", "Reboot"),
+                               power_popup_selected == 1 ? sel_fg : unsel_fg,
+                               opt_x1 + opt_w / 2.0f, opt_y + opt_h / 2.0f - 9.0f);
+
+            draw_text_centered(ren, f_sm, tr("[DPAD] Elegir  [B] Confirmar  [A] Cancelar",
+                                             "[DPAD] Choose  [B] Confirm  [A] Cancel"),
+                               g_theme.text_light, SCREEN_W / 2.0f, box_y + 116.0f);
+        }
+
+        } else if (state == STATE_SETTINGS || (state == STATE_CONFIRM && confirm_return_state == STATE_SETTINGS)) {
+            draw_statusbar(ren, f_status_bold, status_time, status_wifi_up, status_battery, status_bt_up, bg_update_available, wifi_icon_tex, battery_icon_tex, bt_icon_tex, ssh_icon_tex, update_badge_tex);
             draw_active_dash_breadcrumbs(ren, f_sm, mx, 25.0f, 2, tr("Configuración", "Settings"));
 
             float settings_y0 = 64.0f;
@@ -4760,18 +5026,22 @@ int main(void)
                                      sel_w, pill_h, pill_h / 2.0f, c_menu_selbg);
                     if (menu_icon_tex[4]) {
                         SDL_SetTextureColorMod(menu_icon_tex[4], c_menu_gold.r, c_menu_gold.g, c_menu_gold.b);
-                        SDL_FRect icon_dst = {mx + 8.0f, iy, 20.0f, 20.0f};
+                        SDL_FRect icon_dst = {mx + 8.0f, iy - 2.0f, 22.0f, 22.0f};
                         SDL_RenderTexture(ren, menu_icon_tex[4], NULL, &icon_dst);
                     }
                     draw_text(ren, f_med, item_label, c_menu_gold, mx + 46.0f, iy);
                 } else {
                     if (menu_icon_tex[4]) {
                         SDL_SetTextureColorMod(menu_icon_tex[4], c_menu_beige.r, c_menu_beige.g, c_menu_beige.b);
-                        SDL_FRect icon_dst = {mx + 8.0f, iy, 20.0f, 20.0f};
+                        SDL_FRect icon_dst = {mx + 8.0f, iy - 2.0f, 22.0f, 22.0f};
                         SDL_RenderTexture(ren, menu_icon_tex[4], NULL, &icon_dst);
                     }
                     draw_text(ren, f_med, item_label, c_menu_beige, mx + 46.0f, iy);
                 }
+            }
+            if (settings_scroll > 0) {
+                draw_text(ren, f_xs, tr("más arriba ↑", "more above ↑"), c_menu_selbg,
+                          mx + 8.0f, settings_y0 - 16.0f);
             }
             if (settings_scroll + settings_visible < SETTINGS_MENU_COUNT) {
                 draw_text(ren, f_xs, tr("más abajo ↓", "more below ↓"), c_menu_selbg,
@@ -4781,8 +5051,27 @@ int main(void)
             draw_line(ren, mx, 438.0f, SCREEN_W - 20.0f, 438.0f, c_selbg);
             draw_footer(ren, f_sm, tr("[B] Seleccionar  [A] Volver", "[B] Select  [A] Back"), s_version);
 
+            /* Overlay de confirmacion (factory reset) sobre Settings ya
+             * dibujado, mismo patron que el popup de Apagar/Reiniciar. */
+            if (state == STATE_CONFIRM && confirm_return_state == STATE_SETTINGS) {
+                SDL_SetRenderDrawBlendMode(ren, SDL_BLENDMODE_BLEND);
+                SDL_SetRenderDrawColor(ren, 0, 0, 0, 150);
+                SDL_FRect dim_rect = {0, 0, (float)SCREEN_W, (float)SCREEN_H};
+                SDL_RenderFillRect(ren, &dim_rect);
+                SDL_SetRenderDrawBlendMode(ren, SDL_BLENDMODE_NONE);
+
+                float box_w = 320.0f, box_h = 100.0f;
+                float box_x = (SCREEN_W - box_w) / 2.0f;
+                float box_y = (SCREEN_H - box_h) / 2.0f;
+                draw_rounded_rect_filled(ren, box_x, box_y, box_w, box_h, 16.0f, g_theme.row_bg);
+                draw_text_centered(ren, f_med, tr("¿Restablecer valores de fábrica?", "Factory reset?"),
+                                   g_theme.text_light, SCREEN_W / 2.0f, box_y + 30.0f);
+                draw_text_centered(ren, f_sm, tr("[B] Si        [A] No", "[B] Yes       [A] No"),
+                                   g_theme.accent, SCREEN_W / 2.0f, box_y + 66.0f);
+            }
+
         } else if (state == STATE_BRIGHTNESS_CONFIG) {
-            draw_statusbar(ren, f_sm, f_xs, status_time, status_wifi_up, status_battery, status_bt_up, wifi_icon_tex, battery_icon_tex, bt_icon_tex);
+            draw_statusbar(ren, f_status_bold, status_time, status_wifi_up, status_battery, status_bt_up, bg_update_available, wifi_icon_tex, battery_icon_tex, bt_icon_tex, ssh_icon_tex, update_badge_tex);
             draw_active_dash_breadcrumbs(ren, f_sm, mx, 25.0f, 3, tr("Brillo de pantalla", "Screen Brightness"));
 
             {
@@ -4802,7 +5091,7 @@ int main(void)
                 tr("[<>] Ajustar  [B] Aplicar  [A] Volver", "[<>] Adjust  [B] Apply  [A] Back"), s_version);
 
         } else if (state == STATE_PERF_CONFIG) {
-            draw_statusbar(ren, f_sm, f_xs, status_time, status_wifi_up, status_battery, status_bt_up, wifi_icon_tex, battery_icon_tex, bt_icon_tex);
+            draw_statusbar(ren, f_status_bold, status_time, status_wifi_up, status_battery, status_bt_up, bg_update_available, wifi_icon_tex, battery_icon_tex, bt_icon_tex, ssh_icon_tex, update_badge_tex);
             draw_active_dash_breadcrumbs(ren, f_sm, mx, 25.0f, 3, tr("Rendimiento", "Performance"));
             struct { const char *title[2]; const char *desc[2]; SDL_Texture *icon; } perf_opts[3] = {
                 {{"Rendimiento máximo", "Maximum performance"},
@@ -4874,7 +5163,7 @@ int main(void)
                 tr("[DPAD] Elegir  [B] Aplicar  [A] Volver", "[DPAD] Choose  [B] Apply  [A] Back"), s_version);
 
         } else if (state == STATE_THEME_CONFIG) {
-            draw_statusbar(ren, f_sm, f_xs, status_time, status_wifi_up, status_battery, status_bt_up, wifi_icon_tex, battery_icon_tex, bt_icon_tex);
+            draw_statusbar(ren, f_status_bold, status_time, status_wifi_up, status_battery, status_bt_up, bg_update_available, wifi_icon_tex, battery_icon_tex, bt_icon_tex, ssh_icon_tex, update_badge_tex);
             draw_active_dash_breadcrumbs(ren, f_sm, mx, 25.0f, 3, tr("Tema", "Theme"));
             float theme_item_h = 40.0f;
             float theme_y0 = 64.0f;
@@ -4903,7 +5192,7 @@ int main(void)
         } else if (state == STATE_BLUETOOTH_CONFIG) {
             SDL_Color c_bt_card    = c_selbg;
             SDL_Color c_bt_dim     = {90, 84, 66, 255};
-            draw_statusbar(ren, f_sm, f_xs, status_time, status_wifi_up, status_battery, status_bt_up, wifi_icon_tex, battery_icon_tex, bt_icon_tex);
+            draw_statusbar(ren, f_status_bold, status_time, status_wifi_up, status_battery, status_bt_up, bg_update_available, wifi_icon_tex, battery_icon_tex, bt_icon_tex, ssh_icon_tex, update_badge_tex);
             draw_active_dash_breadcrumbs(ren, f_sm, mx, 25.0f, 3, tr("Bluetooth", "Bluetooth"));
             {
                 float toggle_y = 64.0f;
@@ -4949,6 +5238,7 @@ int main(void)
                 float bt_y0 = 134.0f;
                 float bt_item_h = 30.0f;
                 int bt_visible = 9;
+                bool bt_show_up_indicator = false; /* se decide tras calcular bt_scroll */
                 bool bt_has_more = bt_device_count > bt_visible;
                 /* Si hay mas de los que caben, se reserva la ultima fila
                  * solo para el indicador "+N mas" (nunca comparte fila con
@@ -4960,6 +5250,11 @@ int main(void)
                 if (bt_scroll > bt_device_count - bt_list_rows)
                     bt_scroll = bt_device_count - bt_list_rows;
                 if (bt_scroll < 0) bt_scroll = 0;
+                bt_show_up_indicator = (bt_scroll > 0);
+                if (bt_show_up_indicator) {
+                    draw_text_right(ren, f_xs, tr("más arriba ↑", "more above ↑"), c_menu_selbg,
+                                     SCREEN_W - mx - 6.0f, 112.0f);
+                }
                 {
                     float target_y = bt_y0 + (bt_selected - bt_scroll) * bt_item_h;
                     bt_cursor_y = target_y;
@@ -5036,7 +5331,7 @@ int main(void)
             draw_footer(ren, f_sm,
                 tr("[DPAD] Elegir  [B] Conectar  [SELECT] Activar  [A] Volver", "[DPAD] Choose  [B] Connect  [SELECT] Toggle  [A] Back"), s_version);
         } else if (state == STATE_TIMEZONE_CONFIG) {
-            draw_statusbar(ren, f_sm, f_xs, status_time, status_wifi_up, status_battery, status_bt_up, wifi_icon_tex, battery_icon_tex, bt_icon_tex);
+            draw_statusbar(ren, f_status_bold, status_time, status_wifi_up, status_battery, status_bt_up, bg_update_available, wifi_icon_tex, battery_icon_tex, bt_icon_tex, ssh_icon_tex, update_badge_tex);
             draw_active_dash_breadcrumbs(ren, f_sm, mx, 25.0f, 3, tr("Zona horaria", "Time Zone"));
 
             float tz_y0 = 60.0f;
@@ -5048,6 +5343,15 @@ int main(void)
             if (tz_scroll > TIMEZONE_LIST_COUNT - tz_visible)
                 tz_scroll = TIMEZONE_LIST_COUNT - tz_visible;
             if (tz_scroll < 0) tz_scroll = 0;
+
+            if (tz_scroll > 0) {
+                draw_text(ren, f_xs, tr("más arriba ↑", "more above ↑"), c_menu_selbg,
+                          mx + 8.0f, tz_y0 - 14.0f);
+            }
+            if (tz_scroll + tz_visible < TIMEZONE_LIST_COUNT) {
+                draw_text(ren, f_xs, tr("más abajo ↓", "more below ↓"), c_menu_selbg,
+                          mx + 8.0f, tz_y0 + tz_visible * tz_item_h + 2.0f);
+            }
 
             {
                 float target_y = tz_y0 + (timezone_selected - tz_scroll) * tz_item_h;
@@ -5091,7 +5395,7 @@ int main(void)
                 tr("[B] Aplicar  [A] Volver  [L1/R1] Salto x5", "[B] Apply  [A] Back  [L1/R1] Jump x5"), s_version);
 
         } else if (state == STATE_SCREENDIM_CONFIG) {
-            draw_statusbar(ren, f_sm, f_xs, status_time, status_wifi_up, status_battery, status_bt_up, wifi_icon_tex, battery_icon_tex, bt_icon_tex);
+            draw_statusbar(ren, f_status_bold, status_time, status_wifi_up, status_battery, status_bt_up, bg_update_available, wifi_icon_tex, battery_icon_tex, bt_icon_tex, ssh_icon_tex, update_badge_tex);
             draw_active_dash_breadcrumbs(ren, f_sm, mx, 25.0f, 3, tr("Ahorro de pantalla", "Screen Dimming"));
 
             float dim_y0 = 70.0f;
@@ -5151,7 +5455,7 @@ int main(void)
                 tr("[B] Guardar  [A] Volver", "[B] Save  [A] Back"), s_version);
 
         } else if (state == STATE_BACKUP_MENU) {
-            draw_statusbar(ren, f_sm, f_xs, status_time, status_wifi_up, status_battery, status_bt_up, wifi_icon_tex, battery_icon_tex, bt_icon_tex);
+            draw_statusbar(ren, f_status_bold, status_time, status_wifi_up, status_battery, status_bt_up, bg_update_available, wifi_icon_tex, battery_icon_tex, bt_icon_tex, ssh_icon_tex, update_badge_tex);
             draw_active_dash_breadcrumbs(ren, f_sm, mx, 25.0f, 3, tr("Copia de seguridad", "Backup"));
             float bkm_y0 = 64.0f;
             float bkm_item_h = 34.0f;
@@ -5195,8 +5499,8 @@ int main(void)
             draw_line(ren, mx, 438.0f, SCREEN_W - 20.0f, 438.0f, c_selbg);
             draw_footer(ren, f_sm, tr("[B] Seleccionar  [A] Volver", "[B] Select  [A] Back"), s_version);
 
-        } else if (state == STATE_BACKUP_LIST) {
-            draw_statusbar(ren, f_sm, f_xs, status_time, status_wifi_up, status_battery, status_bt_up, wifi_icon_tex, battery_icon_tex, bt_icon_tex);
+        } else if (state == STATE_BACKUP_LIST || (state == STATE_CONFIRM && confirm_return_state == STATE_BACKUP_LIST)) {
+            draw_statusbar(ren, f_status_bold, status_time, status_wifi_up, status_battery, status_bt_up, bg_update_available, wifi_icon_tex, battery_icon_tex, bt_icon_tex, ssh_icon_tex, update_badge_tex);
             draw_active_dash_breadcrumbs(ren, f_sm, mx, 25.0f, 4, tr("Restaurar copia", "Restore Backup"));
             float bkl_y0 = 64.0f;
             float bkl_item_h = 26.0f;
@@ -5227,8 +5531,36 @@ int main(void)
             draw_line(ren, mx, 438.0f, SCREEN_W - 20.0f, 438.0f, c_selbg);
             draw_footer(ren, f_sm, tr("[B] Restaurar  [X] Eliminar  [A] Volver", "[B] Restore  [X] Delete  [A] Back"), s_version);
 
+            /* Overlay de confirmacion (restaurar/eliminar backup) sobre la
+             * lista de copias ya dibujada, mismo patron que el popup de
+             * Apagar/Reiniciar. */
+            if (state == STATE_CONFIRM &&
+                (confirm_target == BACKUP_ACTION_RESTORE || confirm_target == BACKUP_ACTION_DELETE)) {
+                SDL_SetRenderDrawBlendMode(ren, SDL_BLENDMODE_BLEND);
+                SDL_SetRenderDrawColor(ren, 0, 0, 0, 150);
+                SDL_FRect dim_rect = {0, 0, (float)SCREEN_W, (float)SCREEN_H};
+                SDL_RenderFillRect(ren, &dim_rect);
+                SDL_SetRenderDrawBlendMode(ren, SDL_BLENDMODE_NONE);
+
+                char bkl_confirm_label[144];
+                snprintf(bkl_confirm_label, sizeof(bkl_confirm_label),
+                         confirm_target == BACKUP_ACTION_RESTORE
+                             ? tr("¿Restaurar %s?", "Restore %s?")
+                             : tr("¿Eliminar %s?", "Delete %s?"),
+                         confirm_backup_filename);
+
+                float box_w = 320.0f, box_h = 100.0f;
+                float box_x = (SCREEN_W - box_w) / 2.0f;
+                float box_y = (SCREEN_H - box_h) / 2.0f;
+                draw_rounded_rect_filled(ren, box_x, box_y, box_w, box_h, 16.0f, g_theme.row_bg);
+                draw_text_centered(ren, f_med, bkl_confirm_label, g_theme.text_light,
+                                   SCREEN_W / 2.0f, box_y + 30.0f);
+                draw_text_centered(ren, f_sm, tr("[B] Si        [A] No", "[B] Yes       [A] No"),
+                                   g_theme.accent, SCREEN_W / 2.0f, box_y + 66.0f);
+            }
+
         } else if (state == STATE_AREXX_LIST) {
-            draw_statusbar(ren, f_sm, f_xs, status_time, status_wifi_up, status_battery, status_bt_up, wifi_icon_tex, battery_icon_tex, bt_icon_tex);
+            draw_statusbar(ren, f_status_bold, status_time, status_wifi_up, status_battery, status_bt_up, bg_update_available, wifi_icon_tex, battery_icon_tex, bt_icon_tex, ssh_icon_tex, update_badge_tex);
             draw_active_dash_breadcrumbs(ren, f_sm, mx, 25.0f, 2, tr("ARexx Scripts", "ARexx Scripts"));
             float arx_y0 = 64.0f;
             float arx_item_h = 34.0f;
@@ -5322,7 +5654,7 @@ int main(void)
                     arxr_scroll_next_tick = 0;
                 }
             }
-            draw_statusbar(ren, f_sm, f_xs, status_time, status_wifi_up, status_battery, status_bt_up, wifi_icon_tex, battery_icon_tex, bt_icon_tex);
+            draw_statusbar(ren, f_status_bold, status_time, status_wifi_up, status_battery, status_bt_up, bg_update_available, wifi_icon_tex, battery_icon_tex, bt_icon_tex, ssh_icon_tex, update_badge_tex);
             draw_active_dash_breadcrumbs(ren, f_sm, mx, 25.0f, 3, tr("Ejecutando Script", "Running Script"));
             draw_text(ren, f_sm, arexx_scripts[arexx_selected].filename, c_menu_selbg, mx, 60.0f);
             if (arexx_still_running) {
@@ -5440,7 +5772,7 @@ int main(void)
                 draw_footer(ren, f_sm, tr("[A] Volver", "[A] Back"), s_version);
 
         } else if (state == STATE_WIFI_CONFIG) {
-            draw_statusbar(ren, f_sm, f_xs, status_time, status_wifi_up, status_battery, status_bt_up, wifi_icon_tex, battery_icon_tex, bt_icon_tex);
+            draw_statusbar(ren, f_status_bold, status_time, status_wifi_up, status_battery, status_bt_up, bg_update_available, wifi_icon_tex, battery_icon_tex, bt_icon_tex, ssh_icon_tex, update_badge_tex);
             draw_active_dash_breadcrumbs(ren, f_sm, mx, 25.0f, 3, tr("Red inalámbrica", "Wireless Network"));
 
             float wifi_y0 = 64.0f;
@@ -5520,7 +5852,7 @@ int main(void)
                 s_version);
 
         } else if (state == STATE_LED_CONFIG) {
-            draw_statusbar(ren, f_sm, f_xs, status_time, status_wifi_up, status_battery, status_bt_up, wifi_icon_tex, battery_icon_tex, bt_icon_tex);
+            draw_statusbar(ren, f_status_bold, status_time, status_wifi_up, status_battery, status_bt_up, bg_update_available, wifi_icon_tex, battery_icon_tex, bt_icon_tex, ssh_icon_tex, update_badge_tex);
             draw_active_dash_breadcrumbs(ren, f_sm, mx, 25.0f, 3, tr("LEDs RGB analógicos", "Analog Stick LEDs"));
 
             static const char *LED_SLIDER_LABELS[][2] = {
@@ -5578,8 +5910,19 @@ int main(void)
                 draw_text(ren, f_sm, valbuf, labelc, bar_x + led_bar_w + 10.0f, iy);
             }
 
-            SDL_Color preview_right = {(Uint8)led_r_right, (Uint8)led_g_right, (Uint8)led_b_right, 255};
-            SDL_Color preview_left  = {(Uint8)led_r_left,  (Uint8)led_g_left,  (Uint8)led_b_left,  255};
+            /* La preview debe reflejar el brillo global igual que el LED
+             * fisico: el protocolo escala cada canal RGB por brightness/255
+             * en firmware (ver send_led_payload), asi que se replica aqui
+             * para que "Vista previa" no muestre siempre el color a maxima
+             * intensidad independientemente del slider de brillo. */
+            int pr_r = (led_r_right * led_brightness) / 255;
+            int pr_g = (led_g_right * led_brightness) / 255;
+            int pr_b = (led_b_right * led_brightness) / 255;
+            int pl_r = (led_r_left  * led_brightness) / 255;
+            int pl_g = (led_g_left  * led_brightness) / 255;
+            int pl_b = (led_b_left  * led_brightness) / 255;
+            SDL_Color preview_right = {(Uint8)pr_r, (Uint8)pr_g, (Uint8)pr_b, 255};
+            SDL_Color preview_left  = {(Uint8)pl_r, (Uint8)pl_g, (Uint8)pl_b, 255};
             float preview_y = led_y0 + LED_SLIDER_COUNT * led_item_h + 16.0f;
             draw_text(ren, f_sm, tr("Vista previa", "Preview"), c_menu_beige, mx, preview_y);
             float sw_size = 60.0f;
@@ -5607,11 +5950,29 @@ int main(void)
             draw_text(ren, f_sm,
                 wifi_field_selected == 0 ? "SSID" : tr("CONTRASEÑA", "PASSWORD"),
                 c_green, mx, 20.0f);
-            draw_statusbar(ren, f_sm, f_xs, status_time, status_wifi_up, status_battery, status_bt_up, wifi_icon_tex, battery_icon_tex, bt_icon_tex);
+            draw_statusbar(ren, f_status_bold, status_time, status_wifi_up, status_battery, status_bt_up, bg_update_available, wifi_icon_tex, battery_icon_tex, bt_icon_tex, ssh_icon_tex, update_badge_tex);
 
             draw_rect_filled(ren, mx, 56.0f, SCREEN_W - 40.0f, 30.0f, c_selbg);
             SDL_Color c_kb_val = c_menu_gold;
-            draw_text(ren, f_med, kb_buffer[0] ? kb_buffer : "", c_kb_val, mx + 8.0f, 62.0f);
+            char kb_display[64];
+            if (wifi_field_selected == 1 && !wifi_show_password && kb_buffer[0]) {
+                size_t klen = strlen(kb_buffer);
+                if (klen >= sizeof(kb_display)) klen = sizeof(kb_display) - 1;
+                memset(kb_display, '*', klen);
+                kb_display[klen] = 0;
+            } else {
+                safe_copy(kb_display, kb_buffer, sizeof(kb_display));
+            }
+            float kb_box_max_w = (SCREEN_W - 40.0f) - 16.0f;
+            draw_text_truncated(ren, f_med, kb_display[0] ? kb_display : "", c_kb_val, mx + 8.0f, 62.0f, kb_box_max_w);
+            if ((SDL_GetTicks() / 500) % 2 == 0) {
+                int dw = 0, dh = 0;
+                TTF_GetStringSize(f_med, kb_display, 0, &dw, &dh);
+                float cursor_x = mx + 8.0f + (float)dw + 2.0f;
+                if (cursor_x < mx + 8.0f + kb_box_max_w) {
+                    draw_text(ren, f_med, "|", c_kb_val, cursor_x, 62.0f);
+                }
+            }
 
             SDL_Color c_keybg = COL_KEY_BG;
             float kb_y0 = 130.0f;
@@ -5650,9 +6011,9 @@ int main(void)
                 tr("[B] Insertar [L1] Borrar [R1] Aceptar [A] Cancelar [SELECT] Mayus/Num", "[B] Insert [L1] Delete [R1] Accept [A] Cancel [SELECT] Caps/Num"),
                 s_version);
 
-        } else if (state == STATE_DEVMODE) {
+        } else if (state == STATE_DEVMODE || (state == STATE_CONFIRM && confirm_return_state == STATE_DEVMODE)) {
             /* Titulo pequeño arriba a la izquierda */
-            draw_statusbar(ren, f_sm, f_xs, status_time, status_wifi_up, status_battery, status_bt_up, wifi_icon_tex, battery_icon_tex, bt_icon_tex);
+            draw_statusbar(ren, f_status_bold, status_time, status_wifi_up, status_battery, status_bt_up, bg_update_available, wifi_icon_tex, battery_icon_tex, bt_icon_tex, ssh_icon_tex, update_badge_tex);
             draw_active_dash_breadcrumbs(ren, f_sm, mx, 25.0f, 2, tr("Modo Desarrollador", "Dev Mode"));
 
             /* Menú (columna izquierda), mismo estilo que el menu principal */
@@ -5757,16 +6118,29 @@ int main(void)
             /* Barra inferior */
             draw_footer(ren, f_sm, tr("[B] Seleccionar  [A] Volver", "[B] Select  [A] Back"), s_version);
 
-        } else if (state == STATE_CONFIRM) {
-            const char *label = (confirm_target == SETTINGS_ACTION_FACTORY_RESET)
-                                 ? tr("¿Restablecer valores de fábrica?", "Factory reset?")
-                                 : (confirm_target == DEV_ACTION_REBOOT)
-                                 ? tr("¿Reiniciar el dispositivo?", "Reboot the device?")
-                                 : tr("¿Apagar el dispositivo?", "Shut down the device?");
-            draw_text_centered(ren, f_med, label, c_white,
-                               SCREEN_W / 2.0f, SCREEN_H / 2.0f - 30.0f);
-            draw_text_centered(ren, f_med, tr("[B] Si        [A] No", "[B] Yes       [A] No"), c_green,
-                               SCREEN_W / 2.0f, SCREEN_H / 2.0f + 10.0f);
+            /* Overlay de confirmacion (reboot/shutdown dev) sobre el
+             * contenido de STATE_DEVMODE ya dibujado, mismo patron que el
+             * popup de Apagar/Reiniciar del menu principal. */
+            if (state == STATE_CONFIRM && confirm_return_state == STATE_DEVMODE) {
+                SDL_SetRenderDrawBlendMode(ren, SDL_BLENDMODE_BLEND);
+                SDL_SetRenderDrawColor(ren, 0, 0, 0, 150);
+                SDL_FRect dim_rect = {0, 0, (float)SCREEN_W, (float)SCREEN_H};
+                SDL_RenderFillRect(ren, &dim_rect);
+                SDL_SetRenderDrawBlendMode(ren, SDL_BLENDMODE_NONE);
+
+                const char *dm_label = (confirm_target == DEV_ACTION_REBOOT)
+                    ? tr("¿Reiniciar el dispositivo?", "Reboot the device?")
+                    : tr("¿Apagar el dispositivo?", "Shut down the device?");
+
+                float box_w = 320.0f, box_h = 100.0f;
+                float box_x = (SCREEN_W - box_w) / 2.0f;
+                float box_y = (SCREEN_H - box_h) / 2.0f;
+                draw_rounded_rect_filled(ren, box_x, box_y, box_w, box_h, 16.0f, g_theme.row_bg);
+                draw_text_centered(ren, f_med, dm_label, g_theme.text_light,
+                                   SCREEN_W / 2.0f, box_y + 30.0f);
+                draw_text_centered(ren, f_sm, tr("[B] Si        [A] No", "[B] Yes       [A] No"),
+                                   g_theme.accent, SCREEN_W / 2.0f, box_y + 66.0f);
+            }
 
         } else if (state == STATE_SYSINFO) {
             /* ── Layout: cuadrícula 2 columnas × 3 bloques ──────────────────
@@ -5792,7 +6166,7 @@ int main(void)
             const float SI_SEP_H2 = SI_Y0 + SI_BLK_H * 2;
 
             /* Título y separador superior: siempre en el margen fijo, no en SI_MX centrado */
-            draw_statusbar(ren, f_sm, f_xs, status_time, status_wifi_up, status_battery, status_bt_up, wifi_icon_tex, battery_icon_tex, bt_icon_tex);
+            draw_statusbar(ren, f_status_bold, status_time, status_wifi_up, status_battery, status_bt_up, bg_update_available, wifi_icon_tex, battery_icon_tex, bt_icon_tex, ssh_icon_tex, update_badge_tex);
             draw_active_dash_breadcrumbs(ren, f_sm, 20.0f, 25.0f, 2, tr("Diagnóstico del sistema", "System Diagnostics"));
 
             /* Indicador de pagina: encima del footer, alineado a la derecha */
@@ -5934,7 +6308,7 @@ int main(void)
             draw_footer(ren, f_sm, tr("[A] Volver  [L1/R1] Pagina", "[A] Back  [L1/R1] Page"), s_version);
         } else if (state == STATE_UPDATE) {
             const float UX = 20.0f;
-            draw_statusbar(ren, f_sm, f_xs, status_time, status_wifi_up, status_battery, status_bt_up, wifi_icon_tex, battery_icon_tex, bt_icon_tex);
+            draw_statusbar(ren, f_status_bold, status_time, status_wifi_up, status_battery, status_bt_up, bg_update_available, wifi_icon_tex, battery_icon_tex, bt_icon_tex, ssh_icon_tex, update_badge_tex);
             draw_active_dash_breadcrumbs(ren, f_sm, UX, 25.0f, 2, tr("Actualización de sistema", "System Update"));
 
             /* Versión actual */
@@ -5994,7 +6368,7 @@ int main(void)
         } /* end STATE_UPDATE */
         else if (state == STATE_CONTROLLER_TEST) {
             const float CX = 20.0f;
-            draw_statusbar(ren, f_sm, f_xs, status_time, status_wifi_up, status_battery, status_bt_up, wifi_icon_tex, battery_icon_tex, bt_icon_tex);
+            draw_statusbar(ren, f_status_bold, status_time, status_wifi_up, status_battery, status_bt_up, bg_update_available, wifi_icon_tex, battery_icon_tex, bt_icon_tex, ssh_icon_tex, update_badge_tex);
             draw_active_dash_breadcrumbs(ren, f_sm, CX, 25.0f, 3, tr("Test de mando", "Controller Test"));
 
             if (!joy) {
@@ -6172,6 +6546,62 @@ int main(void)
             screenshot_capture_pending = false;
         }
         /* Flash blanco al hacer screenshot */
+        if (volume_popup_until > 0 && SDL_GetTicks() < volume_popup_until) {
+            /* Pildora gruesa: icono de volumen a la izquierda dentro de
+             * la propia pildora, slider ocupando el resto. Sin texto ni
+             * porcentaje numerico, solo icono + barra (patron OSD tipico
+             * de volumen en handhelds). */
+            float pw = 220.0f, ph = 56.0f;
+            float px = (SCREEN_W - pw) / 2.0f;
+            float py = SCREEN_H - ph - 85.0f;
+            draw_rounded_rect_filled(ren, px, py, pw, ph, ph / 2.0f, g_theme.row_bg);
+
+            float icon_size = 28.0f;
+            float icon_x = px + 14.0f;
+            float icon_y = py + (ph - icon_size) / 2.0f;
+            if (volume_icon_tex) {
+                SDL_SetTextureColorMod(volume_icon_tex, g_theme.text_light.r, g_theme.text_light.g, g_theme.text_light.b);
+                SDL_FRect icon_dst = {icon_x, icon_y, icon_size, icon_size};
+                SDL_RenderTexture(ren, volume_icon_tex, NULL, &icon_dst);
+            }
+
+            float bar_x = icon_x + icon_size + 14.0f;
+            float bar_w = px + pw - 16.0f - bar_x;
+            float bar_h = 10.0f;
+            float bar_y = py + (ph - bar_h) / 2.0f;
+            float vfrac = volume_pct / 100.0f;
+            draw_bar_rounded(ren, bar_x, bar_y, bar_w, bar_h, vfrac, g_theme.bg, g_theme.accent);
+        } else {
+            volume_popup_until = 0;
+        }
+
+        if (brightness_popup_until > 0 && SDL_GetTicks() < brightness_popup_until) {
+            /* Misma pildora que el popup de volumen: icono a la izquierda,
+             * slider ocupando el resto, sin texto. */
+            float pw2 = 220.0f, ph2 = 56.0f;
+            float px2 = (SCREEN_W - pw2) / 2.0f;
+            float py2 = SCREEN_H - ph2 - 85.0f;
+            draw_rounded_rect_filled(ren, px2, py2, pw2, ph2, ph2 / 2.0f, g_theme.row_bg);
+
+            float icon_size2 = 28.0f;
+            float icon_x2 = px2 + 14.0f;
+            float icon_y2 = py2 + (ph2 - icon_size2) / 2.0f;
+            if (brightness_icon_tex) {
+                SDL_SetTextureColorMod(brightness_icon_tex, g_theme.text_light.r, g_theme.text_light.g, g_theme.text_light.b);
+                SDL_FRect icon_dst2 = {icon_x2, icon_y2, icon_size2, icon_size2};
+                SDL_RenderTexture(ren, brightness_icon_tex, NULL, &icon_dst2);
+            }
+
+            float bar_x2 = icon_x2 + icon_size2 + 14.0f;
+            float bar_w2 = px2 + pw2 - 16.0f - bar_x2;
+            float bar_h2 = 10.0f;
+            float bar_y2 = py2 + (ph2 - bar_h2) / 2.0f;
+            float bfrac = brightness_pct / 100.0f;
+            draw_bar_rounded(ren, bar_x2, bar_y2, bar_w2, bar_h2, bfrac, g_theme.bg, g_theme.accent);
+        } else {
+            brightness_popup_until = 0;
+        }
+
         if (screenshot_flash_until > 0 && SDL_GetTicks() < screenshot_flash_until) {
             SDL_SetRenderDrawBlendMode(ren, SDL_BLENDMODE_BLEND);
             SDL_SetRenderDrawColor(ren, 255, 255, 255, 180);
@@ -6224,8 +6654,13 @@ int main(void)
         if (menu_icon_tex[mi]) SDL_DestroyTexture(menu_icon_tex[mi]);
     if (wifi_icon_tex) SDL_DestroyTexture(wifi_icon_tex);
     if (bt_icon_tex) SDL_DestroyTexture(bt_icon_tex);
-    if (battery_icon_tex) SDL_DestroyTexture(battery_icon_tex);
+    if (ssh_icon_tex) SDL_DestroyTexture(ssh_icon_tex);
+    for (int bi = 0; bi < 5; bi++) {
+        if (battery_icon_levels[bi]) SDL_DestroyTexture(battery_icon_levels[bi]);
+    }
+    if (s_battery_charging_icon_tex) SDL_DestroyTexture(s_battery_charging_icon_tex);
     if (perf_bolt_tex) SDL_DestroyTexture(perf_bolt_tex);
+    if (update_badge_tex) SDL_DestroyTexture(update_badge_tex);
     if (perf_scale_tex) SDL_DestroyTexture(perf_scale_tex);
     if (perf_battery_tex) SDL_DestroyTexture(perf_battery_tex);
     if (arexx_icon_tex) SDL_DestroyTexture(arexx_icon_tex);
@@ -6237,6 +6672,7 @@ int main(void)
     TTF_CloseFont(f_lg);
     TTF_CloseFont(f_xs);
     TTF_CloseFont(f_xsm);
+    TTF_CloseFont(f_status_bold);
     SDL_DestroyRenderer(ren);
     SDL_DestroyWindow(win);
     TTF_Quit();
@@ -6296,6 +6732,14 @@ int main(void)
                      * inittab con un entorno minimo (sin HOME), y
                      * RetroArch falla en silencio sin esa variable. */
                     setenv("HOME", "/root", 1);
+                    /* Fuerza audio_volume=0.0 en el override de core justo
+                     * antes de lanzar, para que el volumen real (ALSA DAC,
+                     * fijado por el usuario en el launcher) sea siempre la
+                     * unica fuente de verdad, sin importar si una partida
+                     * anterior guardo un audio_volume distinto en el
+                     * override de PUAE2021 (comportamiento habitual al usar
+                     * "Guardar configuracion de core" en RetroArch). */
+                    set_retroarch_volume_neutral();
                     if (direct_launch_rom && direct_launch_rom_path[0]) {
                         execl("/usr/bin/retroarch", "retroarch",
                               "-L", direct_launch_core_path[0] ? direct_launch_core_path : "/usr/lib/libretro/puae2021_libretro.so",
