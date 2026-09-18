@@ -4981,7 +4981,7 @@ int main(void)
                                g_theme.text_light, SCREEN_W / 2.0f, box_y + 116.0f);
         }
 
-        } else if (state == STATE_SETTINGS) {
+        } else if (state == STATE_SETTINGS || (state == STATE_CONFIRM && confirm_return_state == STATE_SETTINGS)) {
             draw_statusbar(ren, f_status_bold, status_time, status_wifi_up, status_battery, status_bt_up, bg_update_available, wifi_icon_tex, battery_icon_tex, bt_icon_tex, ssh_icon_tex, update_badge_tex);
             draw_active_dash_breadcrumbs(ren, f_sm, mx, 25.0f, 2, tr("Configuración", "Settings"));
 
@@ -5050,6 +5050,25 @@ int main(void)
 
             draw_line(ren, mx, 438.0f, SCREEN_W - 20.0f, 438.0f, c_selbg);
             draw_footer(ren, f_sm, tr("[B] Seleccionar  [A] Volver", "[B] Select  [A] Back"), s_version);
+
+            /* Overlay de confirmacion (factory reset) sobre Settings ya
+             * dibujado, mismo patron que el popup de Apagar/Reiniciar. */
+            if (state == STATE_CONFIRM && confirm_return_state == STATE_SETTINGS) {
+                SDL_SetRenderDrawBlendMode(ren, SDL_BLENDMODE_BLEND);
+                SDL_SetRenderDrawColor(ren, 0, 0, 0, 150);
+                SDL_FRect dim_rect = {0, 0, (float)SCREEN_W, (float)SCREEN_H};
+                SDL_RenderFillRect(ren, &dim_rect);
+                SDL_SetRenderDrawBlendMode(ren, SDL_BLENDMODE_NONE);
+
+                float box_w = 320.0f, box_h = 100.0f;
+                float box_x = (SCREEN_W - box_w) / 2.0f;
+                float box_y = (SCREEN_H - box_h) / 2.0f;
+                draw_rounded_rect_filled(ren, box_x, box_y, box_w, box_h, 16.0f, g_theme.row_bg);
+                draw_text_centered(ren, f_med, tr("¿Restablecer valores de fábrica?", "Factory reset?"),
+                                   g_theme.text_light, SCREEN_W / 2.0f, box_y + 30.0f);
+                draw_text_centered(ren, f_sm, tr("[B] Si        [A] No", "[B] Yes       [A] No"),
+                                   g_theme.accent, SCREEN_W / 2.0f, box_y + 66.0f);
+            }
 
         } else if (state == STATE_BRIGHTNESS_CONFIG) {
             draw_statusbar(ren, f_status_bold, status_time, status_wifi_up, status_battery, status_bt_up, bg_update_available, wifi_icon_tex, battery_icon_tex, bt_icon_tex, ssh_icon_tex, update_badge_tex);
