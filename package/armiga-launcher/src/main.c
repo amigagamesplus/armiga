@@ -5964,7 +5964,7 @@ int main(void)
                 tr("[B] Insertar [L1] Borrar [R1] Aceptar [A] Cancelar [SELECT] Mayus/Num", "[B] Insert [L1] Delete [R1] Accept [A] Cancel [SELECT] Caps/Num"),
                 s_version);
 
-        } else if (state == STATE_DEVMODE) {
+        } else if (state == STATE_DEVMODE || (state == STATE_CONFIRM && confirm_return_state == STATE_DEVMODE)) {
             /* Titulo pequeño arriba a la izquierda */
             draw_statusbar(ren, f_status_bold, status_time, status_wifi_up, status_battery, status_bt_up, bg_update_available, wifi_icon_tex, battery_icon_tex, bt_icon_tex, ssh_icon_tex, update_badge_tex);
             draw_active_dash_breadcrumbs(ren, f_sm, mx, 25.0f, 2, tr("Modo Desarrollador", "Dev Mode"));
@@ -6070,6 +6070,30 @@ int main(void)
 
             /* Barra inferior */
             draw_footer(ren, f_sm, tr("[B] Seleccionar  [A] Volver", "[B] Select  [A] Back"), s_version);
+
+            /* Overlay de confirmacion (reboot/shutdown dev) sobre el
+             * contenido de STATE_DEVMODE ya dibujado, mismo patron que el
+             * popup de Apagar/Reiniciar del menu principal. */
+            if (state == STATE_CONFIRM && confirm_return_state == STATE_DEVMODE) {
+                SDL_SetRenderDrawBlendMode(ren, SDL_BLENDMODE_BLEND);
+                SDL_SetRenderDrawColor(ren, 0, 0, 0, 150);
+                SDL_FRect dim_rect = {0, 0, (float)SCREEN_W, (float)SCREEN_H};
+                SDL_RenderFillRect(ren, &dim_rect);
+                SDL_SetRenderDrawBlendMode(ren, SDL_BLENDMODE_NONE);
+
+                const char *dm_label = (confirm_target == DEV_ACTION_REBOOT)
+                    ? tr("¿Reiniciar el dispositivo?", "Reboot the device?")
+                    : tr("¿Apagar el dispositivo?", "Shut down the device?");
+
+                float box_w = 320.0f, box_h = 100.0f;
+                float box_x = (SCREEN_W - box_w) / 2.0f;
+                float box_y = (SCREEN_H - box_h) / 2.0f;
+                draw_rounded_rect_filled(ren, box_x, box_y, box_w, box_h, 16.0f, g_theme.row_bg);
+                draw_text_centered(ren, f_med, dm_label, g_theme.text_light,
+                                   SCREEN_W / 2.0f, box_y + 30.0f);
+                draw_text_centered(ren, f_sm, tr("[B] Si        [A] No", "[B] Yes       [A] No"),
+                                   g_theme.accent, SCREEN_W / 2.0f, box_y + 66.0f);
+            }
 
         } else if (state == STATE_CONFIRM) {
             char confirm_label_buf[128];
