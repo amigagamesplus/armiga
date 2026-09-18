@@ -3913,6 +3913,7 @@ int main(void)
                         } else {
                             dim_percent -= 5;
                             if (dim_percent < 5) dim_percent = 5;
+                            write_brightness((int)((int64_t)2499 * brightness_pct / 100 * dim_percent / 100));
                         }
                     }
                     if (ev.key.key == SDLK_RIGHT) {
@@ -3922,6 +3923,7 @@ int main(void)
                         } else {
                             dim_percent += 5;
                             if (dim_percent > 95) dim_percent = 95;
+                            write_brightness((int)((int64_t)2499 * brightness_pct / 100 * dim_percent / 100));
                         }
                     }
                 }
@@ -3939,6 +3941,7 @@ int main(void)
                         } else {
                             dim_percent -= 5;
                             if (dim_percent < 5) dim_percent = 5;
+                            write_brightness((int)((int64_t)2499 * brightness_pct / 100 * dim_percent / 100));
                         }
                     }
                     else if (ev.jhat.value == SDL_HAT_RIGHT) {
@@ -3948,6 +3951,7 @@ int main(void)
                         } else {
                             dim_percent += 5;
                             if (dim_percent > 95) dim_percent = 95;
+                            write_brightness((int)((int64_t)2499 * brightness_pct / 100 * dim_percent / 100));
                         }
                     }
                 }
@@ -3959,13 +3963,25 @@ int main(void)
                         write_brightness(dim_saved_brightness);
                         dim_active = false;
                         apply_perf_profile(perf_selected);
+                    } else {
+                        /* Restaurar brillo normal tras la preview en vivo
+                         * del atenuado (screendim), que pudo dejar la
+                         * pantalla mas oscura de lo normal. */
+                        write_brightness((int)((int64_t)2499 * brightness_pct / 100));
                     }
                     last_input_ticks = SDL_GetTicks();
                     state = STATE_SETTINGS;
                 }
                 if (ev.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN &&
-                    ev.jbutton.button == BTN_SDL_B)
+                    ev.jbutton.button == BTN_SDL_B) {
+                    if (!dim_active) {
+                        /* Mismo motivo que en el guardado: descartar
+                         * cambios no debe dejar la pantalla atenuada por
+                         * la preview en vivo. */
+                        write_brightness((int)((int64_t)2499 * brightness_pct / 100));
+                    }
                     state = STATE_SETTINGS;
+                }
             }
             else if (state == STATE_BACKUP_MENU) {
                 if (ev.type == SDL_EVENT_KEY_DOWN) {
