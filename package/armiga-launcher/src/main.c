@@ -380,9 +380,32 @@ static const char *tr(const char *es, const char *en)
 typedef struct {
     int perf_profile;
     int ssh_enabled;
+    int dim_timeout_sec;
+    int dim_percent;
+    int brightness_pct;
+    int volume_pct;
+    int refresh_120hz;
+    int bt_enabled;
+    int wifi_enabled;
+    int samba_enabled;
+    int theme_index;
+    int click_sound_enabled;
 } AppConfigCache;
-static AppConfigCache g_cfg = { .perf_profile = 1, .ssh_enabled = 1 };
+static AppConfigCache g_cfg = {
+    .perf_profile = 1, .ssh_enabled = 1,
+    .dim_timeout_sec = 0, .dim_percent = 20,
+    .brightness_pct = 80, .volume_pct = 80,
+    .refresh_120hz = 0, .bt_enabled = 1, .wifi_enabled = 1,
+    .samba_enabled = 1, .theme_index = 0, .click_sound_enabled = 1,
+};
 
+/* Unica lectura de disco de armiga.cfg al arrancar: puebla g_cfg completo.
+ * Todos los read_* de mas abajo devuelven directamente el campo cacheado
+ * en vez de reabrir el fichero -- las lecturas en caliente (llamadas desde
+ * el bucle de render/input) pasan a ser 0 accesos a disco. Los save_*
+ * siguen escribiendo a disco de forma atomica (config_set_kv_multi, ya
+ * existente: temp+fsync+rename) y actualizan el campo correspondiente de
+ * g_cfg tras escribir, para no depender de releer. */
 static void config_load(void)
 {
     FILE *f = fopen(ARMIGA_CONFIG_PATH, "r");
@@ -393,11 +416,31 @@ static void config_load(void)
         if (sscanf(line, "%31[^=]=%95s", key, val) == 2) {
             if (!strcmp(key, "PERF_PROFILE")) g_cfg.perf_profile = atoi(val);
             else if (!strcmp(key, "SSH_ENABLED")) g_cfg.ssh_enabled = atoi(val);
+            else if (!strcmp(key, "DIM_TIMEOUT")) g_cfg.dim_timeout_sec = atoi(val);
+            else if (!strcmp(key, "DIM_PERCENT")) g_cfg.dim_percent = atoi(val);
+            else if (!strcmp(key, "BRIGHTNESS_PCT")) g_cfg.brightness_pct = atoi(val);
+            else if (!strcmp(key, "VOLUME_PCT")) g_cfg.volume_pct = atoi(val);
+            else if (!strcmp(key, "REFRESH_120HZ")) g_cfg.refresh_120hz = atoi(val);
+            else if (!strcmp(key, "BT_ENABLED")) g_cfg.bt_enabled = atoi(val);
+            else if (!strcmp(key, "WIFI_ENABLED")) g_cfg.wifi_enabled = atoi(val);
+            else if (!strcmp(key, "SAMBA_ENABLED")) g_cfg.samba_enabled = atoi(val);
+            else if (!strcmp(key, "THEME_INDEX")) g_cfg.theme_index = atoi(val);
+            else if (!strcmp(key, "CLICK_SOUND_ENABLED")) g_cfg.click_sound_enabled = atoi(val);
         }
     }
     fclose(f);
     if (g_cfg.perf_profile < 0 || g_cfg.perf_profile > 2) g_cfg.perf_profile = 1;
     g_cfg.ssh_enabled = g_cfg.ssh_enabled ? 1 : 0;
+    if (g_cfg.brightness_pct < 5) g_cfg.brightness_pct = 5;
+    if (g_cfg.brightness_pct > 100) g_cfg.brightness_pct = 100;
+    if (g_cfg.volume_pct < 0) g_cfg.volume_pct = 0;
+    if (g_cfg.volume_pct > 100) g_cfg.volume_pct = 100;
+    g_cfg.refresh_120hz = g_cfg.refresh_120hz ? 1 : 0;
+    g_cfg.bt_enabled = g_cfg.bt_enabled ? 1 : 0;
+    g_cfg.wifi_enabled = g_cfg.wifi_enabled ? 1 : 0;
+    g_cfg.samba_enabled = g_cfg.samba_enabled ? 1 : 0;
+    if (g_cfg.theme_index < 0 || g_cfg.theme_index >= THEME_COUNT) g_cfg.theme_index = 0;
+    g_cfg.click_sound_enabled = g_cfg.click_sound_enabled ? 1 : 0;
 }
 
 #define LOCAL_CONSOLE_PATH "/dev/tty0"
@@ -992,19 +1035,8 @@ static void write_brightness(int value)
 /* Lee DIM_TIMEOUT y DIM_PERCENT de armiga.cfg. Defaults: Nunca (0), 20%. */
 static void read_dim_config(int *timeout_sec, int *dim_percent)
 {
-    *timeout_sec = 0;
-    *dim_percent = 20;
-    FILE *f = fopen(ARMIGA_CONFIG_PATH, "r");
-    if (!f) return;
-    char line[128];
-    while (fgets(line, sizeof(line), f)) {
-        char key[32], val[96];
-        if (sscanf(line, "%31[^=]=%95s", key, val) == 2) {
-            if (!strcmp(key, "DIM_TIMEOUT")) *timeout_sec = atoi(val);
-            else if (!strcmp(key, "DIM_PERCENT")) *dim_percent = atoi(val);
-        }
-    }
-    fclose(f);
+    *timeout_sec = g_cfg.dim_timeout_sec;
+    *dim_percent = g_cfg.dim_percent;
 }
 /* Guarda DIM_TIMEOUT y DIM_PERCENT en armiga.cfg, una unica escritura
  * atomica (ambas claves juntas). */
@@ -1016,58 +1048,40 @@ static void save_dim_config(int timeout_sec, int dim_percent)
     const char *keys[2] = { "DIM_TIMEOUT", "DIM_PERCENT" };
     const char *vals[2] = { v1, v2 };
     config_set_kv_multi(keys, vals, 2);
+    g_cfg.dim_timeout_sec = timeout_sec;
+    g_cfg.dim_percent = dim_percent;
 }
 /* Lee BRIGHTNESS_PCT de armiga.cfg. Default: 80%. */
 static int read_brightness_config(void)
 {
-    int pct = 80;
-    FILE *f = fopen(ARMIGA_CONFIG_PATH, "r");
-    if (!f) return pct;
-    char line[128];
-    while (fgets(line, sizeof(line), f)) {
-        char key[32], val[96];
-        if (sscanf(line, "%31[^=]=%95s", key, val) == 2) {
-            if (!strcmp(key, "BRIGHTNESS_PCT")) pct = atoi(val);
-        }
-    }
-    fclose(f);
-    if (pct < 5) pct = 5;
-    if (pct > 100) pct = 100;
-    return pct;
+    return g_cfg.brightness_pct;
 }
 /* Guarda BRIGHTNESS_PCT en armiga.cfg. */
 static void save_brightness_config(int pct)
 {
+    if (pct < 5) pct = 5;
+    if (pct > 100) pct = 100;
     char v[16];
     snprintf(v, sizeof(v), "%d", pct);
     config_set_kv("BRIGHTNESS_PCT", v);
+    g_cfg.brightness_pct = pct;
 }
 /* Lee VOLUME_PCT de armiga.cfg. Default: 80%. ALSA no persiste el estado
  * del mixer entre reboots por si solo (siempre vuelve a 100% de fabrica),
  * asi que la fuente de verdad es armiga.cfg, igual que brillo. */
 static int read_volume_config(void)
 {
-    int pct = 80;
-    FILE *f = fopen(ARMIGA_CONFIG_PATH, "r");
-    if (!f) return pct;
-    char line[128];
-    while (fgets(line, sizeof(line), f)) {
-        char key[32], val[96];
-        if (sscanf(line, "%31[^=]=%95s", key, val) == 2) {
-            if (!strcmp(key, "VOLUME_PCT")) pct = atoi(val);
-        }
-    }
-    fclose(f);
-    if (pct < 0) pct = 0;
-    if (pct > 100) pct = 100;
-    return pct;
+    return g_cfg.volume_pct;
 }
 /* Guarda VOLUME_PCT en armiga.cfg. */
 static void save_volume_config(int pct)
 {
+    if (pct < 0) pct = 0;
+    if (pct > 100) pct = 100;
     char v[16];
     snprintf(v, sizeof(v), "%d", pct);
     config_set_kv("VOLUME_PCT", v);
+    g_cfg.volume_pct = pct;
 }
 /* Ajusta el volumen real via amixer (control DAC, 0-100%). */
 static void write_volume_pct(int pct)
@@ -1082,24 +1096,14 @@ static void write_volume_pct(int pct)
 /* Lee REFRESH_120HZ de armiga.cfg. Default: desactivado (0, = 60Hz). */
 static int read_refresh_120hz(void)
 {
-    int enabled = 0;
-    FILE *f = fopen(ARMIGA_CONFIG_PATH, "r");
-    if (!f) return enabled;
-    char line[128];
-    while (fgets(line, sizeof(line), f)) {
-        char key[32], val[96];
-        if (sscanf(line, "%31[^=]=%95s", key, val) == 2) {
-            if (!strcmp(key, "REFRESH_120HZ")) enabled = atoi(val);
-        }
-    }
-    fclose(f);
-    return enabled ? 1 : 0;
+    return g_cfg.refresh_120hz;
 }
 /* Guarda REFRESH_120HZ en armiga.cfg, preservando otras claves,
  * mismo patron que save_ssh_enabled. */
 static void save_refresh_120hz(int enabled)
 {
     config_set_kv("REFRESH_120HZ", enabled ? "1" : "0");
+    g_cfg.refresh_120hz = enabled ? 1 : 0;
 }
 /* Guarda SSH_ENABLED en armiga.cfg. */
 static void save_ssh_enabled(int enabled)
@@ -1132,23 +1136,13 @@ static void apply_ssh_enabled(int enabled)
 /* Lee BT_ENABLED de armiga.cfg. Default: activado (1). */
 static int read_bt_enabled(void)
 {
-    int enabled = 1;
-    FILE *f = fopen(ARMIGA_CONFIG_PATH, "r");
-    if (!f) return enabled;
-    char line[128];
-    while (fgets(line, sizeof(line), f)) {
-        char key[32], val[96];
-        if (sscanf(line, "%31[^=]=%95s", key, val) == 2) {
-            if (!strcmp(key, "BT_ENABLED")) enabled = atoi(val);
-        }
-    }
-    fclose(f);
-    return enabled ? 1 : 0;
+    return g_cfg.bt_enabled;
 }
 /* Guarda BT_ENABLED en armiga.cfg. */
 static void save_bt_enabled(int enabled)
 {
     config_set_kv("BT_ENABLED", enabled ? "1" : "0");
+    g_cfg.bt_enabled = enabled ? 1 : 0;
 }
 /* Fija (o revierte a altavoz) el audio_device de RetroArch para que el
  * audio del emulador salga por el Bluetooth conectado. mac==NULL o vacio
@@ -1257,45 +1251,25 @@ static void apply_bt_enabled(int enabled)
 }
 static int read_wifi_enabled(void)
 {
-    int enabled = 1;
-    FILE *f = fopen(ARMIGA_CONFIG_PATH, "r");
-    if (!f) return enabled;
-    char line[128];
-    while (fgets(line, sizeof(line), f)) {
-        char key[32], val[96];
-        if (sscanf(line, "%31[^=]=%95s", key, val) == 2) {
-            if (!strcmp(key, "WIFI_ENABLED")) enabled = atoi(val);
-        }
-    }
-    fclose(f);
-    return enabled ? 1 : 0;
+    return g_cfg.wifi_enabled;
 }
 /* Guarda WIFI_ENABLED en armiga.cfg. */
 static void save_wifi_enabled(int enabled)
 {
     config_set_kv("WIFI_ENABLED", enabled ? "1" : "0");
+    g_cfg.wifi_enabled = enabled ? 1 : 0;
 }
 static int read_theme_index(void)
 {
-    int idx = 0;
-    FILE *f = fopen(ARMIGA_CONFIG_PATH, "r");
-    if (!f) return idx;
-    char line[128];
-    while (fgets(line, sizeof(line), f)) {
-        char key[32], val[96];
-        if (sscanf(line, "%31[^=]=%95s", key, val) == 2) {
-            if (!strcmp(key, "THEME_INDEX")) idx = atoi(val);
-        }
-    }
-    fclose(f);
-    if (idx < 0 || idx >= THEME_COUNT) idx = 0;
-    return idx;
+    return g_cfg.theme_index;
 }
 static void save_theme_index(int idx)
 {
     char buf[8];
     snprintf(buf, sizeof(buf), "%d", idx);
     config_set_kv("THEME_INDEX", buf);
+    if (idx < 0 || idx >= THEME_COUNT) idx = 0;
+    g_cfg.theme_index = idx;
 }
 static void apply_wifi_enabled(int enabled)
 {
@@ -1363,24 +1337,14 @@ static void apply_perf_profile(int profile)
 /* Lee SAMBA_ENABLED de armiga.cfg. Default: activado (1). */
 static int read_samba_enabled(void)
 {
-    int enabled = 1;
-    FILE *f = fopen(ARMIGA_CONFIG_PATH, "r");
-    if (!f) return enabled;
-    char line[128];
-    while (fgets(line, sizeof(line), f)) {
-        char key[32], val[96];
-        if (sscanf(line, "%31[^=]=%95s", key, val) == 2) {
-            if (!strcmp(key, "SAMBA_ENABLED")) enabled = atoi(val);
-        }
-    }
-    fclose(f);
-    return enabled ? 1 : 0;
+    return g_cfg.samba_enabled;
 }
 
 /* Guarda SAMBA_ENABLED en armiga.cfg. */
 static void save_samba_enabled(int enabled)
 {
     config_set_kv("SAMBA_ENABLED", enabled ? "1" : "0");
+    g_cfg.samba_enabled = enabled ? 1 : 0;
 }
 
 /* Aplica el estado Samba en caliente, sin reiniciar. */
@@ -2933,22 +2897,12 @@ static void play_ui_click(void)
 /* Lee CLICK_SOUND_ENABLED de armiga.cfg. Default: activado (1). */
 static int read_click_sound_enabled(void)
 {
-    int enabled = 1;
-    FILE *f = fopen(ARMIGA_CONFIG_PATH, "r");
-    if (!f) return enabled;
-    char line[128];
-    while (fgets(line, sizeof(line), f)) {
-        char key[32], val[96];
-        if (sscanf(line, "%31[^=]=%95s", key, val) == 2) {
-            if (!strcmp(key, "CLICK_SOUND_ENABLED")) enabled = atoi(val);
-        }
-    }
-    fclose(f);
-    return enabled ? 1 : 0;
+    return g_cfg.click_sound_enabled;
 }
 static void save_click_sound_enabled(int enabled)
 {
     config_set_kv("CLICK_SOUND_ENABLED", enabled ? "1" : "0");
+    g_cfg.click_sound_enabled = enabled ? 1 : 0;
 }
 
 int main(void)
