@@ -89,6 +89,15 @@ static void safe_copy(char *dst, const char *src, size_t sz) {
 #define FONT_MED     13
 #define FONT_SM      12
 #define FONT_XS      9
+/* Altura absoluta comun de los indicadores "mas arriba/abajo" de listas
+ * con scroll (Settings, Tema, Timezone): antes cada pantalla la derivaba
+ * de su propio y0/item_h/visible, que difieren entre si, asi que aunque
+ * la formula relativa fuera identica el resultado en pixeles no lo era
+ * (el de Timezone quedaba varios px mas abajo que el de Settings). Fijar
+ * el mismo valor absoluto en las tres garantiza que se vean a la misma
+ * altura sin importar cuantas filas quepan en cada pantalla. */
+#define LIST_MORE_ABOVE_Y 48.0f
+#define LIST_MORE_BELOW_Y 418.0f
 #define FONT_XSM     10
 #define FONT_LG      28
 
@@ -5004,11 +5013,11 @@ int main(void)
             }
             if (settings_scroll > 0) {
                 draw_text(ren, f_xs, tr("más arriba ↑", "more above ↑"), c_menu_selbg,
-                          mx + 8.0f, settings_y0 - 16.0f);
+                          mx + 8.0f, LIST_MORE_ABOVE_Y);
             }
             if (settings_scroll + settings_visible < SETTINGS_MENU_COUNT) {
                 draw_text(ren, f_xs, tr("más abajo ↓", "more below ↓"), c_menu_selbg,
-                          mx + 8.0f, settings_y0 + settings_visible * settings_item_h + 2.0f);
+                          mx + 8.0f, LIST_MORE_BELOW_Y);
             }
 
             draw_line(ren, mx, 438.0f, SCREEN_W - 20.0f, 438.0f, c_selbg);
@@ -5158,11 +5167,11 @@ int main(void)
             }
             if (theme_scroll > 0) {
                 draw_text(ren, f_xs, tr("más arriba ↑", "more above ↑"), c_menu_selbg,
-                          mx + 8.0f, theme_y0 - 16.0f);
+                          mx + 8.0f, LIST_MORE_ABOVE_Y);
             }
             if (theme_scroll + theme_visible < THEME_COUNT) {
                 draw_text(ren, f_xs, tr("más abajo ↓", "more below ↓"), c_menu_selbg,
-                          mx + 8.0f, theme_y0 + theme_visible * theme_item_h + 2.0f);
+                          mx + 8.0f, LIST_MORE_BELOW_Y);
             }
             draw_line(ren, mx, 438.0f, SCREEN_W - 20.0f, 438.0f, c_selbg);
             draw_footer(ren, f_sm,
@@ -5325,11 +5334,11 @@ int main(void)
 
             if (tz_scroll > 0) {
                 draw_text(ren, f_xs, tr("más arriba ↑", "more above ↑"), c_menu_selbg,
-                          mx + 8.0f, tz_y0 - 14.0f);
+                          mx + 8.0f, LIST_MORE_ABOVE_Y);
             }
             if (tz_scroll + tz_visible < TIMEZONE_LIST_COUNT) {
                 draw_text(ren, f_xs, tr("más abajo ↓", "more below ↓"), c_menu_selbg,
-                          mx + 8.0f, tz_y0 + tz_visible * tz_item_h + 2.0f);
+                          mx + 8.0f, LIST_MORE_BELOW_Y);
             }
 
             {
