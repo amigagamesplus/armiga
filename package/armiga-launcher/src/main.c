@@ -14,6 +14,7 @@
 #include <stdlib.h>
 #include <stdbool.h>
 #include <string.h>
+#include <ctype.h>
 #include <math.h>
 #include <time.h>
 #include <unistd.h>
@@ -86,6 +87,7 @@ static void safe_copy(char *dst, const char *src, size_t sz) {
 #define FONT_PATH    "/usr/share/armiga/fonts/JetBrainsMonoNL-ExtraBold.ttf"
 #define FONT_PATH_BOLD "/usr/share/armiga/fonts/InterUI-Bold.ttf"
 #define FONT_STATUSBAR 16
+#define FONT_BADGE 9
 #define FONT_MED     13
 #define FONT_SM      12
 #define FONT_XS      9
@@ -1654,6 +1656,36 @@ static bool get_last_played_game(char *clean_name_out, size_t name_sz,
     }
     return true;
 }
+/* Extrae la carpeta de origen (adf/demoscene/hdf/ipf/whdload) de la ruta
+ * de la ultima partida, buscando el segmento justo despues de "/roms/".
+ * Devuelve el nombre en MAYUSCULAS listo para el badge, o cadena vacia
+ * si no coincide con ninguna de las 5 fuentes conocidas (ROM movida
+ * manualmente fuera de la estructura esperada, etc.). */
+#define ROM_SOURCE_COUNT 5
+static const char *ROM_SOURCE_DIRS[ROM_SOURCE_COUNT] = {
+    "adf", "demoscene", "hdf", "ipf", "whdload"
+};
+static void extract_rom_source_label(const char *rom_path, char *label_out, size_t label_sz)
+{
+    if (label_sz > 0) label_out[0] = '\0';
+    const char *marker = strstr(rom_path, "/roms/");
+    if (!marker) return;
+    const char *seg_start = marker + strlen("/roms/");
+    const char *seg_end = strchr(seg_start, '/');
+    if (!seg_end) return;
+    size_t seg_len = (size_t)(seg_end - seg_start);
+    char seg[32];
+    if (seg_len >= sizeof(seg)) return;
+    memcpy(seg, seg_start, seg_len);
+    seg[seg_len] = '\0';
+    for (int i = 0; i < ROM_SOURCE_COUNT; i++) {
+        if (!strcmp(seg, ROM_SOURCE_DIRS[i])) {
+            for (size_t j = 0; j <= seg_len && j < label_sz; j++)
+                label_out[j] = (char)toupper((unsigned char)seg[j]);
+            return;
+        }
+    }
+}
 #define AREXX_SCRIPTS_DIR "/usr/share/armiga/arexx_scripts"
 #define AREXX_MAX_SCRIPTS 16
 typedef struct {
@@ -2951,6 +2983,7 @@ int main(void)
     TTF_Font *f_xs    = TTF_OpenFont(FONT_PATH, FONT_XS);
     TTF_Font *f_xsm   = TTF_OpenFont(FONT_PATH, FONT_XSM);
     TTF_Font *f_status_bold = TTF_OpenFont(FONT_PATH_BOLD, FONT_STATUSBAR);
+    TTF_Font *f_badge = TTF_OpenFont(FONT_PATH_BOLD, FONT_BADGE);
     if (!f_med || !f_sm || !f_lg || !f_xs || !f_xsm || !f_status_bold) {
         fprintf(stderr, "TTF_OpenFont: %s\n", SDL_GetError());
         SDL_DestroyRenderer(ren); SDL_DestroyWindow(win);
@@ -3113,9 +3146,12 @@ int main(void)
     char last_game_name[96] = "";
     char last_game_rom_path[400] = "";
     char last_game_core_path[256] = "";
+    char last_game_source[16] = "";
     bool has_last_game = get_last_played_game(last_game_name, sizeof(last_game_name),
                                                last_game_rom_path, sizeof(last_game_rom_path),
                                                last_game_core_path, sizeof(last_game_core_path));
+    if (has_last_game)
+        extract_rom_source_label(last_game_rom_path, last_game_source, sizeof(last_game_source));
     char wifi_ssid[64] = "";
     char wifi_password[64] = "";
     int wifi_field_selected = 0;
@@ -4887,6 +4923,23 @@ int main(void)
             float pill_x = (SCREEN_W - (float)pill_text_w) / 2.0f;
             float pill_y = 438.0f - 10.0f - (float)pill_text_h;
             draw_text_truncated(ren, f_sm, last_game_pill_buf, c_dkgreen, pill_x, pill_y, pill_max_w);
+
+            /* Badge de la carpeta de origen (ADF/DEMOSCENE/HDF/IPF/WHDLOAD),
+             * recuadro de contorno con padding identico en los 4 lados,
+             * alineado a la izquierda del nombre de la partida. */
+            if (has_last_game && last_game_source[0]) {
+                int src_w = 0, src_h = 0;
+                TTF_GetStringSize(f_badge, last_game_source, 0, &src_w, &src_h);
+                float badge_pad = 4.0f;
+                float badge_w = (float)src_w + badge_pad * 2.0f;
+                float badge_h = (float)src_h + badge_pad * 2.0f;
+                float badge_x = pill_x;
+                float badge_y = pill_y - badge_h - 4.0f;
+                draw_rounded_rect_outline(ren, badge_x, badge_y, badge_w, badge_h,
+                                           2.0f, 1.0f, c_selbg, c_bg);
+                draw_text(ren, f_badge, last_game_source, c_selbg,
+                          badge_x + badge_pad, badge_y + badge_pad);
+            }
         }
 
         /* Barra inferior */
@@ -6661,6 +6714,7 @@ int main(void)
     TTF_CloseFont(f_xs);
     TTF_CloseFont(f_xsm);
     TTF_CloseFont(f_status_bold);
+    TTF_CloseFont(f_badge);
     SDL_DestroyRenderer(ren);
     SDL_DestroyWindow(win);
     TTF_Quit();
