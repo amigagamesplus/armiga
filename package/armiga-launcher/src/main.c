@@ -1686,6 +1686,33 @@ static void extract_rom_source_label(const char *rom_path, char *label_out, size
         }
     }
 }
+/* Cuenta recursivamente los ficheros regulares bajo dir_path (subcarpetas
+ * incluidas). Se llama UNA sola vez al arrancar (ver main()), no en cada
+ * frame ni en el refresco periodico del menu -- un escaneo recursivo de
+ * toda la libreria de ROMs cada segundo seria caro e innecesario, ya que
+ * el numero solo cambia si el usuario anade/quita ROMs manualmente (lo
+ * que ya requiere reiniciar el launcher para verlas en el catalogo). */
+static int count_roms_recursive(const char *dir_path)
+{
+    DIR *dir = opendir(dir_path);
+    if (!dir) return 0;
+    int count = 0;
+    struct dirent *ent;
+    while ((ent = readdir(dir)) != NULL) {
+        if (!strcmp(ent->d_name, ".") || !strcmp(ent->d_name, "..")) continue;
+        char child_path[512];
+        snprintf(child_path, sizeof(child_path), "%s/%s", dir_path, ent->d_name);
+        struct stat st;
+        if (stat(child_path, &st) != 0) continue;
+        if (S_ISDIR(st.st_mode)) {
+            count += count_roms_recursive(child_path);
+        } else if (S_ISREG(st.st_mode)) {
+            count++;
+        }
+    }
+    closedir(dir);
+    return count;
+}
 #define AREXX_SCRIPTS_DIR "/usr/share/armiga/arexx_scripts"
 #define AREXX_MAX_SCRIPTS 16
 typedef struct {
@@ -3152,6 +3179,7 @@ int main(void)
                                                last_game_core_path, sizeof(last_game_core_path));
     if (has_last_game)
         extract_rom_source_label(last_game_rom_path, last_game_source, sizeof(last_game_source));
+    int total_roms = count_roms_recursive("/media/amiga_data/roms");
     char wifi_ssid[64] = "";
     char wifi_password[64] = "";
     int wifi_field_selected = 0;
@@ -4831,10 +4859,15 @@ int main(void)
         }
         for (int i = 0; i < MENU_COUNT; i++) {
             float iy = menu_y0 + i * item_h;
+            const char *menu_label = MENU_ITEMS[i][current_lang];
             int label_w = 0, label_h = 0;
-            TTF_GetStringSize(f_med, MENU_ITEMS[i][current_lang], 0, &label_w, &label_h);
+            TTF_GetStringSize(f_med, menu_label, 0, &label_w, &label_h);
+            /* Ancho de la pildora (real o "virtual" si no esta seleccionada),
+             * usado tambien para posicionar el contador de ROMs siempre al
+             * mismo sitio, se mueva o no la seleccion. */
+            float item_pill_w = 46.0f + (float)label_w + 32.0f;
             if (i == selected) {
-                float sel_w = 46.0f + (float)label_w + 32.0f; /* icono+texto, aire lateral moderado */
+                float sel_w = item_pill_w; /* icono+texto, aire lateral moderado */
                 float pill_h = item_h - 4.0f;
                 float pill_radius = pill_h / 2.0f;
                 draw_rounded_rect_filled(ren, mx - 10.0f, menu_cursor_y - 5.0f,
@@ -4850,14 +4883,22 @@ int main(void)
                     SDL_FRect icon_dst = {icon_x, icon_y, icon_sz, icon_sz};
                     SDL_RenderTexture(ren, menu_icon_tex[i], NULL, &icon_dst);
                 }
-                draw_text(ren, f_med, MENU_ITEMS[i][current_lang], c_menu_gold, mx + 46.0f, iy);
+                draw_text(ren, f_med, menu_label, c_menu_gold, mx + 46.0f, iy);
             } else {
                 if (menu_icon_tex[i]) {
                     SDL_SetTextureColorMod(menu_icon_tex[i], c_menu_beige.r, c_menu_beige.g, c_menu_beige.b);
                     SDL_FRect icon_dst = {mx + 8.0f, iy - 1.0f, 22.0f, 22.0f};
                     SDL_RenderTexture(ren, menu_icon_tex[i], NULL, &icon_dst);
                 }
-                draw_text(ren, f_med, MENU_ITEMS[i][current_lang], c_menu_beige, mx + 46.0f, iy);
+                draw_text(ren, f_med, menu_label, c_menu_beige, mx + 46.0f, iy);
+            }
+
+            /* Contador total de ROMs, fuera de la pildora de seleccion
+             * (color neutro fijo, no cambia con la seleccion). */
+            if (i == 0) {
+                char rom_count_buf[16];
+                snprintf(rom_count_buf, sizeof(rom_count_buf), "(%d)", total_roms);
+                draw_text(ren, f_med, rom_count_buf, c_menu_beige, mx - 10.0f + item_pill_w + 10.0f, iy);
             }
 
         }
