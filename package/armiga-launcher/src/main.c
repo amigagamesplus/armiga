@@ -14,6 +14,7 @@
 #include <stdlib.h>
 #include <stdbool.h>
 #include <string.h>
+#include <ctype.h>
 #include <math.h>
 #include <time.h>
 #include <unistd.h>
@@ -86,9 +87,19 @@ static void safe_copy(char *dst, const char *src, size_t sz) {
 #define FONT_PATH    "/usr/share/armiga/fonts/JetBrainsMonoNL-ExtraBold.ttf"
 #define FONT_PATH_BOLD "/usr/share/armiga/fonts/InterUI-Bold.ttf"
 #define FONT_STATUSBAR 16
+#define FONT_BADGE 9
 #define FONT_MED     13
 #define FONT_SM      12
 #define FONT_XS      9
+/* Altura absoluta comun de los indicadores "mas arriba/abajo" de listas
+ * con scroll (Settings, Tema, Timezone): antes cada pantalla la derivaba
+ * de su propio y0/item_h/visible, que difieren entre si, asi que aunque
+ * la formula relativa fuera identica el resultado en pixeles no lo era
+ * (el de Timezone quedaba varios px mas abajo que el de Settings). Fijar
+ * el mismo valor absoluto en las tres garantiza que se vean a la misma
+ * altura sin importar cuantas filas quepan en cada pantalla. */
+#define LIST_MORE_ABOVE_Y 48.0f
+#define LIST_MORE_BELOW_Y 418.0f
 #define FONT_XSM     10
 #define FONT_LG      28
 
@@ -101,7 +112,7 @@ static void safe_copy(char *dst, const char *src, size_t sz) {
 #define COL_KEY_BG   { 22,  22,  22, 255}
 #define COL_ROW_BG   {28, 52, 40, 255}
 #define COL_DEADZONE {40, 65, 50, 255}
-#define THEME_COUNT 7
+#define THEME_COUNT 10
 /* Estructura de tema: acento/texto + fondo general + rojo de alerta,
  * segun lo acordado (no cubre colores de datos como RGB de LEDs). */
 typedef struct {
@@ -120,6 +131,9 @@ static const char *THEME_NAMES[THEME_COUNT][2] = {
     {"Carmesi",           "Crimson"},
     {"Fosforo verde",     "Green phosphor"},
     {"Monocromo / Plata", "Monochrome / Silver"},
+    {"Workbench 1.3",     "Workbench 1.3"},
+    {"Workbench 3.1",     "Workbench 3.1"},
+    {"Kickstart Purpura", "Kickstart Purple"},
 };
 static const Theme THEMES[THEME_COUNT] = {
     /* 1. Lima (original) */
@@ -136,6 +150,12 @@ static const Theme THEMES[THEME_COUNT] = {
     { {8, 8, 8, 255}, {80, 255, 120, 255}, {8, 8, 8, 255}, {200, 255, 210, 255}, {20, 26, 20, 255}, {255, 90, 60, 255} },
     /* 7. Monocromo / Plata */
     { {20, 20, 20, 255}, {216, 216, 216, 255}, {24, 24, 24, 255}, {232, 232, 232, 255}, {36, 36, 36, 255}, {220, 80, 80, 255} },
+    /* 8. Workbench 1.3 (Amiga 500/2000, 1987) */
+    { {0, 85, 170, 255}, {255, 170, 0, 255}, {0, 0, 0, 255}, {255, 255, 255, 255}, {20, 70, 140, 255}, {220, 60, 40, 255} },
+    /* 9. Workbench 3.1 (Amiga 1200/4000, 1993) */
+    { {160, 160, 160, 255}, {0, 85, 170, 255}, {255, 255, 255, 255}, {0, 0, 0, 255}, {200, 200, 200, 255}, {200, 40, 40, 255} },
+    /* 10. Kickstart Purple (pantalla de insercion de disquete) */
+    { {42, 22, 53, 255}, {255, 255, 238, 255}, {26, 12, 32, 255}, {229, 168, 35, 255}, {60, 34, 74, 255}, {225, 70, 90, 255} },
 };
 static Theme g_theme; /* tema activo, fijado en main() tras leer config */
 
@@ -371,9 +391,32 @@ static const char *tr(const char *es, const char *en)
 typedef struct {
     int perf_profile;
     int ssh_enabled;
+    int dim_timeout_sec;
+    int dim_percent;
+    int brightness_pct;
+    int volume_pct;
+    int refresh_120hz;
+    int bt_enabled;
+    int wifi_enabled;
+    int samba_enabled;
+    int theme_index;
+    int click_sound_enabled;
 } AppConfigCache;
-static AppConfigCache g_cfg = { .perf_profile = 1, .ssh_enabled = 1 };
+static AppConfigCache g_cfg = {
+    .perf_profile = 1, .ssh_enabled = 1,
+    .dim_timeout_sec = 0, .dim_percent = 20,
+    .brightness_pct = 80, .volume_pct = 80,
+    .refresh_120hz = 0, .bt_enabled = 1, .wifi_enabled = 1,
+    .samba_enabled = 1, .theme_index = 0, .click_sound_enabled = 1,
+};
 
+/* Unica lectura de disco de armiga.cfg al arrancar: puebla g_cfg completo.
+ * Todos los read_* de mas abajo devuelven directamente el campo cacheado
+ * en vez de reabrir el fichero -- las lecturas en caliente (llamadas desde
+ * el bucle de render/input) pasan a ser 0 accesos a disco. Los save_*
+ * siguen escribiendo a disco de forma atomica (config_set_kv_multi, ya
+ * existente: temp+fsync+rename) y actualizan el campo correspondiente de
+ * g_cfg tras escribir, para no depender de releer. */
 static void config_load(void)
 {
     FILE *f = fopen(ARMIGA_CONFIG_PATH, "r");
@@ -384,11 +427,31 @@ static void config_load(void)
         if (sscanf(line, "%31[^=]=%95s", key, val) == 2) {
             if (!strcmp(key, "PERF_PROFILE")) g_cfg.perf_profile = atoi(val);
             else if (!strcmp(key, "SSH_ENABLED")) g_cfg.ssh_enabled = atoi(val);
+            else if (!strcmp(key, "DIM_TIMEOUT")) g_cfg.dim_timeout_sec = atoi(val);
+            else if (!strcmp(key, "DIM_PERCENT")) g_cfg.dim_percent = atoi(val);
+            else if (!strcmp(key, "BRIGHTNESS_PCT")) g_cfg.brightness_pct = atoi(val);
+            else if (!strcmp(key, "VOLUME_PCT")) g_cfg.volume_pct = atoi(val);
+            else if (!strcmp(key, "REFRESH_120HZ")) g_cfg.refresh_120hz = atoi(val);
+            else if (!strcmp(key, "BT_ENABLED")) g_cfg.bt_enabled = atoi(val);
+            else if (!strcmp(key, "WIFI_ENABLED")) g_cfg.wifi_enabled = atoi(val);
+            else if (!strcmp(key, "SAMBA_ENABLED")) g_cfg.samba_enabled = atoi(val);
+            else if (!strcmp(key, "THEME_INDEX")) g_cfg.theme_index = atoi(val);
+            else if (!strcmp(key, "CLICK_SOUND_ENABLED")) g_cfg.click_sound_enabled = atoi(val);
         }
     }
     fclose(f);
     if (g_cfg.perf_profile < 0 || g_cfg.perf_profile > 2) g_cfg.perf_profile = 1;
     g_cfg.ssh_enabled = g_cfg.ssh_enabled ? 1 : 0;
+    if (g_cfg.brightness_pct < 5) g_cfg.brightness_pct = 5;
+    if (g_cfg.brightness_pct > 100) g_cfg.brightness_pct = 100;
+    if (g_cfg.volume_pct < 0) g_cfg.volume_pct = 0;
+    if (g_cfg.volume_pct > 100) g_cfg.volume_pct = 100;
+    g_cfg.refresh_120hz = g_cfg.refresh_120hz ? 1 : 0;
+    g_cfg.bt_enabled = g_cfg.bt_enabled ? 1 : 0;
+    g_cfg.wifi_enabled = g_cfg.wifi_enabled ? 1 : 0;
+    g_cfg.samba_enabled = g_cfg.samba_enabled ? 1 : 0;
+    if (g_cfg.theme_index < 0 || g_cfg.theme_index >= THEME_COUNT) g_cfg.theme_index = 0;
+    g_cfg.click_sound_enabled = g_cfg.click_sound_enabled ? 1 : 0;
 }
 
 #define LOCAL_CONSOLE_PATH "/dev/tty0"
@@ -983,19 +1046,8 @@ static void write_brightness(int value)
 /* Lee DIM_TIMEOUT y DIM_PERCENT de armiga.cfg. Defaults: Nunca (0), 20%. */
 static void read_dim_config(int *timeout_sec, int *dim_percent)
 {
-    *timeout_sec = 0;
-    *dim_percent = 20;
-    FILE *f = fopen(ARMIGA_CONFIG_PATH, "r");
-    if (!f) return;
-    char line[128];
-    while (fgets(line, sizeof(line), f)) {
-        char key[32], val[96];
-        if (sscanf(line, "%31[^=]=%95s", key, val) == 2) {
-            if (!strcmp(key, "DIM_TIMEOUT")) *timeout_sec = atoi(val);
-            else if (!strcmp(key, "DIM_PERCENT")) *dim_percent = atoi(val);
-        }
-    }
-    fclose(f);
+    *timeout_sec = g_cfg.dim_timeout_sec;
+    *dim_percent = g_cfg.dim_percent;
 }
 /* Guarda DIM_TIMEOUT y DIM_PERCENT en armiga.cfg, una unica escritura
  * atomica (ambas claves juntas). */
@@ -1007,58 +1059,40 @@ static void save_dim_config(int timeout_sec, int dim_percent)
     const char *keys[2] = { "DIM_TIMEOUT", "DIM_PERCENT" };
     const char *vals[2] = { v1, v2 };
     config_set_kv_multi(keys, vals, 2);
+    g_cfg.dim_timeout_sec = timeout_sec;
+    g_cfg.dim_percent = dim_percent;
 }
 /* Lee BRIGHTNESS_PCT de armiga.cfg. Default: 80%. */
 static int read_brightness_config(void)
 {
-    int pct = 80;
-    FILE *f = fopen(ARMIGA_CONFIG_PATH, "r");
-    if (!f) return pct;
-    char line[128];
-    while (fgets(line, sizeof(line), f)) {
-        char key[32], val[96];
-        if (sscanf(line, "%31[^=]=%95s", key, val) == 2) {
-            if (!strcmp(key, "BRIGHTNESS_PCT")) pct = atoi(val);
-        }
-    }
-    fclose(f);
-    if (pct < 5) pct = 5;
-    if (pct > 100) pct = 100;
-    return pct;
+    return g_cfg.brightness_pct;
 }
 /* Guarda BRIGHTNESS_PCT en armiga.cfg. */
 static void save_brightness_config(int pct)
 {
+    if (pct < 5) pct = 5;
+    if (pct > 100) pct = 100;
     char v[16];
     snprintf(v, sizeof(v), "%d", pct);
     config_set_kv("BRIGHTNESS_PCT", v);
+    g_cfg.brightness_pct = pct;
 }
 /* Lee VOLUME_PCT de armiga.cfg. Default: 80%. ALSA no persiste el estado
  * del mixer entre reboots por si solo (siempre vuelve a 100% de fabrica),
  * asi que la fuente de verdad es armiga.cfg, igual que brillo. */
 static int read_volume_config(void)
 {
-    int pct = 80;
-    FILE *f = fopen(ARMIGA_CONFIG_PATH, "r");
-    if (!f) return pct;
-    char line[128];
-    while (fgets(line, sizeof(line), f)) {
-        char key[32], val[96];
-        if (sscanf(line, "%31[^=]=%95s", key, val) == 2) {
-            if (!strcmp(key, "VOLUME_PCT")) pct = atoi(val);
-        }
-    }
-    fclose(f);
-    if (pct < 0) pct = 0;
-    if (pct > 100) pct = 100;
-    return pct;
+    return g_cfg.volume_pct;
 }
 /* Guarda VOLUME_PCT en armiga.cfg. */
 static void save_volume_config(int pct)
 {
+    if (pct < 0) pct = 0;
+    if (pct > 100) pct = 100;
     char v[16];
     snprintf(v, sizeof(v), "%d", pct);
     config_set_kv("VOLUME_PCT", v);
+    g_cfg.volume_pct = pct;
 }
 /* Ajusta el volumen real via amixer (control DAC, 0-100%). */
 static void write_volume_pct(int pct)
@@ -1073,24 +1107,14 @@ static void write_volume_pct(int pct)
 /* Lee REFRESH_120HZ de armiga.cfg. Default: desactivado (0, = 60Hz). */
 static int read_refresh_120hz(void)
 {
-    int enabled = 0;
-    FILE *f = fopen(ARMIGA_CONFIG_PATH, "r");
-    if (!f) return enabled;
-    char line[128];
-    while (fgets(line, sizeof(line), f)) {
-        char key[32], val[96];
-        if (sscanf(line, "%31[^=]=%95s", key, val) == 2) {
-            if (!strcmp(key, "REFRESH_120HZ")) enabled = atoi(val);
-        }
-    }
-    fclose(f);
-    return enabled ? 1 : 0;
+    return g_cfg.refresh_120hz;
 }
 /* Guarda REFRESH_120HZ en armiga.cfg, preservando otras claves,
  * mismo patron que save_ssh_enabled. */
 static void save_refresh_120hz(int enabled)
 {
     config_set_kv("REFRESH_120HZ", enabled ? "1" : "0");
+    g_cfg.refresh_120hz = enabled ? 1 : 0;
 }
 /* Guarda SSH_ENABLED en armiga.cfg. */
 static void save_ssh_enabled(int enabled)
@@ -1123,23 +1147,13 @@ static void apply_ssh_enabled(int enabled)
 /* Lee BT_ENABLED de armiga.cfg. Default: activado (1). */
 static int read_bt_enabled(void)
 {
-    int enabled = 1;
-    FILE *f = fopen(ARMIGA_CONFIG_PATH, "r");
-    if (!f) return enabled;
-    char line[128];
-    while (fgets(line, sizeof(line), f)) {
-        char key[32], val[96];
-        if (sscanf(line, "%31[^=]=%95s", key, val) == 2) {
-            if (!strcmp(key, "BT_ENABLED")) enabled = atoi(val);
-        }
-    }
-    fclose(f);
-    return enabled ? 1 : 0;
+    return g_cfg.bt_enabled;
 }
 /* Guarda BT_ENABLED en armiga.cfg. */
 static void save_bt_enabled(int enabled)
 {
     config_set_kv("BT_ENABLED", enabled ? "1" : "0");
+    g_cfg.bt_enabled = enabled ? 1 : 0;
 }
 /* Fija (o revierte a altavoz) el audio_device de RetroArch para que el
  * audio del emulador salga por el Bluetooth conectado. mac==NULL o vacio
@@ -1248,45 +1262,25 @@ static void apply_bt_enabled(int enabled)
 }
 static int read_wifi_enabled(void)
 {
-    int enabled = 1;
-    FILE *f = fopen(ARMIGA_CONFIG_PATH, "r");
-    if (!f) return enabled;
-    char line[128];
-    while (fgets(line, sizeof(line), f)) {
-        char key[32], val[96];
-        if (sscanf(line, "%31[^=]=%95s", key, val) == 2) {
-            if (!strcmp(key, "WIFI_ENABLED")) enabled = atoi(val);
-        }
-    }
-    fclose(f);
-    return enabled ? 1 : 0;
+    return g_cfg.wifi_enabled;
 }
 /* Guarda WIFI_ENABLED en armiga.cfg. */
 static void save_wifi_enabled(int enabled)
 {
     config_set_kv("WIFI_ENABLED", enabled ? "1" : "0");
+    g_cfg.wifi_enabled = enabled ? 1 : 0;
 }
 static int read_theme_index(void)
 {
-    int idx = 0;
-    FILE *f = fopen(ARMIGA_CONFIG_PATH, "r");
-    if (!f) return idx;
-    char line[128];
-    while (fgets(line, sizeof(line), f)) {
-        char key[32], val[96];
-        if (sscanf(line, "%31[^=]=%95s", key, val) == 2) {
-            if (!strcmp(key, "THEME_INDEX")) idx = atoi(val);
-        }
-    }
-    fclose(f);
-    if (idx < 0 || idx >= THEME_COUNT) idx = 0;
-    return idx;
+    return g_cfg.theme_index;
 }
 static void save_theme_index(int idx)
 {
     char buf[8];
     snprintf(buf, sizeof(buf), "%d", idx);
     config_set_kv("THEME_INDEX", buf);
+    if (idx < 0 || idx >= THEME_COUNT) idx = 0;
+    g_cfg.theme_index = idx;
 }
 static void apply_wifi_enabled(int enabled)
 {
@@ -1354,24 +1348,14 @@ static void apply_perf_profile(int profile)
 /* Lee SAMBA_ENABLED de armiga.cfg. Default: activado (1). */
 static int read_samba_enabled(void)
 {
-    int enabled = 1;
-    FILE *f = fopen(ARMIGA_CONFIG_PATH, "r");
-    if (!f) return enabled;
-    char line[128];
-    while (fgets(line, sizeof(line), f)) {
-        char key[32], val[96];
-        if (sscanf(line, "%31[^=]=%95s", key, val) == 2) {
-            if (!strcmp(key, "SAMBA_ENABLED")) enabled = atoi(val);
-        }
-    }
-    fclose(f);
-    return enabled ? 1 : 0;
+    return g_cfg.samba_enabled;
 }
 
 /* Guarda SAMBA_ENABLED en armiga.cfg. */
 static void save_samba_enabled(int enabled)
 {
     config_set_kv("SAMBA_ENABLED", enabled ? "1" : "0");
+    g_cfg.samba_enabled = enabled ? 1 : 0;
 }
 
 /* Aplica el estado Samba en caliente, sin reiniciar. */
@@ -1671,6 +1655,63 @@ static bool get_last_played_game(char *clean_name_out, size_t name_sz,
         safe_copy(clean_name_out, clean, name_sz);
     }
     return true;
+}
+/* Extrae la carpeta de origen (adf/demoscene/hdf/ipf/whdload) de la ruta
+ * de la ultima partida, buscando el segmento justo despues de "/roms/".
+ * Devuelve el nombre en MAYUSCULAS listo para el badge, o cadena vacia
+ * si no coincide con ninguna de las 5 fuentes conocidas (ROM movida
+ * manualmente fuera de la estructura esperada, etc.). */
+#define ROM_SOURCE_COUNT 5
+static const char *ROM_SOURCE_DIRS[ROM_SOURCE_COUNT] = {
+    "adf", "demoscene", "hdf", "ipf", "whdload"
+};
+static void extract_rom_source_label(const char *rom_path, char *label_out, size_t label_sz)
+{
+    if (label_sz > 0) label_out[0] = '\0';
+    const char *marker = strstr(rom_path, "/roms/");
+    if (!marker) return;
+    const char *seg_start = marker + strlen("/roms/");
+    const char *seg_end = strchr(seg_start, '/');
+    if (!seg_end) return;
+    size_t seg_len = (size_t)(seg_end - seg_start);
+    char seg[32];
+    if (seg_len >= sizeof(seg)) return;
+    memcpy(seg, seg_start, seg_len);
+    seg[seg_len] = '\0';
+    for (int i = 0; i < ROM_SOURCE_COUNT; i++) {
+        if (!strcmp(seg, ROM_SOURCE_DIRS[i])) {
+            for (size_t j = 0; j <= seg_len && j < label_sz; j++)
+                label_out[j] = (char)toupper((unsigned char)seg[j]);
+            return;
+        }
+    }
+}
+/* Cuenta recursivamente los ficheros regulares bajo dir_path (subcarpetas
+ * incluidas). Se llama UNA sola vez al arrancar (ver main()), no en cada
+ * frame ni en el refresco periodico del menu -- un escaneo recursivo de
+ * toda la libreria de ROMs cada segundo seria caro e innecesario, ya que
+ * el numero solo cambia si el usuario anade/quita ROMs manualmente (lo
+ * que ya requiere reiniciar el launcher para verlas en el catalogo). */
+static int count_roms_recursive(const char *dir_path)
+{
+    DIR *dir = opendir(dir_path);
+    if (!dir) return 0;
+    int count = 0;
+    struct dirent *ent;
+    while ((ent = readdir(dir)) != NULL) {
+        if (!strcmp(ent->d_name, ".") || !strcmp(ent->d_name, "..")) continue;
+        char child_path[512];
+        snprintf(child_path, sizeof(child_path), "%s/%s", dir_path, ent->d_name);
+        struct stat st;
+        if (stat(child_path, &st) != 0) continue;
+        if (S_ISDIR(st.st_mode)) {
+            count += count_roms_recursive(child_path);
+        } else if (S_ISREG(st.st_mode)) {
+            count++;
+        }
+    }
+    closedir(dir);
+    return count;
 }
 #define AREXX_SCRIPTS_DIR "/usr/share/armiga/arexx_scripts"
 #define AREXX_MAX_SCRIPTS 16
@@ -2924,22 +2965,12 @@ static void play_ui_click(void)
 /* Lee CLICK_SOUND_ENABLED de armiga.cfg. Default: activado (1). */
 static int read_click_sound_enabled(void)
 {
-    int enabled = 1;
-    FILE *f = fopen(ARMIGA_CONFIG_PATH, "r");
-    if (!f) return enabled;
-    char line[128];
-    while (fgets(line, sizeof(line), f)) {
-        char key[32], val[96];
-        if (sscanf(line, "%31[^=]=%95s", key, val) == 2) {
-            if (!strcmp(key, "CLICK_SOUND_ENABLED")) enabled = atoi(val);
-        }
-    }
-    fclose(f);
-    return enabled ? 1 : 0;
+    return g_cfg.click_sound_enabled;
 }
 static void save_click_sound_enabled(int enabled)
 {
     config_set_kv("CLICK_SOUND_ENABLED", enabled ? "1" : "0");
+    g_cfg.click_sound_enabled = enabled ? 1 : 0;
 }
 
 int main(void)
@@ -2979,6 +3010,7 @@ int main(void)
     TTF_Font *f_xs    = TTF_OpenFont(FONT_PATH, FONT_XS);
     TTF_Font *f_xsm   = TTF_OpenFont(FONT_PATH, FONT_XSM);
     TTF_Font *f_status_bold = TTF_OpenFont(FONT_PATH_BOLD, FONT_STATUSBAR);
+    TTF_Font *f_badge = TTF_OpenFont(FONT_PATH_BOLD, FONT_BADGE);
     if (!f_med || !f_sm || !f_lg || !f_xs || !f_xsm || !f_status_bold) {
         fprintf(stderr, "TTF_OpenFont: %s\n", SDL_GetError());
         SDL_DestroyRenderer(ren); SDL_DestroyWindow(win);
@@ -3141,9 +3173,13 @@ int main(void)
     char last_game_name[96] = "";
     char last_game_rom_path[400] = "";
     char last_game_core_path[256] = "";
+    char last_game_source[16] = "";
     bool has_last_game = get_last_played_game(last_game_name, sizeof(last_game_name),
                                                last_game_rom_path, sizeof(last_game_rom_path),
                                                last_game_core_path, sizeof(last_game_core_path));
+    if (has_last_game)
+        extract_rom_source_label(last_game_rom_path, last_game_source, sizeof(last_game_source));
+    int total_roms = count_roms_recursive("/media/amiga_data/roms");
     char wifi_ssid[64] = "";
     char wifi_password[64] = "";
     int wifi_field_selected = 0;
@@ -4823,10 +4859,15 @@ int main(void)
         }
         for (int i = 0; i < MENU_COUNT; i++) {
             float iy = menu_y0 + i * item_h;
+            const char *menu_label = MENU_ITEMS[i][current_lang];
             int label_w = 0, label_h = 0;
-            TTF_GetStringSize(f_med, MENU_ITEMS[i][current_lang], 0, &label_w, &label_h);
+            TTF_GetStringSize(f_med, menu_label, 0, &label_w, &label_h);
+            /* Ancho de la pildora (real o "virtual" si no esta seleccionada),
+             * usado tambien para posicionar el contador de ROMs siempre al
+             * mismo sitio, se mueva o no la seleccion. */
+            float item_pill_w = 46.0f + (float)label_w + 32.0f;
             if (i == selected) {
-                float sel_w = 46.0f + (float)label_w + 32.0f; /* icono+texto, aire lateral moderado */
+                float sel_w = item_pill_w; /* icono+texto, aire lateral moderado */
                 float pill_h = item_h - 4.0f;
                 float pill_radius = pill_h / 2.0f;
                 draw_rounded_rect_filled(ren, mx - 10.0f, menu_cursor_y - 5.0f,
@@ -4842,14 +4883,22 @@ int main(void)
                     SDL_FRect icon_dst = {icon_x, icon_y, icon_sz, icon_sz};
                     SDL_RenderTexture(ren, menu_icon_tex[i], NULL, &icon_dst);
                 }
-                draw_text(ren, f_med, MENU_ITEMS[i][current_lang], c_menu_gold, mx + 46.0f, iy);
+                draw_text(ren, f_med, menu_label, c_menu_gold, mx + 46.0f, iy);
             } else {
                 if (menu_icon_tex[i]) {
                     SDL_SetTextureColorMod(menu_icon_tex[i], c_menu_beige.r, c_menu_beige.g, c_menu_beige.b);
                     SDL_FRect icon_dst = {mx + 8.0f, iy - 1.0f, 22.0f, 22.0f};
                     SDL_RenderTexture(ren, menu_icon_tex[i], NULL, &icon_dst);
                 }
-                draw_text(ren, f_med, MENU_ITEMS[i][current_lang], c_menu_beige, mx + 46.0f, iy);
+                draw_text(ren, f_med, menu_label, c_menu_beige, mx + 46.0f, iy);
+            }
+
+            /* Contador total de ROMs, fuera de la pildora de seleccion
+             * (color neutro fijo, no cambia con la seleccion). */
+            if (i == 0) {
+                char rom_count_buf[16];
+                snprintf(rom_count_buf, sizeof(rom_count_buf), "(%d)", total_roms);
+                draw_text(ren, f_med, rom_count_buf, c_menu_beige, mx - 10.0f + item_pill_w + 10.0f, iy);
             }
 
         }
@@ -4915,6 +4964,23 @@ int main(void)
             float pill_x = (SCREEN_W - (float)pill_text_w) / 2.0f;
             float pill_y = 438.0f - 10.0f - (float)pill_text_h;
             draw_text_truncated(ren, f_sm, last_game_pill_buf, c_dkgreen, pill_x, pill_y, pill_max_w);
+
+            /* Badge de la carpeta de origen (ADF/DEMOSCENE/HDF/IPF/WHDLOAD),
+             * recuadro de contorno con padding identico en los 4 lados,
+             * alineado a la izquierda del nombre de la partida. */
+            if (has_last_game && last_game_source[0]) {
+                int src_w = 0, src_h = 0;
+                TTF_GetStringSize(f_badge, last_game_source, 0, &src_w, &src_h);
+                float badge_pad = 4.0f;
+                float badge_w = (float)src_w + badge_pad * 2.0f;
+                float badge_h = (float)src_h + badge_pad * 2.0f;
+                float badge_x = pill_x;
+                float badge_y = pill_y - badge_h - 4.0f;
+                draw_rounded_rect_outline(ren, badge_x, badge_y, badge_w, badge_h,
+                                           2.0f, 1.0f, c_selbg, c_bg);
+                draw_text(ren, f_badge, last_game_source, c_selbg,
+                          badge_x + badge_pad, badge_y + badge_pad);
+            }
         }
 
         /* Barra inferior */
@@ -4928,7 +4994,7 @@ int main(void)
             if (frac > 1.0f) frac = 1.0f;
             float bar_w = 200.0f;
             float bar_x = (SCREEN_W - bar_w) / 2.0f;
-            float bar_y = SCREEN_H - 64.0f;
+            float bar_y = SCREEN_H - 94.0f; /* +30px arriba en total, se solapaba con otro texto */
             SDL_Color c_devbar_lime = c_selbg;
             draw_bar_rounded(ren, bar_x, bar_y, bar_w, 4.0f, frac, c_devbar_lime, c_white);
         }
@@ -5041,11 +5107,11 @@ int main(void)
             }
             if (settings_scroll > 0) {
                 draw_text(ren, f_xs, tr("más arriba ↑", "more above ↑"), c_menu_selbg,
-                          mx + 8.0f, settings_y0 - 16.0f);
+                          mx + 8.0f, LIST_MORE_ABOVE_Y);
             }
             if (settings_scroll + settings_visible < SETTINGS_MENU_COUNT) {
                 draw_text(ren, f_xs, tr("más abajo ↓", "more below ↓"), c_menu_selbg,
-                          mx + 8.0f, settings_y0 + settings_visible * settings_item_h + 2.0f);
+                          mx + 8.0f, LIST_MORE_BELOW_Y);
             }
 
             draw_line(ren, mx, 438.0f, SCREEN_W - 20.0f, 438.0f, c_selbg);
@@ -5167,8 +5233,16 @@ int main(void)
             draw_active_dash_breadcrumbs(ren, f_sm, mx, 25.0f, 3, tr("Tema", "Theme"));
             float theme_item_h = 40.0f;
             float theme_y0 = 64.0f;
-            for (int i = 0; i < THEME_COUNT; i++) {
-                float iy = theme_y0 + i * theme_item_h;
+            int theme_visible = 8;
+            int theme_scroll = 0;
+            if (theme_selected >= theme_visible)
+                theme_scroll = theme_selected - theme_visible + 1;
+            if (theme_scroll > THEME_COUNT - theme_visible)
+                theme_scroll = THEME_COUNT - theme_visible;
+            if (theme_scroll < 0) theme_scroll = 0;
+            for (int row = 0; row < theme_visible && (row + theme_scroll) < THEME_COUNT; row++) {
+                int i = row + theme_scroll;
+                float iy = theme_y0 + row * theme_item_h;
                 bool sel = (i == theme_selected);
                 SDL_Color swatch_c = THEMES[i].accent;
                 SDL_Color labelc = sel ? THEMES[i].text_on_accent : c_menu_beige;
@@ -5184,6 +5258,14 @@ int main(void)
                 }
                 draw_rounded_rect_filled(ren, mx + 8.0f, dot_y, 20.0f, 20.0f, 10.0f, swatch_c);
                 draw_text(ren, f_med, THEME_NAMES[i][current_lang], labelc, mx + 40.0f, text_y);
+            }
+            if (theme_scroll > 0) {
+                draw_text(ren, f_xs, tr("más arriba ↑", "more above ↑"), c_menu_selbg,
+                          mx + 8.0f, LIST_MORE_ABOVE_Y);
+            }
+            if (theme_scroll + theme_visible < THEME_COUNT) {
+                draw_text(ren, f_xs, tr("más abajo ↓", "more below ↓"), c_menu_selbg,
+                          mx + 8.0f, LIST_MORE_BELOW_Y);
             }
             draw_line(ren, mx, 438.0f, SCREEN_W - 20.0f, 438.0f, c_selbg);
             draw_footer(ren, f_sm,
@@ -5346,11 +5428,11 @@ int main(void)
 
             if (tz_scroll > 0) {
                 draw_text(ren, f_xs, tr("más arriba ↑", "more above ↑"), c_menu_selbg,
-                          mx + 8.0f, tz_y0 - 14.0f);
+                          mx + 8.0f, LIST_MORE_ABOVE_Y);
             }
             if (tz_scroll + tz_visible < TIMEZONE_LIST_COUNT) {
                 draw_text(ren, f_xs, tr("más abajo ↓", "more below ↓"), c_menu_selbg,
-                          mx + 8.0f, tz_y0 + tz_visible * tz_item_h + 2.0f);
+                          mx + 8.0f, LIST_MORE_BELOW_Y);
             }
 
             {
@@ -6673,6 +6755,7 @@ int main(void)
     TTF_CloseFont(f_xs);
     TTF_CloseFont(f_xsm);
     TTF_CloseFont(f_status_bold);
+    TTF_CloseFont(f_badge);
     SDL_DestroyRenderer(ren);
     SDL_DestroyWindow(win);
     TTF_Quit();
