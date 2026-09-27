@@ -2,9 +2,14 @@ name: Build Mesa GBM+Panfrost
 
 on:
   workflow_dispatch:
+    inputs:
+      mesa_version:
+        description: "Version de Mesa a compilar (ej. 26.2.3)"
+        required: true
+        default: "26.2.3"
 
 env:
-  MESA_VERSION: "26.2.3"
+  MESA_VERSION: ${{ github.event.inputs.mesa_version }}
 
 jobs:
   build:
