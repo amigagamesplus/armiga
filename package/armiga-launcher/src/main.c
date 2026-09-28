@@ -87,7 +87,7 @@ static void safe_copy(char *dst, const char *src, size_t sz) {
 #define FONT_PATH    "/usr/share/armiga/fonts/JetBrainsMonoNL-ExtraBold.ttf"
 #define FONT_PATH_BOLD "/usr/share/armiga/fonts/InterUI-Bold.ttf"
 #define FONT_STATUSBAR 16
-#define FONT_BADGE 9
+#define FONT_BADGE 12
 #define FONT_MED     13
 #define FONT_SM      12
 #define FONT_XS      9
@@ -1609,6 +1609,48 @@ static bool json_line_extract(const char *line, const char *key, char *out, size
  * empiricamente: jugar un titulo distinto lo mueve al primer "items[0]").
  * Devuelve true si encontro una entrada valida y el fichero de ROM sigue
  * existiendo en disco (evita apuntar a un juego borrado/SD cambiada). */
+/* Medidas de TINTA (no de avance) para centrar texto en un badge:
+ * lead = bearing izq. del 1er glifo, ink_w = ancho visible real,
+ * top_off = distancia del top de linea al top de una mayuscula, cap_h = altura. */
+static void badge_ink(TTF_Font *f, const char *s, int *lead, int *ink_w,
+                      int *top_off, int *cap_h)
+{
+    int w = 0, h = 0, d = 0, minx = 0, maxx = 0, adv = 0, miny = 0, maxy = 0;
+    TTF_GetStringSize(f, s, 0, &w, &h);
+    *lead = 0;
+    *ink_w = w;
+    size_t n = strlen(s);
+    if (n > 0) {
+        TTF_GetGlyphMetrics(f, (Uint32)(unsigned char)s[0], &minx, &d, &d, &d, &d);
+        TTF_GetGlyphMetrics(f, (Uint32)(unsigned char)s[n - 1], &d, &maxx, &d, &d, &adv);
+        *lead = minx;
+        *ink_w = w - minx - (adv - maxx);
+        if (*ink_w < 1) *ink_w = w;
+    }
+    /* Medida exacta: renderizar y escanear alpha (solo horizontal) */
+    {
+        SDL_Color white = {255, 255, 255, 255};
+        SDL_Surface *sf = TTF_RenderText_Blended(f, s, 0, white);
+        if (sf) {
+            int x0 = sf->w, x1 = -1;
+            for (int yy = 0; yy < sf->h; yy++) {
+                for (int xx = 0; xx < sf->w; xx++) {
+                    Uint8 r8, g8, b8, a8;
+                    if (SDL_ReadSurfacePixel(sf, xx, yy, &r8, &g8, &b8, &a8) && a8 >= 96) {
+                        if (xx < x0) x0 = xx;
+                        if (xx > x1) x1 = xx;
+                    }
+                }
+            }
+            if (x1 >= x0) { *lead = x0; *ink_w = x1 - x0 + 1; }
+            SDL_DestroySurface(sf);
+        }
+    }
+    TTF_GetGlyphMetrics(f, 'H', &d, &d, &miny, &maxy, &d);
+    *cap_h = maxy - miny;
+    *top_off = TTF_GetFontAscent(f) - maxy;
+}
+
 #define PLAYTIME_PATH "/media/amiga_data/playtime.log"
 
 /* Formato: "<segundos>\t<ruta_rom>\n" por linea. */
@@ -5032,29 +5074,30 @@ int main(void)
              * recuadro de contorno con padding identico en los 4 lados,
              * alineado a la izquierda del nombre de la partida. */
             if (has_last_game && last_game_source[0]) {
-                int src_w = 0, src_h = 0;
-                TTF_GetStringSize(f_badge, last_game_source, 0, &src_w, &src_h);
+                int s_lead, s_inkw, s_top, cap_h;
+                badge_ink(f_badge, last_game_source, &s_lead, &s_inkw, &s_top, &cap_h);
                 float badge_pad = 4.0f;
-                float badge_w = (float)src_w + badge_pad * 2.0f;
-                float badge_h = (float)src_h + badge_pad * 2.0f;
+                float badge_w = (float)s_inkw + badge_pad * 2.0f;
+                float badge_h = (float)cap_h + badge_pad * 2.0f;
                 float badge_x = pill_x;
                 float badge_y = pill_y - badge_h - 4.0f;
                 draw_rounded_rect_outline(ren, badge_x, badge_y, badge_w, badge_h,
                                            2.0f, 1.0f, c_selbg, c_bg);
                 draw_text(ren, f_badge, last_game_source, c_selbg,
-                          badge_x + badge_pad, badge_y + badge_pad);
+                          badge_x + badge_pad - (float)s_lead,
+                          badge_y + badge_pad - (float)s_top);
 
                 /* Segundo recuadro: tiempo de juego acumulado */
                 if (last_game_time[0]) {
-                    int t_w = 0, t_h = 0;
-                    TTF_GetStringSize(f_badge, last_game_time, 0, &t_w, &t_h);
-                    float t_bw = (float)t_w + badge_pad * 2.0f;
-                    float t_bh = (float)t_h + badge_pad * 2.0f;
+                    int t_lead, t_inkw, t_top, t_cap;
+                    badge_ink(f_badge, last_game_time, &t_lead, &t_inkw, &t_top, &t_cap);
+                    float t_bw = (float)t_inkw + badge_pad * 2.0f;
                     float t_bx = badge_x + badge_w + 4.0f;
-                    draw_rounded_rect_outline(ren, t_bx, badge_y, t_bw, t_bh,
+                    draw_rounded_rect_outline(ren, t_bx, badge_y, t_bw, badge_h,
                                                2.0f, 1.0f, c_selbg, c_bg);
                     draw_text(ren, f_badge, last_game_time, c_selbg,
-                              t_bx + badge_pad, badge_y + badge_pad);
+                              t_bx + badge_pad - (float)t_lead,
+                              badge_y + badge_pad - (float)t_top);
                 }
             }
         }
