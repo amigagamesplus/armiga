@@ -643,6 +643,13 @@ static int semver_cmp(const char *a, const char *b)
     if (ma != mb) return ma > mb ? 1 : -1;
     if (mi_a != mi_b) return mi_a > mi_b ? 1 : -1;
     if (pa != pb) return pa > pb ? 1 : -1;
+    /* Misma X.Y.Z: la version sin sufijo (release final) es MAYOR que la
+     * misma con sufijo de pre-release ("-beta", "-rc1"...). */
+    const char *sa = strchr(a, '-');
+    const char *sb = strchr(b, '-');
+    if (!sa && sb) return 1;
+    if (sa && !sb) return -1;
+    if (sa && sb) { int c = strcmp(sa, sb); return c > 0 ? 1 : (c < 0 ? -1 : 0); }
     return 0;
 }
 
