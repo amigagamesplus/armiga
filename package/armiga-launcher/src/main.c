@@ -1609,6 +1609,59 @@ static bool json_line_extract(const char *line, const char *key, char *out, size
  * empiricamente: jugar un titulo distinto lo mueve al primer "items[0]").
  * Devuelve true si encontro una entrada valida y el fichero de ROM sigue
  * existiendo en disco (evita apuntar a un juego borrado/SD cambiada). */
+#define PLAYTIME_PATH "/media/amiga_data/playtime.log"
+
+/* Formato: "<segundos>\t<ruta_rom>\n" por linea. */
+static unsigned long playtime_get(const char *rom_path)
+{
+    FILE *f = fopen(PLAYTIME_PATH, "r");
+    if (!f) return 0;
+    char line[600];
+    unsigned long r = 0;
+    while (fgets(line, sizeof(line), f)) {
+        char *tab = strchr(line, '\t');
+        if (!tab) continue;
+        *tab = '\0';
+        char *p = tab + 1;
+        p[strcspn(p, "\r\n")] = '\0';
+        if (strcmp(p, rom_path) == 0) { r = strtoul(line, NULL, 10); break; }
+    }
+    fclose(f);
+    return r;
+}
+
+static void playtime_add(const char *rom_path, unsigned long secs)
+{
+    if (!rom_path[0] || secs == 0) return;
+    const char *tmp = PLAYTIME_PATH ".tmp";
+    FILE *out = fopen(tmp, "w");
+    if (!out) return;
+    FILE *in = fopen(PLAYTIME_PATH, "r");
+    bool found = false;
+    char line[600];
+    if (in) {
+        while (fgets(line, sizeof(line), in)) {
+            char *tab = strchr(line, '\t');
+            if (!tab) continue;
+            *tab = '\0';
+            char *p = tab + 1;
+            p[strcspn(p, "\r\n")] = '\0';
+            if (strcmp(p, rom_path) == 0) {
+                fprintf(out, "%lu\t%s\n", strtoul(line, NULL, 10) + secs, p);
+                found = true;
+            } else {
+                fprintf(out, "%s\t%s\n", line, p);
+            }
+        }
+        fclose(in);
+    }
+    if (!found) fprintf(out, "%lu\t%s\n", secs, rom_path);
+    fflush(out);
+    fsync(fileno(out));
+    fclose(out);
+    rename(tmp, PLAYTIME_PATH);
+}
+
 static bool get_last_played_game(char *clean_name_out, size_t name_sz,
                                   char *rom_path_out, size_t path_sz,
                                   char *core_path_out, size_t core_sz)
@@ -3177,8 +3230,18 @@ int main(void)
     bool has_last_game = get_last_played_game(last_game_name, sizeof(last_game_name),
                                                last_game_rom_path, sizeof(last_game_rom_path),
                                                last_game_core_path, sizeof(last_game_core_path));
-    if (has_last_game)
+    char last_game_time[48] = "";
+    if (has_last_game) {
         extract_rom_source_label(last_game_rom_path, last_game_source, sizeof(last_game_source));
+        unsigned long pt = playtime_get(last_game_rom_path);
+        if (pt >= 3600)
+            snprintf(last_game_time, sizeof(last_game_time), "%luH %02luM %02luS",
+                     pt / 3600, (pt % 3600) / 60, pt % 60);
+        else if (pt >= 60)
+            snprintf(last_game_time, sizeof(last_game_time), "%luM %02luS", pt / 60, pt % 60);
+        else if (pt > 0)
+            snprintf(last_game_time, sizeof(last_game_time), "%luS", pt);
+    }
     int total_roms = count_roms_recursive("/media/amiga_data/roms");
     char wifi_ssid[64] = "";
     char wifi_password[64] = "";
@@ -4980,6 +5043,19 @@ int main(void)
                                            2.0f, 1.0f, c_selbg, c_bg);
                 draw_text(ren, f_badge, last_game_source, c_selbg,
                           badge_x + badge_pad, badge_y + badge_pad);
+
+                /* Segundo recuadro: tiempo de juego acumulado */
+                if (last_game_time[0]) {
+                    int t_w = 0, t_h = 0;
+                    TTF_GetStringSize(f_badge, last_game_time, 0, &t_w, &t_h);
+                    float t_bw = (float)t_w + badge_pad * 2.0f;
+                    float t_bh = (float)t_h + badge_pad * 2.0f;
+                    float t_bx = badge_x + badge_w + 4.0f;
+                    draw_rounded_rect_outline(ren, t_bx, badge_y, t_bw, t_bh,
+                                               2.0f, 1.0f, c_selbg, c_bg);
+                    draw_text(ren, f_badge, last_game_time, c_selbg,
+                              t_bx + badge_pad, badge_y + badge_pad);
+                }
             }
         }
 
@@ -6808,6 +6884,9 @@ int main(void)
         case EXEC_NONE:
         default:
             if (relaunch_after_retroarch) {
+                struct timespec pt0;
+                clock_gettime(CLOCK_BOOTTIME, &pt0);
+                time_t pt_wall0 = time(NULL);
                 pid_t pid = fork();
                 if (pid == 0) {
                     /* hijo: RetroArch toma la pantalla/DRM.
@@ -6836,6 +6915,20 @@ int main(void)
                 } else if (pid > 0) {
                     int status;
                     waitpid(pid, &status, 0);
+                    {
+                        /* Solo se acredita tiempo si RetroArch reescribio el
+                         * historial durante esta sesion (se cargo contenido) */
+                        struct timespec pt1;
+                        clock_gettime(CLOCK_BOOTTIME, &pt1);
+                        struct stat pst;
+                        if (stat(RETROARCH_HISTORY_PATH, &pst) == 0 &&
+                            pst.st_mtime >= pt_wall0 - 1) {
+                            char pn[256], pr[400], pc[256];
+                            if (get_last_played_game(pn, sizeof(pn), pr, sizeof(pr),
+                                                     pc, sizeof(pc)))
+                                playtime_add(pr, (unsigned long)(pt1.tv_sec - pt0.tv_sec));
+                        }
+                    }
                     direct_launch_rom = false;
                     /* al terminar RetroArch, volvemos al inicio del for(;;)
                      * para reinicializar SDL/DRM desde cero */
