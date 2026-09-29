@@ -200,6 +200,7 @@ typedef enum {
 #define ACTION_SETTINGS 5
 #define ACTION_SHELL   6
 #define ACTION_REBOOT  7
+#define ACTION_GAMES   8
 
 #define KB_ROWS 4
 #define KB_MAX_COLS 10
@@ -251,6 +252,7 @@ static const char *MENU_ICONS[] = {
 };
 
 static const char *MENU_ITEMS[][2] = {
+    {"Juegos", "Games"},
     {"Catálogo Amiga",              "Amiga Catalog"},
     {"Actualización",    "System Update"},
     {"Diagnóstico del sistema",     "System Diagnostics"},
@@ -259,8 +261,10 @@ static const char *MENU_ITEMS[][2] = {
     {"Apagar dispositivo",          "Power Off"},
 };
 static const char *MENU_DESC[][2] = {
-    {"Explora y lanza juegos\n" "Amiga desde tu biblioteca.",
-     "Browse and launch Amiga\n" "games from your library."},
+    {"Tu biblioteca con nombres,\n" "datos y caratulas.",
+     "Your library with names,\n" "details and cover art."},
+    {"Abre RetroArch directamente\n" "con su menu completo.",
+     "Open RetroArch directly\n" "with its full menu."},
     {"Descarga e instala la\n" "ultima version de armiga.",
      "Download and install the\n" "latest version of armiga."},
     {"Revisa el estado del\n" "hardware y el sistema.",
@@ -272,7 +276,14 @@ static const char *MENU_DESC[][2] = {
     {"Apaga o reinicia el\n" "dispositivo de forma segura.",
      "Shut down or restart the\n" "device safely."},
 };
-#define MENU_COUNT 6
+#define MENU_COUNT 7
+/* Accion e icono (indice en menu_icon_tex) por entrada del menu principal.
+ * Desacopla el orden visual del menu de los numeros de accion/icono. */
+static const int MENU_ACTIONS[MENU_COUNT] = {
+    ACTION_GAMES, ACTION_ROMS, ACTION_UPDATE, ACTION_INFO,
+    ACTION_AREXX, ACTION_SETTINGS, ACTION_SHELL
+};
+static const int MENU_ICON_IDX[MENU_COUNT] = { 0, 0, 1, 2, 3, 4, 5 };
 
 static const char *SETTINGS_MENU_ITEMS[][2] = {
     {"Red inalámbrica",             "Wireless Network"},
@@ -3583,7 +3594,7 @@ int main(void)
                         play_ui_click();
                     }
                     if (ev.key.key == SDLK_RETURN)
-                        action = selected + 1;
+                        action = MENU_ACTIONS[selected];
                 }
                 if (ev.type == SDL_EVENT_JOYSTICK_HAT_MOTION) {
                     if (ev.jhat.value == SDL_HAT_UP) {
@@ -3609,7 +3620,7 @@ int main(void)
                 }
                 if (ev.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN &&
                     ev.jbutton.button == BTN_SDL_A)
-                    action = selected + 1;
+                    action = MENU_ACTIONS[selected];
                 if (ev.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN &&
                     ev.jbutton.button == BTN_SDL_X &&
                     selected == 0 && has_last_game && last_game_rom_path[0]) {
@@ -4578,6 +4589,8 @@ int main(void)
             } else if (action == ACTION_SETTINGS) {
                 state = STATE_SETTINGS;
                 settings_selected = 0;
+            } else if (action == ACTION_GAMES) {
+                /* TODO fase 1: state = STATE_GAME_LIST; (pantalla aun no creada) */
             }
             action = ACTION_NONE;
         }
@@ -4984,23 +4997,23 @@ int main(void)
                 float pill_radius = pill_h / 2.0f;
                 draw_rounded_rect_filled(ren, mx - 10.0f, menu_cursor_y - 5.0f,
                                  sel_w, pill_h, pill_radius, c_menu_selbg);
-                if (menu_icon_tex[i]) {
+                if (menu_icon_tex[MENU_ICON_IDX[i]]) {
                     /* Respiracion sutil: pulso senoidal 20px-23px, ~1.8s de ciclo */
                     float breath = (SDL_sinf((float)now_ticks * 0.0035f) + 1.0f) * 0.5f;
                     float icon_sz = 22.0f + (breath * 3.0f);
                     float icon_offset = (icon_sz - 22.0f) / 2.0f;
                     float icon_x = (mx + 8.0f) - icon_offset;
                     float icon_y = iy - icon_offset - 1.0f;
-                    SDL_SetTextureColorMod(menu_icon_tex[i], c_menu_gold.r, c_menu_gold.g, c_menu_gold.b);
+                    SDL_SetTextureColorMod(menu_icon_tex[MENU_ICON_IDX[i]], c_menu_gold.r, c_menu_gold.g, c_menu_gold.b);
                     SDL_FRect icon_dst = {icon_x, icon_y, icon_sz, icon_sz};
-                    SDL_RenderTexture(ren, menu_icon_tex[i], NULL, &icon_dst);
+                    SDL_RenderTexture(ren, menu_icon_tex[MENU_ICON_IDX[i]], NULL, &icon_dst);
                 }
                 draw_text(ren, f_med, menu_label, c_menu_gold, mx + 46.0f, iy);
             } else {
-                if (menu_icon_tex[i]) {
-                    SDL_SetTextureColorMod(menu_icon_tex[i], c_menu_beige.r, c_menu_beige.g, c_menu_beige.b);
+                if (menu_icon_tex[MENU_ICON_IDX[i]]) {
+                    SDL_SetTextureColorMod(menu_icon_tex[MENU_ICON_IDX[i]], c_menu_beige.r, c_menu_beige.g, c_menu_beige.b);
                     SDL_FRect icon_dst = {mx + 8.0f, iy - 1.0f, 22.0f, 22.0f};
-                    SDL_RenderTexture(ren, menu_icon_tex[i], NULL, &icon_dst);
+                    SDL_RenderTexture(ren, menu_icon_tex[MENU_ICON_IDX[i]], NULL, &icon_dst);
                 }
                 draw_text(ren, f_med, menu_label, c_menu_beige, mx + 46.0f, iy);
             }
