@@ -177,6 +177,7 @@ typedef enum {
     STATE_BRIGHTNESS_CONFIG,
     STATE_PERF_CONFIG,
     STATE_THEME_CONFIG,
+    STATE_GAME_LIST,
     STATE_BLUETOOTH_CONFIG,
     STATE_AREXX_LIST,
     STATE_AREXX_RUN,
@@ -1722,6 +1723,272 @@ static void playtime_add(const char *rom_path, unsigned long secs)
     rename(tmp, PLAYTIME_PATH);
 }
 
+/* ===== Catalogo nativo (fase 1): identidad por CRC32 ===== */
+#define CATALOG_WHD_DIR "/media/amiga_data/roms/whdload"
+#define CATALOG_CACHE   "/media/amiga_data/catalog_cache.tsv"
+#define GAMES_IDX_PATH  "/usr/share/armiga/games.idx"
+#define GF_AGA 1
+#define GF_CD32 2
+#define GF_NTSC 4
+#define GF_CDTV 8
+#define GF_LIBRETRO 16
+#define GF_BETA 32
+
+typedef struct {
+    char title[112];
+    char path[300];
+    char ver[9];
+    char lang[3];
+    unsigned short flags;
+    bool identified;
+} CatGame;
+
+typedef struct { long mtime; long size; unsigned crc; char name[192]; } CatCE;
+
+static CatGame *g_games = NULL;
+static int g_games_n = 0;
+static unsigned char *g_idx = NULL;
+static size_t g_idx_size = 0;
+static unsigned g_idx_count = 0, g_idx_rec_off = 0, g_idx_str_off = 0;
+static unsigned cat_crc_table[256];
+static pid_t s_catalog_pid = -1;
+
+static void cat_crc_init(void)
+{
+    for (unsigned i = 0; i < 256; i++) {
+        unsigned c = i;
+        for (int k = 0; k < 8; k++)
+            c = (c & 1) ? (0xEDB88320u ^ (c >> 1)) : (c >> 1);
+        cat_crc_table[i] = c;
+    }
+}
+
+static bool cat_crc32_file(const char *path, unsigned *out)
+{
+    FILE *f = fopen(path, "rb");
+    if (!f) return false;
+    unsigned char buf[65536];
+    unsigned c = 0xFFFFFFFFu;
+    size_t n;
+    while ((n = fread(buf, 1, sizeof(buf), f)) > 0)
+        for (size_t i = 0; i < n; i++)
+            c = cat_crc_table[(c ^ buf[i]) & 0xFF] ^ (c >> 8);
+    bool ok = !ferror(f);
+    fclose(f);
+    *out = c ^ 0xFFFFFFFFu;
+    return ok;
+}
+
+static bool games_idx_load(void)
+{
+    if (g_idx) return true;
+    FILE *f = fopen(GAMES_IDX_PATH, "rb");
+    if (!f) return false;
+    fseek(f, 0, SEEK_END);
+    long sz = ftell(f);
+    fseek(f, 0, SEEK_SET);
+    if (sz < 20) { fclose(f); return false; }
+    unsigned char *b = malloc((size_t)sz);
+    if (!b || fread(b, 1, (size_t)sz, f) != (size_t)sz) { free(b); fclose(f); return false; }
+    fclose(f);
+    unsigned ver, cnt, ro, so;
+    memcpy(&ver, b + 4, 4); memcpy(&cnt, b + 8, 4);
+    memcpy(&ro, b + 12, 4); memcpy(&so, b + 16, 4);
+    if (memcmp(b, "AGDB", 4) != 0 || ver != 1 ||
+        (size_t)ro + 24u * (size_t)cnt > (size_t)sz || (size_t)so > (size_t)sz) {
+        free(b);
+        return false;
+    }
+    g_idx = b; g_idx_size = (size_t)sz;
+    g_idx_count = cnt; g_idx_rec_off = ro; g_idx_str_off = so;
+    return true;
+}
+
+static const unsigned char *games_idx_find(unsigned crc)
+{
+    unsigned lo = 0, hi = g_idx_count;
+    while (lo < hi) {
+        unsigned mid = (lo + hi) / 2, k;
+        memcpy(&k, g_idx + g_idx_rec_off + 24u * mid, 4);
+        if (k == crc) return g_idx + g_idx_rec_off + 24u * mid;
+        if (k < crc) lo = mid + 1; else hi = mid;
+    }
+    return NULL;
+}
+
+static bool cat_name_is_pkg(const char *n)
+{
+    size_t l = strlen(n);
+    if (l < 5) return false;
+    const char *e = n + l - 4;
+    char a = (char)tolower((unsigned char)e[1]);
+    char b = (char)tolower((unsigned char)e[2]);
+    char c = (char)tolower((unsigned char)e[3]);
+    return e[0] == '.' && a == 'l' && ((b == 'h' && c == 'a') || (b == 'z' && c == 'x'));
+}
+
+/* Hijo: recorre whdload/, reutiliza CRC de la cache si nombre+tamano+mtime
+ * coinciden, calcula solo los nuevos y reescribe la cache de forma atomica. */
+static void catalog_scan_child(void)
+{
+    cat_crc_init();
+    CatCE *old = NULL;
+    int old_n = 0, old_cap = 0;
+    FILE *cf = fopen(CATALOG_CACHE, "r");
+    if (cf) {
+        char line[400];
+        while (fgets(line, sizeof(line), cf)) {
+            line[strcspn(line, "\r\n")] = '\0';
+            char *t1 = strchr(line, '\t'); if (!t1) continue; *t1++ = '\0';
+            char *t2 = strchr(t1, '\t');   if (!t2) continue; *t2++ = '\0';
+            char *t3 = strchr(t2, '\t');   if (!t3) continue; *t3++ = '\0';
+            if (old_n == old_cap) {
+                int nc = old_cap ? old_cap * 2 : 128;
+                CatCE *tmp = realloc(old, (size_t)nc * sizeof(CatCE));
+                if (!tmp) break;
+                old = tmp; old_cap = nc;
+            }
+            old[old_n].mtime = atol(line);
+            old[old_n].size = atol(t1);
+            old[old_n].crc = (unsigned)strtoul(t2, NULL, 16);
+            safe_copy(old[old_n].name, t3, sizeof(old[old_n].name));
+            old_n++;
+        }
+        fclose(cf);
+    }
+    DIR *d = opendir(CATALOG_WHD_DIR);
+    if (!d) { free(old); return; }
+    const char *tmpname = CATALOG_CACHE ".tmp";
+    FILE *out = fopen(tmpname, "w");
+    if (!out) { closedir(d); free(old); return; }
+    struct dirent *de;
+    while ((de = readdir(d)) != NULL) {
+        if (!cat_name_is_pkg(de->d_name)) continue;
+        char full[512];
+        snprintf(full, sizeof(full), "%s/%s", CATALOG_WHD_DIR, de->d_name);
+        struct stat st;
+        if (stat(full, &st) != 0 || !S_ISREG(st.st_mode)) continue;
+        unsigned crc = 0;
+        bool have = false;
+        for (int i = 0; i < old_n; i++)
+            if (old[i].mtime == (long)st.st_mtime && old[i].size == (long)st.st_size &&
+                strcmp(old[i].name, de->d_name) == 0) { crc = old[i].crc; have = true; break; }
+        if (!have && !cat_crc32_file(full, &crc)) continue;
+        fprintf(out, "%ld\t%ld\t%08x\t%s\n", (long)st.st_mtime, (long)st.st_size, crc, de->d_name);
+    }
+    closedir(d);
+    fflush(out);
+    fsync(fileno(out));
+    fclose(out);
+    rename(tmpname, CATALOG_CACHE);
+    free(old);
+}
+
+static void catalog_scan_start(void)
+{
+    if (s_catalog_pid > 0) return;
+    pid_t p = fork();
+    if (p == 0) {
+        int rn = nice(10);
+        (void)rn;
+        catalog_scan_child();
+        _exit(0);
+    }
+    s_catalog_pid = p;
+}
+
+/* true una sola vez, cuando el hijo ha terminado (y queda reapeado) */
+static bool catalog_scan_poll(void)
+{
+    if (s_catalog_pid <= 0) return false;
+    int st;
+    pid_t r = waitpid(s_catalog_pid, &st, WNOHANG);
+    if (r == 0) return false;
+    s_catalog_pid = -1;
+    return true;
+}
+
+static int cat_game_cmp(const void *a, const void *b)
+{
+    const CatGame *x = a, *y = b;
+    const unsigned char *p = (const unsigned char *)x->title;
+    const unsigned char *q = (const unsigned char *)y->title;
+    while (*p && *q) {
+        int d = tolower(*p) - tolower(*q);
+        if (d) return d;
+        p++; q++;
+    }
+    int d = tolower(*p) - tolower(*q);
+    if (d) return d;
+    return strcmp(x->path, y->path);
+}
+
+static void catalog_load(void)
+{
+    free(g_games);
+    g_games = NULL;
+    g_games_n = 0;
+    (void)games_idx_load();
+    FILE *f = fopen(CATALOG_CACHE, "r");
+    if (!f) return;
+    int cap = 128;
+    g_games = malloc((size_t)cap * sizeof(CatGame));
+    if (!g_games) { fclose(f); return; }
+    char line[400];
+    while (fgets(line, sizeof(line), f)) {
+        line[strcspn(line, "\r\n")] = '\0';
+        char *t1 = strchr(line, '\t'); if (!t1) continue; *t1++ = '\0';
+        char *t2 = strchr(t1, '\t');   if (!t2) continue; *t2++ = '\0';
+        char *t3 = strchr(t2, '\t');   if (!t3) continue; *t3++ = '\0';
+        unsigned crc = (unsigned)strtoul(t2, NULL, 16);
+        if (g_games_n == cap) {
+            CatGame *tmp = realloc(g_games, (size_t)cap * 2 * sizeof(CatGame));
+            if (!tmp) break;
+            g_games = tmp;
+            cap *= 2;
+        }
+        CatGame *g = &g_games[g_games_n];
+        memset(g, 0, sizeof(*g));
+        snprintf(g->path, sizeof(g->path), "%s/%s", CATALOG_WHD_DIR, t3);
+        const unsigned char *rec = g_idx ? games_idx_find(crc) : NULL;
+        if (rec) {
+            unsigned toff;
+            unsigned short fl;
+            memcpy(&toff, rec + 4, 4);
+            memcpy(&fl, rec + 12, 2);
+            if ((size_t)g_idx_str_off + (size_t)toff < g_idx_size) {
+                safe_copy(g->title, (const char *)g_idx + g_idx_str_off + toff, sizeof(g->title));
+                g->flags = fl;
+                g->lang[0] = (char)rec[14];
+                g->lang[1] = (char)rec[15];
+                g->lang[2] = '\0';
+                memcpy(g->ver, rec + 16, 8);
+                g->ver[8] = '\0';
+                g->identified = true;
+            }
+        }
+        if (!g->identified) {
+            safe_copy(g->title, t3, sizeof(g->title));
+            char *dot = strrchr(g->title, '.');
+            if (dot) *dot = '\0';
+        }
+        g_games_n++;
+    }
+    fclose(f);
+    if (g_games_n > 1) qsort(g_games, (size_t)g_games_n, sizeof(CatGame), cat_game_cmp);
+}
+
+static void playtime_fmt(unsigned long pt, char *out, size_t sz)
+{
+    out[0] = '\0';
+    if (pt >= 3600)
+        snprintf(out, sz, "%luH %02luM %02luS", pt / 3600, (pt % 3600) / 60, pt % 60);
+    else if (pt >= 60)
+        snprintf(out, sz, "%luM %02luS", pt / 60, pt % 60);
+    else if (pt > 0)
+        snprintf(out, sz, "%luS", pt);
+}
+
 static bool get_last_played_game(char *clean_name_out, size_t name_sz,
                                   char *rom_path_out, size_t path_sz,
                                   char *core_path_out, size_t core_sz)
@@ -3086,6 +3353,33 @@ static void save_click_sound_enabled(int enabled)
     g_cfg.click_sound_enabled = enabled ? 1 : 0;
 }
 
+/* Badge de contorno con texto centrado por tinta real (ver badge_ink).
+ * Metricas cacheadas por (fuente,texto) para no renderizar texto cada frame.
+ * Devuelve el ancho dibujado. */
+typedef struct { TTF_Font *f; char text[24]; int lead, inkw, top, cap; } BadgeMetric;
+static BadgeMetric s_bm[24];
+static int s_bm_n = 0;
+static float draw_badge(SDL_Renderer *ren, TTF_Font *f, const char *text,
+                        float x, float y, SDL_Color col, SDL_Color bg)
+{
+    BadgeMetric *m = NULL;
+    for (int i = 0; i < s_bm_n; i++)
+        if (s_bm[i].f == f && strcmp(s_bm[i].text, text) == 0) { m = &s_bm[i]; break; }
+    BadgeMetric tmp;
+    if (!m) {
+        m = (s_bm_n < 24) ? &s_bm[s_bm_n++] : &tmp;
+        m->f = f;
+        safe_copy(m->text, text, sizeof(m->text));
+        badge_ink(f, text, &m->lead, &m->inkw, &m->top, &m->cap);
+    }
+    const float pad = 4.0f;
+    float w = (float)m->inkw + pad * 2.0f;
+    float h = (float)m->cap + pad * 2.0f;
+    draw_rounded_rect_outline(ren, x, y, w, h, 2.0f, 1.0f, col, bg);
+    draw_text(ren, f, text, col, x + pad - (float)m->lead, y + pad - (float)m->top);
+    return w;
+}
+
 int main(void)
 {
     for (;;) {
@@ -3303,6 +3597,10 @@ int main(void)
             snprintf(last_game_time, sizeof(last_game_time), "%luS", pt);
     }
     int total_roms = count_roms_recursive("/media/amiga_data/roms");
+    int games_selected = 0;
+    bool games_scan_running = false;
+    int games_pt_idx = -1;
+    char games_pt_str[24] = "";
     char wifi_ssid[64] = "";
     char wifi_password[64] = "";
     int wifi_field_selected = 0;
@@ -3898,6 +4196,56 @@ int main(void)
                     ev.jbutton.button == BTN_SDL_B) {
                     theme_selected = read_theme_index();
                     state = STATE_SETTINGS;
+                }
+            }
+            else if (state == STATE_GAME_LIST) {
+                int gn = g_games_n;
+                bool g_launch = false;
+                if (ev.type == SDL_EVENT_KEY_DOWN) {
+                    if (ev.key.key == SDLK_UP && gn > 0) {
+                        games_selected = (games_selected - 1 + gn) % gn;
+                        play_ui_click();
+                    }
+                    if (ev.key.key == SDLK_DOWN && gn > 0) {
+                        games_selected = (games_selected + 1) % gn;
+                        play_ui_click();
+                    }
+                    if (ev.key.key == SDLK_RETURN && gn > 0) g_launch = true;
+                    if (ev.key.key == SDLK_ESCAPE) state = STATE_MENU;
+                }
+                if (ev.type == SDL_EVENT_JOYSTICK_HAT_MOTION && gn > 0) {
+                    if (ev.jhat.value == SDL_HAT_UP) {
+                        games_selected = (games_selected - 1 + gn) % gn;
+                        play_ui_click();
+                    } else if (ev.jhat.value == SDL_HAT_DOWN) {
+                        games_selected = (games_selected + 1) % gn;
+                        play_ui_click();
+                    }
+                }
+                if (ev.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN && gn > 0) {
+                    if (ev.jbutton.button == BTN_SDL_L1) {
+                        games_selected -= 10;
+                        if (games_selected < 0) games_selected = 0;
+                        play_ui_click();
+                    } else if (ev.jbutton.button == BTN_SDL_R1) {
+                        games_selected += 10;
+                        if (games_selected > gn - 1) games_selected = gn - 1;
+                        play_ui_click();
+                    } else if (ev.jbutton.button == BTN_SDL_A) {
+                        g_launch = true;
+                    }
+                }
+                if (ev.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN &&
+                    ev.jbutton.button == BTN_SDL_B)
+                    state = STATE_MENU;
+                if (g_launch && games_selected >= 0 && games_selected < gn) {
+                    play_ui_click();
+                    safe_copy(direct_launch_rom_path, g_games[games_selected].path,
+                              sizeof(direct_launch_rom_path));
+                    direct_launch_core_path[0] = '\0';
+                    direct_launch_rom = true;
+                    relaunch_after_retroarch = true;
+                    running = false;
                 }
             }
             else if (state == STATE_BLUETOOTH_CONFIG) {
@@ -4590,7 +4938,14 @@ int main(void)
                 state = STATE_SETTINGS;
                 settings_selected = 0;
             } else if (action == ACTION_GAMES) {
-                /* TODO fase 1: state = STATE_GAME_LIST; (pantalla aun no creada) */
+                state = STATE_GAME_LIST;
+                games_selected = 0;
+                games_pt_idx = -1;
+                games_pt_str[0] = '\0';
+                (void)catalog_scan_poll();
+                catalog_load();
+                catalog_scan_start();
+                games_scan_running = (s_catalog_pid > 0);
             }
             action = ACTION_NONE;
         }
@@ -5409,6 +5764,100 @@ int main(void)
             draw_line(ren, mx, 438.0f, SCREEN_W - 20.0f, 438.0f, c_selbg);
             draw_footer(ren, f_sm,
                 tr("[DPAD] Elegir  [B] Aplicar  [A] Volver", "[DPAD] Choose  [B] Apply  [A] Back"), s_version);
+
+        } else if (state == STATE_GAME_LIST) {
+            if (games_scan_running && catalog_scan_poll()) {
+                char keep[300] = "";
+                if (games_selected >= 0 && games_selected < g_games_n)
+                    safe_copy(keep, g_games[games_selected].path, sizeof(keep));
+                catalog_load();
+                games_scan_running = false;
+                for (int gi = 0; gi < g_games_n; gi++)
+                    if (strcmp(g_games[gi].path, keep) == 0) { games_selected = gi; break; }
+                if (games_selected >= g_games_n)
+                    games_selected = g_games_n ? g_games_n - 1 : 0;
+                games_pt_idx = -1;
+            }
+            draw_statusbar(ren, f_status_bold, status_time, status_wifi_up, status_battery, status_bt_up, bg_update_available, wifi_icon_tex, battery_icon_tex, bt_icon_tex, ssh_icon_tex, update_badge_tex);
+            draw_active_dash_breadcrumbs(ren, f_sm, mx, 25.0f, 2, tr("Juegos", "Games"));
+            const float g_item_h = 34.0f, g_y0 = 64.0f, g_list_w = 300.0f;
+            const int g_visible = 10;
+            if (g_games_n == 0) {
+                draw_text(ren, f_sm,
+                          games_scan_running ? tr("Escaneando biblioteca...", "Scanning library...")
+                                             : tr("No hay juegos en la carpeta whdload", "No games in the whdload folder"),
+                          c_gray, mx + 8.0f, g_y0);
+            }
+            int g_scroll = 0;
+            if (games_selected >= g_visible) g_scroll = games_selected - g_visible + 1;
+            if (g_scroll > g_games_n - g_visible) g_scroll = g_games_n - g_visible;
+            if (g_scroll < 0) g_scroll = 0;
+            int g_lh = TTF_GetFontHeight(f_sm);
+            for (int row = 0; row < g_visible && (row + g_scroll) < g_games_n; row++) {
+                int i = row + g_scroll;
+                float iy = g_y0 + row * g_item_h;
+                bool sel = (i == games_selected);
+                float pill_h = g_item_h - 6.0f;
+                float pill_top = iy - 3.0f;
+                float text_y = pill_top + (pill_h - (float)g_lh) / 2.0f;
+                if (sel)
+                    draw_rounded_rect_filled(ren, mx - 10.0f, pill_top, g_list_w, pill_h, pill_h / 2.0f, c_menu_selbg);
+                draw_text_truncated(ren, f_sm, g_games[i].title, sel ? c_menu_gold : c_menu_beige,
+                                    mx + 6.0f, text_y, g_list_w - 34.0f);
+            }
+            if (g_scroll > 0)
+                draw_text(ren, f_xs, tr("más arriba ↑", "more above ↑"), c_menu_selbg,
+                          mx + 8.0f, LIST_MORE_ABOVE_Y);
+            if (g_scroll + g_visible < g_games_n)
+                draw_text(ren, f_xs, tr("más abajo ↓", "more below ↓"), c_menu_selbg,
+                          mx + 8.0f, LIST_MORE_BELOW_Y);
+            if (g_games_n > 0 && games_selected < g_games_n) {
+                const CatGame *g = &g_games[games_selected];
+                float rx_g = mx + g_list_w + 10.0f;
+                float rw_g = SCREEN_W - 20.0f - rx_g;
+                float cv_w = 162.0f, cv_h = 195.0f;
+                draw_rounded_rect_outline(ren, rx_g, g_y0, cv_w, cv_h, 6.0f, 1.0f, c_selbg, c_bg);
+                const char *ph_txt = tr("SIN CARATULA", "NO COVER");
+                int ph_w = 0, ph_h = 0;
+                TTF_GetStringSize(f_xs, ph_txt, 0, &ph_w, &ph_h);
+                draw_text(ren, f_xs, ph_txt, c_gray,
+                          rx_g + (cv_w - (float)ph_w) / 2.0f, g_y0 + (cv_h - (float)ph_h) / 2.0f);
+                int tl = draw_text_wrapped(ren, f_sm, g->title, c_green,
+                                           rx_g, g_y0 + cv_h + 8.0f, rw_g, 16.0f);
+                if (games_pt_idx != games_selected) {
+                    playtime_fmt(playtime_get(g->path), games_pt_str, sizeof(games_pt_str));
+                    games_pt_idx = games_selected;
+                }
+                float bx = rx_g;
+                float by = g_y0 + cv_h + 8.0f + (float)tl * 16.0f + 6.0f;
+                const char *fl_names[5] = {"AGA", "CD32", "NTSC", "CDTV", "BETA"};
+                const unsigned short fl_bits[5] = {GF_AGA, GF_CD32, GF_NTSC, GF_CDTV, GF_BETA};
+                for (int k = 0; k < 5; k++)
+                    if (g->flags & fl_bits[k])
+                        bx += draw_badge(ren, f_badge, fl_names[k], bx, by, c_selbg, c_bg) + 4.0f;
+                if (g->lang[0]) {
+                    char lg[3] = { (char)toupper((unsigned char)g->lang[0]),
+                                   (char)toupper((unsigned char)g->lang[1]), '\0' };
+                    bx += draw_badge(ren, f_badge, lg, bx, by, c_selbg, c_bg) + 4.0f;
+                }
+                if (g->ver[0]) {
+                    char vb[16];
+                    snprintf(vb, sizeof(vb), "V%s", g->ver);
+                    bx += draw_badge(ren, f_badge, vb, bx, by, c_selbg, c_bg) + 4.0f;
+                }
+                if (games_pt_str[0])
+                    bx += draw_badge(ren, f_badge, games_pt_str, bx, by, c_selbg, c_bg) + 4.0f;
+                if (!g->identified)
+                    draw_text(ren, f_xs, tr("Sin identificar en los DAT", "Not found in the DATs"),
+                              c_gray, rx_g, by + 26.0f);
+                char pos_buf[24];
+                snprintf(pos_buf, sizeof(pos_buf), "%d / %d", games_selected + 1, g_games_n);
+                draw_text(ren, f_xs, pos_buf, c_gray, rx_g, LIST_MORE_BELOW_Y);
+            }
+            draw_line(ren, mx, 438.0f, SCREEN_W - 20.0f, 438.0f, c_selbg);
+            draw_footer(ren, f_sm,
+                tr("[B] Lanzar  [DPAD] Navegar  [L1/R1] Pagina  [A] Volver",
+                   "[B] Launch  [DPAD] Navigate  [L1/R1] Page  [A] Back"), s_version);
 
         } else if (state == STATE_BLUETOOTH_CONFIG) {
             SDL_Color c_bt_card    = c_selbg;
