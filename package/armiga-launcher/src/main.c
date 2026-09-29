@@ -1741,6 +1741,8 @@ typedef struct {
     char lang[3];
     unsigned short flags;
     bool identified;
+    unsigned crc;
+    unsigned box_off, snap_off; /* offsets en la tabla de strings, 0xFFFFFFFF = sin imagen */
 } CatGame;
 
 typedef struct { long mtime; long size; unsigned crc; char name[192]; } CatCE;
@@ -1794,8 +1796,8 @@ static bool games_idx_load(void)
     unsigned ver, cnt, ro, so;
     memcpy(&ver, b + 4, 4); memcpy(&cnt, b + 8, 4);
     memcpy(&ro, b + 12, 4); memcpy(&so, b + 16, 4);
-    if (memcmp(b, "AGDB", 4) != 0 || ver != 1 ||
-        (size_t)ro + 24u * (size_t)cnt > (size_t)sz || (size_t)so > (size_t)sz) {
+    if (memcmp(b, "AGDB", 4) != 0 || ver != 2 ||
+        (size_t)ro + 32u * (size_t)cnt > (size_t)sz || (size_t)so > (size_t)sz) {
         free(b);
         return false;
     }
@@ -1809,8 +1811,8 @@ static const unsigned char *games_idx_find(unsigned crc)
     unsigned lo = 0, hi = g_idx_count;
     while (lo < hi) {
         unsigned mid = (lo + hi) / 2, k;
-        memcpy(&k, g_idx + g_idx_rec_off + 24u * mid, 4);
-        if (k == crc) return g_idx + g_idx_rec_off + 24u * mid;
+        memcpy(&k, g_idx + g_idx_rec_off + 32u * mid, 4);
+        if (k == crc) return g_idx + g_idx_rec_off + 32u * mid;
         if (k < crc) lo = mid + 1; else hi = mid;
     }
     return NULL;
@@ -1949,6 +1951,8 @@ static void catalog_load(void)
         }
         CatGame *g = &g_games[g_games_n];
         memset(g, 0, sizeof(*g));
+        g->crc = crc;
+        g->box_off = g->snap_off = 0xFFFFFFFFu;
         snprintf(g->path, sizeof(g->path), "%s/%s", CATALOG_WHD_DIR, t3);
         const unsigned char *rec = g_idx ? games_idx_find(crc) : NULL;
         if (rec) {
@@ -1964,6 +1968,8 @@ static void catalog_load(void)
                 g->lang[2] = '\0';
                 memcpy(g->ver, rec + 16, 8);
                 g->ver[8] = '\0';
+                memcpy(&g->box_off, rec + 24, 4);
+                memcpy(&g->snap_off, rec + 28, 4);
                 g->identified = true;
             }
         }
