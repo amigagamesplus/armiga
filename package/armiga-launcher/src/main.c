@@ -253,8 +253,8 @@ static const char *MENU_ICONS[] = {
 };
 
 static const char *MENU_ITEMS[][2] = {
-    {"Juegos", "Games"},
-    {"Catálogo Amiga",              "Amiga Catalog"},
+    {"Catálogo Amiga", "Amiga Catalog"},
+    {"RetroArch", "RetroArch"},
     {"Actualización",    "System Update"},
     {"Diagnóstico del sistema",     "System Diagnostics"},
     {"ARexx Scripts",               "ARexx Scripts"},
@@ -6055,10 +6055,10 @@ int main(void)
                 cover_reset();
             }
             draw_statusbar(ren, f_status_bold, status_time, status_wifi_up, status_battery, status_bt_up, bg_update_available, wifi_icon_tex, battery_icon_tex, bt_icon_tex, ssh_icon_tex, update_badge_tex);
-            draw_active_dash_breadcrumbs(ren, f_sm, mx, 25.0f, 2, tr("Juegos", "Games"));
-            const float g_item_h = 38.0f, g_y0 = 64.0f;
+            draw_active_dash_breadcrumbs(ren, f_sm, mx, 25.0f, 2, tr("Catálogo Amiga", "Amiga Catalog"));
+            const float g_item_h = 35.0f, g_y0 = 64.0f;
             const float g_lx = mx - 10.0f, g_list_w = 286.0f;
-            const int g_visible = 9;
+            const int g_visible = 10;
             const float g_ltop = g_y0 - 3.0f;
             const float g_lbot = g_y0 + (float)(g_visible - 1) * g_item_h + (g_item_h - 6.0f) - 3.0f;
             const float g_th = g_lbot - g_ltop;
