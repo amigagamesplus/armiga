@@ -12,6 +12,8 @@ import re, struct, sys
 F_AGA, F_CD32, F_NTSC, F_CDTV, F_LIBRETRO, F_BETA = 1, 2, 4, 8, 16, 32
 LANGS = {"De", "Fr", "It", "Es", "Pl", "Dk", "Cz", "Se", "Gr", "Nl", "Fi", "Pt", "Hu", "No"}
 NONE = 0xFFFFFFFF
+# Etiquetas de plataforma/variante: una imagen con alguna que el titulo NO tiene es peor opcion
+PLATFORM = {"cd32", "cdtv", "aga", "ocs", "demo", "beta", "proto", "unl", "sample", "chip"}
 
 def parse_file(name):
     toks = name.rsplit(".", 1)[0].split("_")
@@ -55,7 +57,7 @@ class Resolver:
         c = self.by_base.get(norm(base(title)))
         if not c: return None
         t = tags(title)
-        return min(c, key=lambda x: (-len(t & tags(x)), len(x), x))
+        return min(c, key=lambda x: (len((tags(x) - t) & PLATFORM), -len(t & tags(x)), len(x), x))
 
 def main(rp_path, lib_path, tree_path, out_path):
     rp = open(rp_path, encoding="utf-8").read().replace("&amp;", "&")

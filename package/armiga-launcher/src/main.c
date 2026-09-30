@@ -3359,6 +3359,208 @@ static void save_click_sound_enabled(int enabled)
     g_cfg.click_sound_enabled = enabled ? 1 : 0;
 }
 
+/* ===== Caratulas bajo demanda (fase 2) ===== */
+#define COVER_DIR   "/media/amiga_data/covers"
+#define COVER_TMP   "/tmp/armiga_cover.dl"
+#define COVER_MAX_W 158
+#define COVER_MAX_H 191
+#define COVER_URL   "https://raw.githubusercontent.com/libretro-thumbnails/Commodore_-_Amiga/master/"
+#define COVER_NOIMG 0xFFFFFFFFu
+enum { COVER_IDLE = 0, COVER_LOADING, COVER_READY, COVER_NONE, COVER_FAILED };
+
+static SDL_Texture *s_cover_tex = NULL;
+static int s_cover_state = COVER_IDLE;
+static int s_cover_sel = -1;
+static Uint64 s_cover_sel_at = 0;
+static char s_cover_png[96], s_cover_none[96];
+static pid_t s_dl_pid = -1;
+static unsigned s_dl_crc = 0, s_dl_snap_off = COVER_NOIMG;
+static int s_dl_stage = 0;
+
+static const char *games_idx_str(unsigned off)
+{
+    if (!g_idx || off == COVER_NOIMG || (size_t)g_idx_str_off + (size_t)off >= g_idx_size)
+        return NULL;
+    return (const char *)g_idx + g_idx_str_off + off;
+}
+
+static void cover_url_encode(const char *s, char *out, size_t sz)
+{
+    static const char hex[] = "0123456789ABCDEF";
+    size_t o = 0;
+    for (; *s && o + 4 < sz; s++) {
+        unsigned char c = (unsigned char)*s;
+        if ((c >= '0' && c <= '9') || (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') ||
+            c == '-' || c == '_' || c == '.' || c == '~') {
+            out[o++] = (char)c;
+        } else {
+            out[o++] = '%';
+            out[o++] = hex[c >> 4];
+            out[o++] = hex[c & 15];
+        }
+    }
+    out[o] = '\0';
+}
+
+/* Lanza curl en segundo plano hacia COVER_TMP. stage 0 = boxart, 1 = captura. */
+static bool cover_dl_start(unsigned crc, unsigned box_off, unsigned snap_off, int stage)
+{
+    const char *name = games_idx_str(stage == 0 ? box_off : snap_off);
+    if (!name) return false;
+    char enc[512], url[700];
+    cover_url_encode(name, enc, sizeof(enc));
+    snprintf(url, sizeof(url), "%s%s/%s.png", COVER_URL,
+             stage == 0 ? "Named_Boxarts" : "Named_Snaps", enc);
+    mkdir(COVER_DIR, 0755);
+    unlink(COVER_TMP);
+    unlink(COVER_TMP ".code");
+    pid_t p = fork();
+    if (p < 0) return false;
+    if (p == 0) {
+        int fd = open(COVER_TMP ".code", O_WRONLY | O_CREAT | O_TRUNC, 0644);
+        if (fd >= 0) { dup2(fd, STDOUT_FILENO); close(fd); }
+        fd = open("/dev/null", O_WRONLY);
+        if (fd >= 0) { dup2(fd, STDERR_FILENO); close(fd); }
+        execlp("curl", "curl", "-s", "-L", "--connect-timeout", "5",
+               "--max-time", "20", "-w", "%{http_code}", "-o", COVER_TMP, url, (char *)NULL);
+        _exit(127);
+    }
+    s_dl_pid = p;
+    s_dl_crc = crc;
+    s_dl_snap_off = snap_off;
+    s_dl_stage = stage;
+    return true;
+}
+
+static void cover_write_none(unsigned crc)
+{
+    char p[96];
+    snprintf(p, sizeof(p), COVER_DIR "/%08x.none", crc);
+    FILE *f = fopen(p, "w");
+    if (f) fclose(f);
+}
+
+/* Reduce la imagen descargada a COVER_MAX_W x COVER_MAX_H (sin ampliar) y la
+ * guarda en la cache. Se ejecuta en el hilo principal, una vez por juego. */
+static bool cover_process_download(unsigned crc)
+{
+    bool ok = false;
+    SDL_Surface *src = IMG_Load(COVER_TMP);
+    if (src) {
+        SDL_Surface *rgba = SDL_ConvertSurface(src, SDL_PIXELFORMAT_RGBA32);
+        SDL_DestroySurface(src);
+        if (rgba) {
+            float sx = (float)COVER_MAX_W / (float)rgba->w;
+            float sy = (float)COVER_MAX_H / (float)rgba->h;
+            float sc = sx < sy ? sx : sy;
+            SDL_Surface *out = rgba;
+            if (sc < 1.0f) {
+                int w = (int)((float)rgba->w * sc + 0.5f);
+                int h = (int)((float)rgba->h * sc + 0.5f);
+                if (w < 1) w = 1;
+                if (h < 1) h = 1;
+                SDL_Surface *scaled = SDL_ScaleSurface(rgba, w, h, SDL_SCALEMODE_LINEAR);
+                if (scaled) out = scaled;
+            }
+            char fin[96], tmp[110];
+            snprintf(fin, sizeof(fin), COVER_DIR "/%08x.png", crc);
+            snprintf(tmp, sizeof(tmp), "%s.tmp", fin);
+            if (IMG_SavePNG(out, tmp)) ok = (rename(tmp, fin) == 0);
+            else unlink(tmp);
+            if (out != rgba) SDL_DestroySurface(out);
+            SDL_DestroySurface(rgba);
+        }
+    }
+    unlink(COVER_TMP);
+    return ok;
+}
+
+static void cover_reset(void) { s_cover_sel = -1; }
+
+/* Libera la textura (hay que llamarla antes de destruir el renderer). */
+static void cover_release(void)
+{
+    if (s_cover_tex) { SDL_DestroyTexture(s_cover_tex); s_cover_tex = NULL; }
+    s_cover_sel = -1;
+    s_cover_state = COVER_IDLE;
+}
+
+/* Maquina de estados de la caratula; llamar una vez por frame en la lista. */
+static void cover_tick(SDL_Renderer *ren, const CatGame *g, int sel)
+{
+    Uint64 now = SDL_GetTicks();
+    if (sel != s_cover_sel) {
+        s_cover_sel = sel;
+        s_cover_sel_at = now;
+        if (s_cover_tex) { SDL_DestroyTexture(s_cover_tex); s_cover_tex = NULL; }
+        s_cover_state = COVER_IDLE;
+        if (g) {
+            snprintf(s_cover_png, sizeof(s_cover_png), COVER_DIR "/%08x.png", g->crc);
+            snprintf(s_cover_none, sizeof(s_cover_none), COVER_DIR "/%08x.none", g->crc);
+        }
+    }
+    if (s_dl_pid > 0) {
+        int st = 0;
+        pid_t r = waitpid(s_dl_pid, &st, WNOHANG);
+        if (r != 0) {
+            int http = 0;
+            FILE *cf = fopen(COVER_TMP ".code", "r");
+            if (cf) {
+                char hb[16];
+                if (fgets(hb, sizeof(hb), cf)) http = atoi(hb);
+                fclose(cf);
+            }
+            unlink(COVER_TMP ".code");
+            unsigned done_crc = s_dl_crc;
+            bool mine = g && g->crc == done_crc;
+            s_dl_pid = -1;
+            struct stat sb;
+            bool have = (http == 200 && stat(COVER_TMP, &sb) == 0 && sb.st_size > 0);
+            if (!have) unlink(COVER_TMP);
+            int outcome; /* 0 = cargar de cache, 1 = sin imagen, 2 = fallo de red, 3 = sigue */
+            if (have) {
+                if (!cover_process_download(done_crc)) { cover_write_none(done_crc); outcome = 1; }
+                else outcome = 0;
+            } else if (http == 404) { /* definitivo: probar la captura si veniamos de la boxart */
+                if (s_dl_stage == 0 && games_idx_str(s_dl_snap_off) &&
+                    cover_dl_start(done_crc, COVER_NOIMG, s_dl_snap_off, 1)) {
+                    outcome = 3;
+                } else {
+                    cover_write_none(done_crc);
+                    outcome = 1;
+                }
+            } else {
+                outcome = 2; /* red caida / timeout: sin marcador, se reintenta al reseleccionar */
+            }
+            if (mine) {
+                if (outcome == 0) s_cover_state = COVER_IDLE;
+                else if (outcome == 1) s_cover_state = COVER_NONE;
+                else if (outcome == 2) s_cover_state = COVER_FAILED;
+            }
+        }
+    }
+    if (s_cover_state == COVER_IDLE) {
+        if (!g || (g->box_off == COVER_NOIMG && g->snap_off == COVER_NOIMG)) {
+            s_cover_state = COVER_NONE;
+        } else if (access(s_cover_png, F_OK) == 0) {
+            s_cover_tex = IMG_LoadTexture(ren, s_cover_png);
+            if (s_cover_tex) {
+                SDL_SetTextureScaleMode(s_cover_tex, SDL_SCALEMODE_LINEAR);
+                s_cover_state = COVER_READY;
+            } else {
+                unlink(s_cover_png);
+                s_cover_state = COVER_FAILED;
+            }
+        } else if (access(s_cover_none, F_OK) == 0) {
+            s_cover_state = COVER_NONE;
+        } else if (s_dl_pid <= 0 && now - s_cover_sel_at >= 250) {
+            int stage = (g->box_off != COVER_NOIMG) ? 0 : 1;
+            s_cover_state = cover_dl_start(g->crc, g->box_off, g->snap_off, stage)
+                            ? COVER_LOADING : COVER_FAILED;
+        }
+    }
+}
+
 /* Badge de contorno con texto centrado por tinta real (ver badge_ink).
  * Metricas cacheadas por (fuente,texto) para no renderizar texto cada frame.
  * Devuelve el ancho dibujado. */
@@ -4948,6 +5150,7 @@ int main(void)
                 games_selected = 0;
                 games_pt_idx = -1;
                 games_pt_str[0] = '\0';
+                cover_reset();
                 (void)catalog_scan_poll();
                 catalog_load();
                 catalog_scan_start();
@@ -5783,6 +5986,7 @@ int main(void)
                 if (games_selected >= g_games_n)
                     games_selected = g_games_n ? g_games_n - 1 : 0;
                 games_pt_idx = -1;
+                cover_reset();
             }
             draw_statusbar(ren, f_status_bold, status_time, status_wifi_up, status_battery, status_bt_up, bg_update_available, wifi_icon_tex, battery_icon_tex, bt_icon_tex, ssh_icon_tex, update_badge_tex);
             draw_active_dash_breadcrumbs(ren, f_sm, mx, 25.0f, 2, tr("Juegos", "Games"));
@@ -5823,11 +6027,21 @@ int main(void)
                 float rw_g = SCREEN_W - 20.0f - rx_g;
                 float cv_w = 162.0f, cv_h = 195.0f;
                 draw_rounded_rect_outline(ren, rx_g, g_y0, cv_w, cv_h, 6.0f, 1.0f, c_selbg, c_bg);
-                const char *ph_txt = tr("SIN CARATULA", "NO COVER");
-                int ph_w = 0, ph_h = 0;
-                TTF_GetStringSize(f_xs, ph_txt, 0, &ph_w, &ph_h);
-                draw_text(ren, f_xs, ph_txt, c_gray,
-                          rx_g + (cv_w - (float)ph_w) / 2.0f, g_y0 + (cv_h - (float)ph_h) / 2.0f);
+                cover_tick(ren, g, games_selected);
+                if (s_cover_tex) {
+                    float tw = 0.0f, th = 0.0f;
+                    SDL_GetTextureSize(s_cover_tex, &tw, &th);
+                    SDL_FRect cdst = { rx_g + (cv_w - tw) / 2.0f, g_y0 + (cv_h - th) / 2.0f, tw, th };
+                    SDL_RenderTexture(ren, s_cover_tex, NULL, &cdst);
+                } else {
+                    const char *ph_txt = (s_cover_state == COVER_NONE || s_cover_state == COVER_FAILED)
+                        ? tr("SIN CARATULA", "NO COVER")
+                        : tr("CARGANDO...", "LOADING...");
+                    int ph_w = 0, ph_h = 0;
+                    TTF_GetStringSize(f_xs, ph_txt, 0, &ph_w, &ph_h);
+                    draw_text(ren, f_xs, ph_txt, c_gray,
+                              rx_g + (cv_w - (float)ph_w) / 2.0f, g_y0 + (cv_h - (float)ph_h) / 2.0f);
+                }
                 int tl = draw_text_wrapped(ren, f_sm, g->title, c_green,
                                            rx_g, g_y0 + cv_h + 8.0f, rw_g, 16.0f);
                 if (games_pt_idx != games_selected) {
@@ -7326,6 +7540,7 @@ int main(void)
     }
 
     if (logo_tex) SDL_DestroyTexture(logo_tex);
+    cover_release();
     for (int mi = 0; mi < MENU_ICON_COUNT; mi++)
         if (menu_icon_tex[mi]) SDL_DestroyTexture(menu_icon_tex[mi]);
     if (wifi_icon_tex) SDL_DestroyTexture(wifi_icon_tex);
