@@ -3715,7 +3715,7 @@ int main(void)
      * en tiempo real via SDL_SetTextureColorMod segun seleccion). */
     #define MENU_ICON_COUNT 7
     static const char *MENU_ICON_PATHS[MENU_ICON_COUNT] = {
-        "/usr/share/armiga/icons/device-gamepad-2.png",
+        "/usr/share/armiga/icons/device-floppy.png",
         "/usr/share/armiga/icons/cloud-download.png",
         "/usr/share/armiga/icons/activity.png",
         "/usr/share/armiga/icons/terminal.png",
