@@ -3424,6 +3424,11 @@ static SDL_Color cat_mix(SDL_Color a, SDL_Color b, float t)
     return c;
 }
 
+/* Volver al catalogo tras jugar: se activa al lanzar desde la lista y se consume
+ * al reiniciar el bucle principal (las variables locales se reinician cada vuelta). */
+static bool s_return_to_catalog = false;
+static char s_return_rom[300] = "";
+
 /* ===== Caratulas bajo demanda (fase 2) ===== */
 #define COVER_DIR   "/media/amiga_data/covers"
 #define COVER_TMP   "/tmp/armiga_cover.dl"
@@ -3950,6 +3955,21 @@ int main(void)
     int stick_axis_prev = 0; /* debounce del eje Y del stick izq. traducido a HAT en pantallas fuera de STATE_MENU */
     ExecRequest exec_req = EXEC_NONE;
     int action   = ACTION_NONE;
+    if (s_return_to_catalog) {
+        s_return_to_catalog = false;
+        state = STATE_GAME_LIST;
+        prev_state = state;
+        games_selected = 0;
+        games_pt_idx = -1;
+        games_pt_str[0] = '\0';
+        cover_reset();
+        (void)catalog_scan_poll();
+        catalog_load();
+        for (int gi = 0; gi < g_games_n; gi++)
+            if (strcmp(g_games[gi].path, s_return_rom) == 0) { games_selected = gi; break; }
+        catalog_scan_start();
+        games_scan_running = (s_catalog_pid > 0);
+    }
     bool running = true;
     SDL_Event ev;
 
@@ -4517,6 +4537,8 @@ int main(void)
                     safe_copy(direct_launch_rom_path, g_games[games_selected].path,
                               sizeof(direct_launch_rom_path));
                     direct_launch_core_path[0] = '\0';
+                    s_return_to_catalog = true;
+                    safe_copy(s_return_rom, g_games[games_selected].path, sizeof(s_return_rom));
                     direct_launch_rom = true;
                     relaunch_after_retroarch = true;
                     running = false;
