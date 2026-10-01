@@ -6130,9 +6130,9 @@ int main(void)
                         ? tr("SIN CARATULA", "NO COVER")
                         : tr("CARGANDO...", "LOADING...");
                     int ph_w = 0, ph_h = 0;
-                    TTF_GetStringSize(f_xs, ph_txt, 0, &ph_w, &ph_h);
+                    TTF_GetStringSize(f_sm, ph_txt, 0, &ph_w, &ph_h);
                     draw_rounded_rect_outline(ren, cb_x, cb_y, cb_w, cb_h, 6.0f, 1.0f, c_track, c_card);
-                    draw_text(ren, f_xs, ph_txt, c_gray,
+                    draw_text(ren, f_sm, ph_txt, c_gray,
                               cb_x + (cb_w - (float)ph_w) / 2.0f, cb_y + (cb_h - (float)ph_h) / 2.0f);
                 }
                 float sep_x = cb_x + cb_w + 8.0f;
@@ -6163,13 +6163,13 @@ int main(void)
                 const char *lbl[5] = { tr("SISTEMA", "SYSTEM"), tr("VERSIÓN", "VERSION"),
                                        tr("IDIOMA", "LANGUAGE"), tr("TIPO", "TYPE"), tr("TAMAÑO", "SIZE") };
                 const char *val[5] = { v_sys, v_ver, v_lang, "WHDLoad", v_size };
-                int xs_h = TTF_GetFontHeight(f_xs), sm_h = TTF_GetFontHeight(f_sm);
+                int xs_h = TTF_GetFontHeight(f_sm), sm_h = TTF_GetFontHeight(f_sm);
                 for (int k = 0; k < 5; k++) {
                     float ry = c1_y + 12.0f + (float)k * 25.0f;
                     int lw = 0, lh = 0, vw = 0, vh = 0;
-                    TTF_GetStringSize(f_xs, lbl[k], 0, &lw, &lh);
+                    TTF_GetStringSize(f_sm, lbl[k], 0, &lw, &lh);
                     TTF_GetStringSize(f_sm, val[k], 0, &vw, &vh);
-                    draw_text(ren, f_xs, lbl[k], c_gray, inf_x, ry + (25.0f - (float)xs_h) / 2.0f);
+                    draw_text(ren, f_sm, lbl[k], c_gray, inf_x, ry + (25.0f - (float)xs_h) / 2.0f);
                     float vmax = (inf_r - inf_x) - (float)lw - 8.0f;
                     if ((float)vw > vmax)
                         draw_text_truncated(ren, f_sm, val[k], c_menu_beige, inf_x + (float)lw + 8.0f,
@@ -6188,7 +6188,7 @@ int main(void)
                                   rw_g - 24.0f, (float)(TTF_GetFontHeight(f_ttl) + 2));
                 float fb_x = rx_g + 12.0f, fb_y = c2_y + c2_h - 28.0f;
                 if (!g->identified) {
-                    draw_text(ren, f_xs, tr("Sin identificar en los DAT", "Not found in the DATs"),
+                    draw_text(ren, f_sm, tr("Sin identificar en los DAT", "Not found in the DATs"),
                               c_gray, fb_x, fb_y + 4.0f);
                 } else {
                     if (g->flags & GF_NTSC)
