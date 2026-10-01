@@ -284,7 +284,7 @@ static const int MENU_ACTIONS[MENU_COUNT] = {
     ACTION_GAMES, ACTION_ROMS, ACTION_UPDATE, ACTION_INFO,
     ACTION_AREXX, ACTION_SETTINGS, ACTION_SHELL
 };
-static const int MENU_ICON_IDX[MENU_COUNT] = { 0, 0, 1, 2, 3, 4, 5 };
+static const int MENU_ICON_IDX[MENU_COUNT] = { 7, 0, 1, 2, 3, 4, 5 };
 
 static const char *SETTINGS_MENU_ITEMS[][2] = {
     {"Red inalámbrica",             "Wireless Network"},
@@ -3713,15 +3713,16 @@ int main(void)
     }
     /* Iconos monocromos del menu principal (PNG blanco+alfa, recoloreados
      * en tiempo real via SDL_SetTextureColorMod segun seleccion). */
-    #define MENU_ICON_COUNT 7
+    #define MENU_ICON_COUNT 8
     static const char *MENU_ICON_PATHS[MENU_ICON_COUNT] = {
-        "/usr/share/armiga/icons/device-floppy.png",
+        "/usr/share/armiga/icons/device-gamepad-2.png",
         "/usr/share/armiga/icons/cloud-download.png",
         "/usr/share/armiga/icons/activity.png",
         "/usr/share/armiga/icons/terminal.png",
         "/usr/share/armiga/icons/settings.png",
         "/usr/share/armiga/icons/power.png",
         "/usr/share/armiga/icons/reboot.png",
+        "/usr/share/armiga/icons/device-floppy.png",
     };
     SDL_Texture *menu_icon_tex[MENU_ICON_COUNT] = {0};
     for (int mi = 0; mi < MENU_ICON_COUNT; mi++) {
