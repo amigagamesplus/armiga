@@ -1911,6 +1911,32 @@ static bool catalog_scan_poll(void)
     return true;
 }
 
+/* Letra de agrupacion de un titulo; digitos y simbolos forman el bloque '#' */
+static int cat_bucket(const CatGame *g)
+{
+    unsigned char c = (unsigned char)g->title[0];
+    return isalpha(c) ? toupper(c) : '#';
+}
+
+/* dir > 0: inicio de la letra siguiente. dir < 0: inicio de la letra actual
+ * y, si ya se esta en el, inicio de la anterior. */
+static int cat_letter_jump(const CatGame *g, int n, int sel, int dir)
+{
+    if (n <= 0 || sel < 0 || sel >= n) return sel;
+    int cur = cat_bucket(&g[sel]);
+    if (dir > 0) {
+        for (int i = sel + 1; i < n; i++)
+            if (cat_bucket(&g[i]) != cur) return i;
+        return sel;
+    }
+    int i = sel;
+    while (i > 0 && cat_bucket(&g[i - 1]) == cur) i--;
+    if (i < sel || i == 0) return i;
+    int prev = cat_bucket(&g[i - 1]);
+    while (i > 0 && cat_bucket(&g[i - 1]) == prev) i--;
+    return i;
+}
+
 static int cat_game_cmp(const void *a, const void *b)
 {
     const CatGame *x = a, *y = b;
@@ -3551,6 +3577,13 @@ static void cover_reset(void) { s_cover_sel = -1; }
 static void cover_release(void)
 {
     if (s_cover_tex) { SDL_DestroyTexture(s_cover_tex); s_cover_tex = NULL; }
+    if (s_dl_pid > 0) {
+        kill(s_dl_pid, SIGKILL);
+        waitpid(s_dl_pid, NULL, 0);
+        s_dl_pid = -1;
+        unlink(COVER_TMP);
+        unlink(COVER_TMP ".code");
+    }
     s_cover_sel = -1;
     s_cover_state = COVER_IDLE;
 }
@@ -4514,6 +4547,12 @@ int main(void)
                         play_ui_click();
                     } else if (ev.jhat.value == SDL_HAT_DOWN) {
                         games_selected = (games_selected + 1) % gn;
+                        play_ui_click();
+                    } else if (ev.jhat.value == SDL_HAT_LEFT) {
+                        games_selected = cat_letter_jump(g_games, gn, games_selected, -1);
+                        play_ui_click();
+                    } else if (ev.jhat.value == SDL_HAT_RIGHT) {
+                        games_selected = cat_letter_jump(g_games, gn, games_selected, +1);
                         play_ui_click();
                     }
                 }
