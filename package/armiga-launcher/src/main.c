@@ -1782,6 +1782,58 @@ static bool cat_crc32_file(const char *path, unsigned *out)
     return ok;
 }
 
+#define COVER_DIR   "/media/amiga_data/covers"
+#define COVER_STAMP COVER_DIR "/.idx_stamp"
+
+/* Vacia la cache de caratulas (*.png / *.none) si el games.idx cargado no es
+ * el que la genero. Sello = CRC32 del contenido del indice (no su mtime). */
+static void covers_sync_with_index(const unsigned char *b, size_t sz)
+{
+    cat_crc_init();
+    unsigned crc = 0xFFFFFFFFu;
+    for (size_t i = 0; i < sz; i++)
+        crc = cat_crc_table[(crc ^ b[i]) & 0xFF] ^ (crc >> 8);
+    crc ^= 0xFFFFFFFFu;
+
+    mkdir(COVER_DIR, 0755);
+    unsigned old = 0;
+    bool have = false;
+    FILE *sf = fopen(COVER_STAMP, "r");
+    if (sf) {
+        have = (fscanf(sf, "%x", &old) == 1);
+        fclose(sf);
+    }
+    if (have && old == crc) return;
+
+    DIR *d = opendir(COVER_DIR);
+    if (d) {
+        struct dirent *e;
+        while ((e = readdir(d)) != NULL) {
+            const char *n = e->d_name;
+            size_t l = strlen(n);
+            const char *ext = (l == 12) ? n + 8 : (l == 13) ? n + 8 : NULL;
+            if (!ext || (strcmp(ext, ".png") != 0 && strcmp(ext, ".none") != 0)) continue;
+            bool hex = true;
+            for (int k = 0; k < 8; k++) if (!isxdigit((unsigned char)n[k])) hex = false;
+            if (!hex) continue;
+            char full[96];
+            snprintf(full, sizeof(full), COVER_DIR "/%s", n);
+            unlink(full);
+        }
+        closedir(d);
+    }
+    char tmp[96];
+    snprintf(tmp, sizeof(tmp), COVER_STAMP ".tmp");
+    FILE *wf = fopen(tmp, "w");
+    if (wf) {
+        fprintf(wf, "%08x\n", crc);
+        fflush(wf);
+        fsync(fileno(wf));
+        fclose(wf);
+        rename(tmp, COVER_STAMP);
+    }
+}
+
 static bool games_idx_load(void)
 {
     if (g_idx) return true;
@@ -1804,6 +1856,7 @@ static bool games_idx_load(void)
     }
     g_idx = b; g_idx_size = (size_t)sz;
     g_idx_count = cnt; g_idx_rec_off = ro; g_idx_str_off = so;
+    covers_sync_with_index(b, (size_t)sz);
     return true;
 }
 
