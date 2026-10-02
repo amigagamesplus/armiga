@@ -4057,6 +4057,9 @@ int main(void)
     AppState state = STATE_MENU;
     AppState prev_state = STATE_MENU;
     int menu_axis_prev = 0; /* reset al re-entrar a STATE_MENU, evita movimiento fantasma (B05) */
+    int gl_hat_dir = 0;     /* D-pad fisico mantenido en la lista: -1 arriba, +1 abajo */
+    int gl_hold_dir = 0;    /* direccion en autorepetido (D-pad o stick) */
+    Uint64 gl_hold_next = 0;
     int stick_axis_prev = 0; /* debounce del eje Y del stick izq. traducido a HAT en pantallas fuera de STATE_MENU */
     ExecRequest exec_req = EXEC_NONE;
     int action   = ACTION_NONE;
@@ -4195,6 +4198,9 @@ int main(void)
                     apply_perf_profile(perf_selected);
                 }
             }
+            if (ev.type == SDL_EVENT_JOYSTICK_HAT_MOTION)
+                gl_hat_dir = (ev.jhat.value & SDL_HAT_UP) ? -1 :
+                             (ev.jhat.value & SDL_HAT_DOWN) ? 1 : 0;
             /* Traduce el eje Y del stick izquierdo a eventos HAT sinteticos,
              * para que cualquier pantalla que ya escucha
              * SDL_EVENT_JOYSTICK_HAT_MOTION (D-pad) responda tambien al
@@ -5452,6 +5458,19 @@ int main(void)
                 dim_active = true;
                 set_cpu_governor("powersave");
             }
+        }
+        if (state == STATE_GAME_LIST && g_games_n > 0) {
+            int hd = gl_hat_dir ? gl_hat_dir : stick_axis_prev;
+            if (hd != gl_hold_dir) {
+                gl_hold_dir = hd;
+                gl_hold_next = now_ticks + 350;
+            } else if (hd != 0 && now_ticks >= gl_hold_next) {
+                int ns = games_selected + hd;
+                if (ns >= 0 && ns < g_games_n) games_selected = ns;
+                gl_hold_next = now_ticks + 60;
+            }
+        } else {
+            gl_hold_dir = 0;
         }
         if (state == STATE_LED_CONFIG && led_repeat_dir != 0 &&
             now_ticks >= led_repeat_next) {
