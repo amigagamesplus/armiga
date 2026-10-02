@@ -1672,9 +1672,26 @@ static void badge_ink(TTF_Font *f, const char *s, int *lead, int *ink_w,
 
 #define PLAYTIME_PATH "/media/amiga_data/playtime.log"
 
-/* Formato: "<segundos>\t<ruta_rom>\n" por linea. */
-static unsigned long playtime_get(const char *rom_path)
+/* Formato: "<segundos>\t<clave>\n". Clave = CRC32 de la ROM (8 hex) si es del
+ * catalogo; si no, la ruta. Las lineas antiguas con ruta tambien se aceptan y
+ * se fusionan en la clave nueva al acreditar tiempo. */
+static bool cat_crc32_file(const char *path, unsigned *out);
+static void cat_crc_init(void);
+
+static void playtime_key(const char *rom_path, unsigned crc, char *key, size_t sz)
 {
+    if (crc == 0 && strncmp(rom_path, "/media/amiga_data/roms/whdload/", 31) == 0) {
+        cat_crc_init();
+        if (!cat_crc32_file(rom_path, &crc)) crc = 0;
+    }
+    if (crc) snprintf(key, sz, "%08x", crc);
+    else snprintf(key, sz, "%s", rom_path);
+}
+
+static unsigned long playtime_get(const char *rom_path, unsigned crc)
+{
+    char key[400];
+    playtime_key(rom_path, crc, key, sizeof(key));
     FILE *f = fopen(PLAYTIME_PATH, "r");
     if (!f) return 0;
     char line[600];
@@ -1685,20 +1702,23 @@ static unsigned long playtime_get(const char *rom_path)
         *tab = '\0';
         char *p = tab + 1;
         p[strcspn(p, "\r\n")] = '\0';
-        if (strcmp(p, rom_path) == 0) { r = strtoul(line, NULL, 10); break; }
+        if (strcmp(p, key) == 0 || strcmp(p, rom_path) == 0)
+            r += strtoul(line, NULL, 10);
     }
     fclose(f);
     return r;
 }
 
-static void playtime_add(const char *rom_path, unsigned long secs)
+static void playtime_add(const char *rom_path, unsigned crc, unsigned long secs)
 {
     if (!rom_path[0] || secs == 0) return;
+    char key[400];
+    playtime_key(rom_path, crc, key, sizeof(key));
     const char *tmp = PLAYTIME_PATH ".tmp";
     FILE *out = fopen(tmp, "w");
     if (!out) return;
     FILE *in = fopen(PLAYTIME_PATH, "r");
-    bool found = false;
+    unsigned long total = secs;
     char line[600];
     if (in) {
         while (fgets(line, sizeof(line), in)) {
@@ -1707,16 +1727,14 @@ static void playtime_add(const char *rom_path, unsigned long secs)
             *tab = '\0';
             char *p = tab + 1;
             p[strcspn(p, "\r\n")] = '\0';
-            if (strcmp(p, rom_path) == 0) {
-                fprintf(out, "%lu\t%s\n", strtoul(line, NULL, 10) + secs, p);
-                found = true;
-            } else {
+            if (strcmp(p, key) == 0 || strcmp(p, rom_path) == 0)
+                total += strtoul(line, NULL, 10);
+            else
                 fprintf(out, "%s\t%s\n", line, p);
-            }
         }
         fclose(in);
     }
-    if (!found) fprintf(out, "%lu\t%s\n", secs, rom_path);
+    fprintf(out, "%lu\t%s\n", total, key);
     fflush(out);
     fsync(fileno(out));
     fclose(out);
@@ -3953,7 +3971,7 @@ int main(void)
     char last_game_time[48] = "";
     if (has_last_game) {
         extract_rom_source_label(last_game_rom_path, last_game_source, sizeof(last_game_source));
-        unsigned long pt = playtime_get(last_game_rom_path);
+        unsigned long pt = playtime_get(last_game_rom_path, 0);
         if (pt >= 3600)
             snprintf(last_game_time, sizeof(last_game_time), "%luH %02luM %02luS",
                      pt / 3600, (pt % 3600) / 60, pt % 60);
@@ -6314,7 +6332,7 @@ int main(void)
 
                 /* Tarjeta inferior: tiempo de juego */
                 if (games_pt_idx != games_selected) {
-                    unsigned long pt = playtime_get(g->path);
+                    unsigned long pt = playtime_get(g->path, g->crc);
                     snprintf(games_pt_str, sizeof(games_pt_str), "%02luH %02luM %02luS",
                              pt / 3600, (pt % 3600) / 60, pt % 60);
                     games_pt_idx = games_selected;
@@ -7916,7 +7934,7 @@ int main(void)
                             char pn[256], pr[400], pc[256];
                             if (get_last_played_game(pn, sizeof(pn), pr, sizeof(pr),
                                                      pc, sizeof(pc)))
-                                playtime_add(pr, (unsigned long)(pt1.tv_sec - pt0.tv_sec));
+                                playtime_add(pr, 0, (unsigned long)(pt1.tv_sec - pt0.tv_sec));
                         }
                     }
                     direct_launch_rom = false;
