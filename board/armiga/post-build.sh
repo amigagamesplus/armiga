@@ -50,7 +50,13 @@ fi
 depmod -a -b "$TARGET_DIR" "$KVER" || true
 # --- armiga-release ----------------------------------------------------------
 BUILD_DATE=$(TZ=Europe/Madrid date +"%d/%m/%Y %H:%M")
-ARMIGA_VERSION=$(git -C "${1:-$(pwd)}" describe --tags --abbrev=0 2>/dev/null || echo "1.0")
+# GITHUB_REF_NAME es la rama o tag EXACTO contra el que se lanzo el
+# workflow (ej. "v1.0.17-beta" en una beta, "v1.0.16" en un release por
+# tag) -- a diferencia de "git describe --tags --abbrev=0", que siempre
+# coge el ultimo tag ALCANZABLE y por tanto una beta sin tag propio
+# hereda el numero del release anterior. Fallback a describe/1.0 solo
+# para builds locales fuera de CI (sin GITHUB_REF_NAME).
+ARMIGA_VERSION="${GITHUB_REF_NAME:-$(git -C "${1:-$(pwd)}" describe --tags --abbrev=0 2>/dev/null || echo "1.0")}"
 BUILD_NUMBER="${GITHUB_RUN_NUMBER:-local}"
 ARMIGA_EXTERNAL_DIR="${BR2_EXTERNAL_ARMIGA_PATH:-${1:-$(pwd)}}"
 SDL3_VER=$(grep "^SDL3_VERSION" "$ARMIGA_EXTERNAL_DIR/package/sdl3/sdl3.mk" 2>/dev/null | cut -d= -f2 | tr -d ' ')
@@ -74,7 +80,7 @@ cat > "$TARGET_DIR/etc/armiga-release" << RELEASE_EOF
 ARMIGA_VERSION=$ARMIGA_VERSION
 BUILD_NUMBER=$BUILD_NUMBER
 KERNEL_VERSION=$KVER
-MESA_VERSION=26.2.3
+MESA_VERSION=26.2.4
 RETROARCH_VERSION=$RETROARCH_VER
 SDL3_VERSION=$SDL3_VER
 PUAE2021_CORE_VERSION=$PUAE_VER

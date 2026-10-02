@@ -87,7 +87,7 @@ static void safe_copy(char *dst, const char *src, size_t sz) {
 #define FONT_PATH    "/usr/share/armiga/fonts/JetBrainsMonoNL-ExtraBold.ttf"
 #define FONT_PATH_BOLD "/usr/share/armiga/fonts/InterUI-Bold.ttf"
 #define FONT_STATUSBAR 16
-#define FONT_BADGE 9
+#define FONT_BADGE 12
 #define FONT_MED     13
 #define FONT_SM      12
 #define FONT_XS      9
@@ -177,6 +177,7 @@ typedef enum {
     STATE_BRIGHTNESS_CONFIG,
     STATE_PERF_CONFIG,
     STATE_THEME_CONFIG,
+    STATE_GAME_LIST,
     STATE_BLUETOOTH_CONFIG,
     STATE_AREXX_LIST,
     STATE_AREXX_RUN,
@@ -200,6 +201,7 @@ typedef enum {
 #define ACTION_SETTINGS 5
 #define ACTION_SHELL   6
 #define ACTION_REBOOT  7
+#define ACTION_GAMES   8
 
 #define KB_ROWS 4
 #define KB_MAX_COLS 10
@@ -251,7 +253,8 @@ static const char *MENU_ICONS[] = {
 };
 
 static const char *MENU_ITEMS[][2] = {
-    {"Catálogo Amiga",              "Amiga Catalog"},
+    {"Catálogo Amiga", "Amiga Catalog"},
+    {"RetroArch", "RetroArch"},
     {"Actualización",    "System Update"},
     {"Diagnóstico del sistema",     "System Diagnostics"},
     {"ARexx Scripts",               "ARexx Scripts"},
@@ -259,8 +262,10 @@ static const char *MENU_ITEMS[][2] = {
     {"Apagar dispositivo",          "Power Off"},
 };
 static const char *MENU_DESC[][2] = {
-    {"Explora y lanza juegos\n" "Amiga desde tu biblioteca.",
-     "Browse and launch Amiga\n" "games from your library."},
+    {"Tu biblioteca con nombres,\n" "datos y caratulas.",
+     "Your library with names,\n" "details and cover art."},
+    {"Abre RetroArch directamente\n" "con su menu completo.",
+     "Open RetroArch directly\n" "with its full menu."},
     {"Descarga e instala la\n" "ultima version de armiga.",
      "Download and install the\n" "latest version of armiga."},
     {"Revisa el estado del\n" "hardware y el sistema.",
@@ -272,7 +277,14 @@ static const char *MENU_DESC[][2] = {
     {"Apaga o reinicia el\n" "dispositivo de forma segura.",
      "Shut down or restart the\n" "device safely."},
 };
-#define MENU_COUNT 6
+#define MENU_COUNT 7
+/* Accion e icono (indice en menu_icon_tex) por entrada del menu principal.
+ * Desacopla el orden visual del menu de los numeros de accion/icono. */
+static const int MENU_ACTIONS[MENU_COUNT] = {
+    ACTION_GAMES, ACTION_ROMS, ACTION_UPDATE, ACTION_INFO,
+    ACTION_AREXX, ACTION_SETTINGS, ACTION_SHELL
+};
+static const int MENU_ICON_IDX[MENU_COUNT] = { 7, 0, 1, 2, 3, 4, 5 };
 
 static const char *SETTINGS_MENU_ITEMS[][2] = {
     {"Red inalámbrica",             "Wireless Network"},
@@ -643,6 +655,13 @@ static int semver_cmp(const char *a, const char *b)
     if (ma != mb) return ma > mb ? 1 : -1;
     if (mi_a != mi_b) return mi_a > mi_b ? 1 : -1;
     if (pa != pb) return pa > pb ? 1 : -1;
+    /* Misma X.Y.Z: la version sin sufijo (release final) es MAYOR que la
+     * misma con sufijo de pre-release ("-beta", "-rc1"...). */
+    const char *sa = strchr(a, '-');
+    const char *sb = strchr(b, '-');
+    if (!sa && sb) return 1;
+    if (sa && !sb) return -1;
+    if (sa && sb) { int c = strcmp(sa, sb); return c > 0 ? 1 : (c < 0 ? -1 : 0); }
     return 0;
 }
 
@@ -1609,6 +1628,375 @@ static bool json_line_extract(const char *line, const char *key, char *out, size
  * empiricamente: jugar un titulo distinto lo mueve al primer "items[0]").
  * Devuelve true si encontro una entrada valida y el fichero de ROM sigue
  * existiendo en disco (evita apuntar a un juego borrado/SD cambiada). */
+/* Medidas de TINTA (no de avance) para centrar texto en un badge:
+ * lead = bearing izq. del 1er glifo, ink_w = ancho visible real,
+ * top_off = distancia del top de linea al top de una mayuscula, cap_h = altura. */
+static void badge_ink(TTF_Font *f, const char *s, int *lead, int *ink_w,
+                      int *top_off, int *cap_h)
+{
+    int w = 0, h = 0, d = 0, minx = 0, maxx = 0, adv = 0, miny = 0, maxy = 0;
+    TTF_GetStringSize(f, s, 0, &w, &h);
+    *lead = 0;
+    *ink_w = w;
+    size_t n = strlen(s);
+    if (n > 0) {
+        TTF_GetGlyphMetrics(f, (Uint32)(unsigned char)s[0], &minx, &d, &d, &d, &d);
+        TTF_GetGlyphMetrics(f, (Uint32)(unsigned char)s[n - 1], &d, &maxx, &d, &d, &adv);
+        *lead = minx;
+        *ink_w = w - minx - (adv - maxx);
+        if (*ink_w < 1) *ink_w = w;
+    }
+    /* Medida exacta: renderizar y escanear alpha (solo horizontal) */
+    {
+        SDL_Color white = {255, 255, 255, 255};
+        SDL_Surface *sf = TTF_RenderText_Blended(f, s, 0, white);
+        if (sf) {
+            int x0 = sf->w, x1 = -1;
+            for (int yy = 0; yy < sf->h; yy++) {
+                for (int xx = 0; xx < sf->w; xx++) {
+                    Uint8 r8, g8, b8, a8;
+                    if (SDL_ReadSurfacePixel(sf, xx, yy, &r8, &g8, &b8, &a8) && a8 >= 96) {
+                        if (xx < x0) x0 = xx;
+                        if (xx > x1) x1 = xx;
+                    }
+                }
+            }
+            if (x1 >= x0) { *lead = x0; *ink_w = x1 - x0 + 1; }
+            SDL_DestroySurface(sf);
+        }
+    }
+    TTF_GetGlyphMetrics(f, 'H', &d, &d, &miny, &maxy, &d);
+    *cap_h = maxy - miny;
+    *top_off = TTF_GetFontAscent(f) - maxy;
+}
+
+#define PLAYTIME_PATH "/media/amiga_data/playtime.log"
+
+/* Formato: "<segundos>\t<ruta_rom>\n" por linea. */
+static unsigned long playtime_get(const char *rom_path)
+{
+    FILE *f = fopen(PLAYTIME_PATH, "r");
+    if (!f) return 0;
+    char line[600];
+    unsigned long r = 0;
+    while (fgets(line, sizeof(line), f)) {
+        char *tab = strchr(line, '\t');
+        if (!tab) continue;
+        *tab = '\0';
+        char *p = tab + 1;
+        p[strcspn(p, "\r\n")] = '\0';
+        if (strcmp(p, rom_path) == 0) { r = strtoul(line, NULL, 10); break; }
+    }
+    fclose(f);
+    return r;
+}
+
+static void playtime_add(const char *rom_path, unsigned long secs)
+{
+    if (!rom_path[0] || secs == 0) return;
+    const char *tmp = PLAYTIME_PATH ".tmp";
+    FILE *out = fopen(tmp, "w");
+    if (!out) return;
+    FILE *in = fopen(PLAYTIME_PATH, "r");
+    bool found = false;
+    char line[600];
+    if (in) {
+        while (fgets(line, sizeof(line), in)) {
+            char *tab = strchr(line, '\t');
+            if (!tab) continue;
+            *tab = '\0';
+            char *p = tab + 1;
+            p[strcspn(p, "\r\n")] = '\0';
+            if (strcmp(p, rom_path) == 0) {
+                fprintf(out, "%lu\t%s\n", strtoul(line, NULL, 10) + secs, p);
+                found = true;
+            } else {
+                fprintf(out, "%s\t%s\n", line, p);
+            }
+        }
+        fclose(in);
+    }
+    if (!found) fprintf(out, "%lu\t%s\n", secs, rom_path);
+    fflush(out);
+    fsync(fileno(out));
+    fclose(out);
+    rename(tmp, PLAYTIME_PATH);
+}
+
+/* ===== Catalogo nativo (fase 1): identidad por CRC32 ===== */
+#define CATALOG_WHD_DIR "/media/amiga_data/roms/whdload"
+#define CATALOG_CACHE   "/media/amiga_data/catalog_cache.tsv"
+#define GAMES_IDX_PATH  "/usr/share/armiga/games.idx"
+#define GF_AGA 1
+#define GF_CD32 2
+#define GF_NTSC 4
+#define GF_CDTV 8
+#define GF_LIBRETRO 16
+#define GF_BETA 32
+
+typedef struct {
+    char title[112];
+    char path[300];
+    char ver[9];
+    char lang[3];
+    unsigned short flags;
+    bool identified;
+    unsigned crc;
+    unsigned box_off, snap_off; /* offsets en la tabla de strings, 0xFFFFFFFF = sin imagen */
+    long size;
+} CatGame;
+
+typedef struct { long mtime; long size; unsigned crc; char name[192]; } CatCE;
+
+static CatGame *g_games = NULL;
+static int g_games_n = 0;
+static unsigned char *g_idx = NULL;
+static size_t g_idx_size = 0;
+static unsigned g_idx_count = 0, g_idx_rec_off = 0, g_idx_str_off = 0;
+static unsigned cat_crc_table[256];
+static pid_t s_catalog_pid = -1;
+
+static void cat_crc_init(void)
+{
+    for (unsigned i = 0; i < 256; i++) {
+        unsigned c = i;
+        for (int k = 0; k < 8; k++)
+            c = (c & 1) ? (0xEDB88320u ^ (c >> 1)) : (c >> 1);
+        cat_crc_table[i] = c;
+    }
+}
+
+static bool cat_crc32_file(const char *path, unsigned *out)
+{
+    FILE *f = fopen(path, "rb");
+    if (!f) return false;
+    unsigned char buf[65536];
+    unsigned c = 0xFFFFFFFFu;
+    size_t n;
+    while ((n = fread(buf, 1, sizeof(buf), f)) > 0)
+        for (size_t i = 0; i < n; i++)
+            c = cat_crc_table[(c ^ buf[i]) & 0xFF] ^ (c >> 8);
+    bool ok = !ferror(f);
+    fclose(f);
+    *out = c ^ 0xFFFFFFFFu;
+    return ok;
+}
+
+static bool games_idx_load(void)
+{
+    if (g_idx) return true;
+    FILE *f = fopen(GAMES_IDX_PATH, "rb");
+    if (!f) return false;
+    fseek(f, 0, SEEK_END);
+    long sz = ftell(f);
+    fseek(f, 0, SEEK_SET);
+    if (sz < 20) { fclose(f); return false; }
+    unsigned char *b = malloc((size_t)sz);
+    if (!b || fread(b, 1, (size_t)sz, f) != (size_t)sz) { free(b); fclose(f); return false; }
+    fclose(f);
+    unsigned ver, cnt, ro, so;
+    memcpy(&ver, b + 4, 4); memcpy(&cnt, b + 8, 4);
+    memcpy(&ro, b + 12, 4); memcpy(&so, b + 16, 4);
+    if (memcmp(b, "AGDB", 4) != 0 || ver != 2 ||
+        (size_t)ro + 32u * (size_t)cnt > (size_t)sz || (size_t)so > (size_t)sz) {
+        free(b);
+        return false;
+    }
+    g_idx = b; g_idx_size = (size_t)sz;
+    g_idx_count = cnt; g_idx_rec_off = ro; g_idx_str_off = so;
+    return true;
+}
+
+static const unsigned char *games_idx_find(unsigned crc)
+{
+    unsigned lo = 0, hi = g_idx_count;
+    while (lo < hi) {
+        unsigned mid = (lo + hi) / 2, k;
+        memcpy(&k, g_idx + g_idx_rec_off + 32u * mid, 4);
+        if (k == crc) return g_idx + g_idx_rec_off + 32u * mid;
+        if (k < crc) lo = mid + 1; else hi = mid;
+    }
+    return NULL;
+}
+
+static bool cat_name_is_pkg(const char *n)
+{
+    size_t l = strlen(n);
+    if (l < 5) return false;
+    const char *e = n + l - 4;
+    char a = (char)tolower((unsigned char)e[1]);
+    char b = (char)tolower((unsigned char)e[2]);
+    char c = (char)tolower((unsigned char)e[3]);
+    return e[0] == '.' && a == 'l' && ((b == 'h' && c == 'a') || (b == 'z' && c == 'x'));
+}
+
+/* Hijo: recorre whdload/, reutiliza CRC de la cache si nombre+tamano+mtime
+ * coinciden, calcula solo los nuevos y reescribe la cache de forma atomica. */
+static void catalog_scan_child(void)
+{
+    cat_crc_init();
+    CatCE *old = NULL;
+    int old_n = 0, old_cap = 0;
+    FILE *cf = fopen(CATALOG_CACHE, "r");
+    if (cf) {
+        char line[400];
+        while (fgets(line, sizeof(line), cf)) {
+            line[strcspn(line, "\r\n")] = '\0';
+            char *t1 = strchr(line, '\t'); if (!t1) continue; *t1++ = '\0';
+            char *t2 = strchr(t1, '\t');   if (!t2) continue; *t2++ = '\0';
+            char *t3 = strchr(t2, '\t');   if (!t3) continue; *t3++ = '\0';
+            if (old_n == old_cap) {
+                int nc = old_cap ? old_cap * 2 : 128;
+                CatCE *tmp = realloc(old, (size_t)nc * sizeof(CatCE));
+                if (!tmp) break;
+                old = tmp; old_cap = nc;
+            }
+            old[old_n].mtime = atol(line);
+            old[old_n].size = atol(t1);
+            old[old_n].crc = (unsigned)strtoul(t2, NULL, 16);
+            safe_copy(old[old_n].name, t3, sizeof(old[old_n].name));
+            old_n++;
+        }
+        fclose(cf);
+    }
+    DIR *d = opendir(CATALOG_WHD_DIR);
+    if (!d) { free(old); return; }
+    const char *tmpname = CATALOG_CACHE ".tmp";
+    FILE *out = fopen(tmpname, "w");
+    if (!out) { closedir(d); free(old); return; }
+    struct dirent *de;
+    while ((de = readdir(d)) != NULL) {
+        if (!cat_name_is_pkg(de->d_name)) continue;
+        char full[512];
+        snprintf(full, sizeof(full), "%s/%s", CATALOG_WHD_DIR, de->d_name);
+        struct stat st;
+        if (stat(full, &st) != 0 || !S_ISREG(st.st_mode)) continue;
+        unsigned crc = 0;
+        bool have = false;
+        for (int i = 0; i < old_n; i++)
+            if (old[i].mtime == (long)st.st_mtime && old[i].size == (long)st.st_size &&
+                strcmp(old[i].name, de->d_name) == 0) { crc = old[i].crc; have = true; break; }
+        if (!have && !cat_crc32_file(full, &crc)) continue;
+        fprintf(out, "%ld\t%ld\t%08x\t%s\n", (long)st.st_mtime, (long)st.st_size, crc, de->d_name);
+    }
+    closedir(d);
+    fflush(out);
+    fsync(fileno(out));
+    fclose(out);
+    rename(tmpname, CATALOG_CACHE);
+    free(old);
+}
+
+static void catalog_scan_start(void)
+{
+    if (s_catalog_pid > 0) return;
+    pid_t p = fork();
+    if (p == 0) {
+        int rn = nice(10);
+        (void)rn;
+        catalog_scan_child();
+        _exit(0);
+    }
+    s_catalog_pid = p;
+}
+
+/* true una sola vez, cuando el hijo ha terminado (y queda reapeado) */
+static bool catalog_scan_poll(void)
+{
+    if (s_catalog_pid <= 0) return false;
+    int st;
+    pid_t r = waitpid(s_catalog_pid, &st, WNOHANG);
+    if (r == 0) return false;
+    s_catalog_pid = -1;
+    return true;
+}
+
+static int cat_game_cmp(const void *a, const void *b)
+{
+    const CatGame *x = a, *y = b;
+    const unsigned char *p = (const unsigned char *)x->title;
+    const unsigned char *q = (const unsigned char *)y->title;
+    while (*p && *q) {
+        int d = tolower(*p) - tolower(*q);
+        if (d) return d;
+        p++; q++;
+    }
+    int d = tolower(*p) - tolower(*q);
+    if (d) return d;
+    return strcmp(x->path, y->path);
+}
+
+static void catalog_load(void)
+{
+    free(g_games);
+    g_games = NULL;
+    g_games_n = 0;
+    (void)games_idx_load();
+    FILE *f = fopen(CATALOG_CACHE, "r");
+    if (!f) return;
+    int cap = 128;
+    g_games = malloc((size_t)cap * sizeof(CatGame));
+    if (!g_games) { fclose(f); return; }
+    char line[400];
+    while (fgets(line, sizeof(line), f)) {
+        line[strcspn(line, "\r\n")] = '\0';
+        char *t1 = strchr(line, '\t'); if (!t1) continue; *t1++ = '\0';
+        char *t2 = strchr(t1, '\t');   if (!t2) continue; *t2++ = '\0';
+        char *t3 = strchr(t2, '\t');   if (!t3) continue; *t3++ = '\0';
+        unsigned crc = (unsigned)strtoul(t2, NULL, 16);
+        if (g_games_n == cap) {
+            CatGame *tmp = realloc(g_games, (size_t)cap * 2 * sizeof(CatGame));
+            if (!tmp) break;
+            g_games = tmp;
+            cap *= 2;
+        }
+        CatGame *g = &g_games[g_games_n];
+        memset(g, 0, sizeof(*g));
+        g->crc = crc;
+        g->size = atol(t1);
+        g->box_off = g->snap_off = 0xFFFFFFFFu;
+        snprintf(g->path, sizeof(g->path), "%s/%s", CATALOG_WHD_DIR, t3);
+        const unsigned char *rec = g_idx ? games_idx_find(crc) : NULL;
+        if (rec) {
+            unsigned toff;
+            unsigned short fl;
+            memcpy(&toff, rec + 4, 4);
+            memcpy(&fl, rec + 12, 2);
+            if ((size_t)g_idx_str_off + (size_t)toff < g_idx_size) {
+                safe_copy(g->title, (const char *)g_idx + g_idx_str_off + toff, sizeof(g->title));
+                g->flags = fl;
+                g->lang[0] = (char)rec[14];
+                g->lang[1] = (char)rec[15];
+                g->lang[2] = '\0';
+                memcpy(g->ver, rec + 16, 8);
+                g->ver[8] = '\0';
+                memcpy(&g->box_off, rec + 24, 4);
+                memcpy(&g->snap_off, rec + 28, 4);
+                g->identified = true;
+            }
+        }
+        if (!g->identified) {
+            safe_copy(g->title, t3, sizeof(g->title));
+            char *dot = strrchr(g->title, '.');
+            if (dot) *dot = '\0';
+        }
+        g_games_n++;
+    }
+    fclose(f);
+    if (g_games_n > 1) qsort(g_games, (size_t)g_games_n, sizeof(CatGame), cat_game_cmp);
+}
+
+static void playtime_fmt(unsigned long pt, char *out, size_t sz)
+{
+    out[0] = '\0';
+    if (pt >= 3600)
+        snprintf(out, sz, "%luH %02luM %02luS", pt / 3600, (pt % 3600) / 60, pt % 60);
+    else if (pt >= 60)
+        snprintf(out, sz, "%luM %02luS", pt / 60, pt % 60);
+    else if (pt > 0)
+        snprintf(out, sz, "%luS", pt);
+}
+
 static bool get_last_played_game(char *clean_name_out, size_t name_sz,
                                   char *rom_path_out, size_t path_sz,
                                   char *core_path_out, size_t core_sz)
@@ -2973,6 +3361,303 @@ static void save_click_sound_enabled(int enabled)
     g_cfg.click_sound_enabled = enabled ? 1 : 0;
 }
 
+/* ===== Ayudas de la pantalla de catalogo ===== */
+/* Titulo sin etiquetas: corta en el primer " (" ("Chaos Engine, The (Europe)" -> "Chaos Engine, The") */
+static void cat_short_title(const char *t, char *out, size_t sz)
+{
+    const char *p = strstr(t, " (");
+    size_t n = p ? (size_t)(p - t) : strlen(t);
+    if (n == 0) n = strlen(t);
+    if (n >= sz) n = sz - 1;
+    memcpy(out, t, n);
+    out[n] = '\0';
+}
+
+/* Idiomas de un grupo tipo "(En,Fr,De)" del nombre libretro -> "EN/FR/DE" (max. 3, "+" si hay mas) */
+static void cat_langs_from_title(const char *title, char *out, size_t sz)
+{
+    out[0] = '\0';
+    const char *p = title;
+    while ((p = strchr(p, '(')) != NULL) {
+        const char *q = strchr(p, ')');
+        if (!q) break;
+        int n = 0;
+        bool ok = true;
+        char codes[3][3];
+        const char *t = p + 1;
+        while (t < q) {
+            if (q - t < 2 || !isupper((unsigned char)t[0]) || !islower((unsigned char)t[1])) { ok = false; break; }
+            if (t + 2 < q && t[2] != ',') { ok = false; break; }
+            if (n < 3) {
+                codes[n][0] = (char)toupper((unsigned char)t[0]);
+                codes[n][1] = (char)toupper((unsigned char)t[1]);
+                codes[n][2] = '\0';
+            }
+            n++;
+            t += 2;
+            if (t < q) t++;
+        }
+        if (ok && n > 0) {
+            int show = n < 3 ? n : 3;
+            size_t o = 0;
+            for (int i = 0; i < show && o + 4 < sz; i++) {
+                if (i) out[o++] = '/';
+                out[o++] = codes[i][0];
+                out[o++] = codes[i][1];
+            }
+            if (n > show && o + 2 < sz) out[o++] = '+';
+            out[o] = '\0';
+            return;
+        }
+        p = q + 1;
+    }
+}
+
+/* Mezcla lineal de dos colores (t = 0 -> a, t = 1 -> b) */
+static SDL_Color cat_mix(SDL_Color a, SDL_Color b, float t)
+{
+    SDL_Color c;
+    c.r = (Uint8)((float)a.r + ((float)b.r - (float)a.r) * t);
+    c.g = (Uint8)((float)a.g + ((float)b.g - (float)a.g) * t);
+    c.b = (Uint8)((float)a.b + ((float)b.b - (float)a.b) * t);
+    c.a = 255;
+    return c;
+}
+
+/* Volver al catalogo tras jugar: se activa al lanzar desde la lista y se consume
+ * al reiniciar el bucle principal (las variables locales se reinician cada vuelta). */
+static bool s_return_to_catalog = false;
+static char s_return_rom[300] = "";
+
+/* ===== Caratulas bajo demanda (fase 2) ===== */
+#define COVER_DIR   "/media/amiga_data/covers"
+#define COVER_TMP   "/tmp/armiga_cover.dl"
+#define COVER_MAX_W 158
+#define COVER_MAX_H 191
+#define COVER_URL   "https://raw.githubusercontent.com/libretro-thumbnails/Commodore_-_Amiga/master/"
+#define COVER_NOIMG 0xFFFFFFFFu
+enum { COVER_IDLE = 0, COVER_LOADING, COVER_READY, COVER_NONE, COVER_FAILED };
+
+static SDL_Texture *s_cover_tex = NULL;
+static int s_cover_state = COVER_IDLE;
+static int s_cover_sel = -1;
+static Uint64 s_cover_sel_at = 0;
+static char s_cover_png[96], s_cover_none[96];
+static pid_t s_dl_pid = -1;
+static unsigned s_dl_crc = 0, s_dl_snap_off = COVER_NOIMG;
+static int s_dl_stage = 0;
+
+static const char *games_idx_str(unsigned off)
+{
+    if (!g_idx || off == COVER_NOIMG || (size_t)g_idx_str_off + (size_t)off >= g_idx_size)
+        return NULL;
+    return (const char *)g_idx + g_idx_str_off + off;
+}
+
+static void cover_url_encode(const char *s, char *out, size_t sz)
+{
+    static const char hex[] = "0123456789ABCDEF";
+    size_t o = 0;
+    for (; *s && o + 4 < sz; s++) {
+        unsigned char c = (unsigned char)*s;
+        if ((c >= '0' && c <= '9') || (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') ||
+            c == '-' || c == '_' || c == '.' || c == '~') {
+            out[o++] = (char)c;
+        } else {
+            out[o++] = '%';
+            out[o++] = hex[c >> 4];
+            out[o++] = hex[c & 15];
+        }
+    }
+    out[o] = '\0';
+}
+
+/* Lanza curl en segundo plano hacia COVER_TMP. stage 0 = boxart, 1 = captura. */
+static bool cover_dl_start(unsigned crc, unsigned box_off, unsigned snap_off, int stage)
+{
+    const char *name = games_idx_str(stage == 0 ? box_off : snap_off);
+    if (!name) return false;
+    char enc[512], url[700];
+    cover_url_encode(name, enc, sizeof(enc));
+    snprintf(url, sizeof(url), "%s%s/%s.png", COVER_URL,
+             stage == 0 ? "Named_Boxarts" : "Named_Snaps", enc);
+    mkdir(COVER_DIR, 0755);
+    unlink(COVER_TMP);
+    unlink(COVER_TMP ".code");
+    pid_t p = fork();
+    if (p < 0) return false;
+    if (p == 0) {
+        int fd = open(COVER_TMP ".code", O_WRONLY | O_CREAT | O_TRUNC, 0644);
+        if (fd >= 0) { dup2(fd, STDOUT_FILENO); close(fd); }
+        fd = open("/dev/null", O_WRONLY);
+        if (fd >= 0) { dup2(fd, STDERR_FILENO); close(fd); }
+        execlp("curl", "curl", "-s", "-L", "--connect-timeout", "5",
+               "--max-time", "20", "-w", "%{http_code}", "-o", COVER_TMP, url, (char *)NULL);
+        _exit(127);
+    }
+    s_dl_pid = p;
+    s_dl_crc = crc;
+    s_dl_snap_off = snap_off;
+    s_dl_stage = stage;
+    return true;
+}
+
+static void cover_write_none(unsigned crc)
+{
+    char p[96];
+    snprintf(p, sizeof(p), COVER_DIR "/%08x.none", crc);
+    FILE *f = fopen(p, "w");
+    if (f) fclose(f);
+}
+
+/* Reduce la imagen descargada a COVER_MAX_W x COVER_MAX_H (sin ampliar) y la
+ * guarda en la cache. Se ejecuta en el hilo principal, una vez por juego. */
+static bool cover_process_download(unsigned crc)
+{
+    bool ok = false;
+    SDL_Surface *src = IMG_Load(COVER_TMP);
+    if (src) {
+        SDL_Surface *rgba = SDL_ConvertSurface(src, SDL_PIXELFORMAT_RGBA32);
+        SDL_DestroySurface(src);
+        if (rgba) {
+            float sx = (float)COVER_MAX_W / (float)rgba->w;
+            float sy = (float)COVER_MAX_H / (float)rgba->h;
+            float sc = sx < sy ? sx : sy;
+            SDL_Surface *out = rgba;
+            if (sc < 1.0f) {
+                int w = (int)((float)rgba->w * sc + 0.5f);
+                int h = (int)((float)rgba->h * sc + 0.5f);
+                if (w < 1) w = 1;
+                if (h < 1) h = 1;
+                SDL_Surface *scaled = SDL_ScaleSurface(rgba, w, h, SDL_SCALEMODE_LINEAR);
+                if (scaled) out = scaled;
+            }
+            char fin[96], tmp[110];
+            snprintf(fin, sizeof(fin), COVER_DIR "/%08x.png", crc);
+            snprintf(tmp, sizeof(tmp), "%s.tmp", fin);
+            if (IMG_SavePNG(out, tmp)) ok = (rename(tmp, fin) == 0);
+            else unlink(tmp);
+            if (out != rgba) SDL_DestroySurface(out);
+            SDL_DestroySurface(rgba);
+        }
+    }
+    unlink(COVER_TMP);
+    return ok;
+}
+
+static void cover_reset(void) { s_cover_sel = -1; }
+
+/* Libera la textura (hay que llamarla antes de destruir el renderer). */
+static void cover_release(void)
+{
+    if (s_cover_tex) { SDL_DestroyTexture(s_cover_tex); s_cover_tex = NULL; }
+    s_cover_sel = -1;
+    s_cover_state = COVER_IDLE;
+}
+
+/* Maquina de estados de la caratula; llamar una vez por frame en la lista. */
+static void cover_tick(SDL_Renderer *ren, const CatGame *g, int sel)
+{
+    Uint64 now = SDL_GetTicks();
+    if (sel != s_cover_sel) {
+        s_cover_sel = sel;
+        s_cover_sel_at = now;
+        if (s_cover_tex) { SDL_DestroyTexture(s_cover_tex); s_cover_tex = NULL; }
+        s_cover_state = COVER_IDLE;
+        if (g) {
+            snprintf(s_cover_png, sizeof(s_cover_png), COVER_DIR "/%08x.png", g->crc);
+            snprintf(s_cover_none, sizeof(s_cover_none), COVER_DIR "/%08x.none", g->crc);
+        }
+    }
+    if (s_dl_pid > 0) {
+        int st = 0;
+        pid_t r = waitpid(s_dl_pid, &st, WNOHANG);
+        if (r != 0) {
+            int http = 0;
+            FILE *cf = fopen(COVER_TMP ".code", "r");
+            if (cf) {
+                char hb[16];
+                if (fgets(hb, sizeof(hb), cf)) http = atoi(hb);
+                fclose(cf);
+            }
+            unlink(COVER_TMP ".code");
+            unsigned done_crc = s_dl_crc;
+            bool mine = g && g->crc == done_crc;
+            s_dl_pid = -1;
+            struct stat sb;
+            bool have = (http == 200 && stat(COVER_TMP, &sb) == 0 && sb.st_size > 0);
+            if (!have) unlink(COVER_TMP);
+            int outcome; /* 0 = cargar de cache, 1 = sin imagen, 2 = fallo de red, 3 = sigue */
+            if (have) {
+                if (!cover_process_download(done_crc)) { cover_write_none(done_crc); outcome = 1; }
+                else outcome = 0;
+            } else if (http == 404) { /* definitivo: probar la captura si veniamos de la boxart */
+                if (s_dl_stage == 0 && games_idx_str(s_dl_snap_off) &&
+                    cover_dl_start(done_crc, COVER_NOIMG, s_dl_snap_off, 1)) {
+                    outcome = 3;
+                } else {
+                    cover_write_none(done_crc);
+                    outcome = 1;
+                }
+            } else {
+                outcome = 2; /* red caida / timeout: sin marcador, se reintenta al reseleccionar */
+            }
+            if (mine) {
+                if (outcome == 0) s_cover_state = COVER_IDLE;
+                else if (outcome == 1) s_cover_state = COVER_NONE;
+                else if (outcome == 2) s_cover_state = COVER_FAILED;
+            }
+        }
+    }
+    if (s_cover_state == COVER_IDLE) {
+        if (!g || (g->box_off == COVER_NOIMG && g->snap_off == COVER_NOIMG)) {
+            s_cover_state = COVER_NONE;
+        } else if (access(s_cover_png, F_OK) == 0) {
+            s_cover_tex = IMG_LoadTexture(ren, s_cover_png);
+            if (s_cover_tex) {
+                SDL_SetTextureScaleMode(s_cover_tex, SDL_SCALEMODE_LINEAR);
+                s_cover_state = COVER_READY;
+            } else {
+                unlink(s_cover_png);
+                s_cover_state = COVER_FAILED;
+            }
+        } else if (access(s_cover_none, F_OK) == 0) {
+            s_cover_state = COVER_NONE;
+        } else if (s_dl_pid <= 0 && now - s_cover_sel_at >= 250) {
+            int stage = (g->box_off != COVER_NOIMG) ? 0 : 1;
+            s_cover_state = cover_dl_start(g->crc, g->box_off, g->snap_off, stage)
+                            ? COVER_LOADING : COVER_FAILED;
+        }
+    }
+}
+
+/* Badge de contorno con texto centrado por tinta real (ver badge_ink).
+ * Metricas cacheadas por (fuente,texto) para no renderizar texto cada frame.
+ * Devuelve el ancho dibujado. */
+typedef struct { TTF_Font *f; char text[24]; int lead, inkw, top, cap; } BadgeMetric;
+static BadgeMetric s_bm[24];
+static int s_bm_n = 0;
+static float draw_badge(SDL_Renderer *ren, TTF_Font *f, const char *text,
+                        float x, float y, SDL_Color col, SDL_Color bg)
+{
+    BadgeMetric *m = NULL;
+    for (int i = 0; i < s_bm_n; i++)
+        if (s_bm[i].f == f && strcmp(s_bm[i].text, text) == 0) { m = &s_bm[i]; break; }
+    BadgeMetric tmp;
+    if (!m) {
+        m = (s_bm_n < 24) ? &s_bm[s_bm_n++] : &tmp;
+        m->f = f;
+        safe_copy(m->text, text, sizeof(m->text));
+        badge_ink(f, text, &m->lead, &m->inkw, &m->top, &m->cap);
+    }
+    const float pad = 4.0f;
+    float w = (float)m->inkw + pad * 2.0f;
+    float h = (float)m->cap + pad * 2.0f;
+    draw_rounded_rect_outline(ren, x, y, w, h, 2.0f, 1.0f, col, bg);
+    draw_text(ren, f, text, col, x + pad - (float)m->lead, y + pad - (float)m->top);
+    return w;
+}
+
 int main(void)
 {
     for (;;) {
@@ -3011,6 +3696,7 @@ int main(void)
     TTF_Font *f_xsm   = TTF_OpenFont(FONT_PATH, FONT_XSM);
     TTF_Font *f_status_bold = TTF_OpenFont(FONT_PATH_BOLD, FONT_STATUSBAR);
     TTF_Font *f_badge = TTF_OpenFont(FONT_PATH_BOLD, FONT_BADGE);
+    TTF_Font *f_title = TTF_OpenFont(FONT_PATH_BOLD, 20);
     if (!f_med || !f_sm || !f_lg || !f_xs || !f_xsm || !f_status_bold) {
         fprintf(stderr, "TTF_OpenFont: %s\n", SDL_GetError());
         SDL_DestroyRenderer(ren); SDL_DestroyWindow(win);
@@ -3027,7 +3713,7 @@ int main(void)
     }
     /* Iconos monocromos del menu principal (PNG blanco+alfa, recoloreados
      * en tiempo real via SDL_SetTextureColorMod segun seleccion). */
-    #define MENU_ICON_COUNT 7
+    #define MENU_ICON_COUNT 8
     static const char *MENU_ICON_PATHS[MENU_ICON_COUNT] = {
         "/usr/share/armiga/icons/device-gamepad-2.png",
         "/usr/share/armiga/icons/cloud-download.png",
@@ -3036,6 +3722,7 @@ int main(void)
         "/usr/share/armiga/icons/settings.png",
         "/usr/share/armiga/icons/power.png",
         "/usr/share/armiga/icons/reboot.png",
+        "/usr/share/armiga/icons/device-floppy.png",
     };
     SDL_Texture *menu_icon_tex[MENU_ICON_COUNT] = {0};
     for (int mi = 0; mi < MENU_ICON_COUNT; mi++) {
@@ -3177,9 +3864,23 @@ int main(void)
     bool has_last_game = get_last_played_game(last_game_name, sizeof(last_game_name),
                                                last_game_rom_path, sizeof(last_game_rom_path),
                                                last_game_core_path, sizeof(last_game_core_path));
-    if (has_last_game)
+    char last_game_time[48] = "";
+    if (has_last_game) {
         extract_rom_source_label(last_game_rom_path, last_game_source, sizeof(last_game_source));
+        unsigned long pt = playtime_get(last_game_rom_path);
+        if (pt >= 3600)
+            snprintf(last_game_time, sizeof(last_game_time), "%luH %02luM %02luS",
+                     pt / 3600, (pt % 3600) / 60, pt % 60);
+        else if (pt >= 60)
+            snprintf(last_game_time, sizeof(last_game_time), "%luM %02luS", pt / 60, pt % 60);
+        else if (pt > 0)
+            snprintf(last_game_time, sizeof(last_game_time), "%luS", pt);
+    }
     int total_roms = count_roms_recursive("/media/amiga_data/roms");
+    int games_selected = 0;
+    bool games_scan_running = false;
+    int games_pt_idx = -1;
+    char games_pt_str[24] = "";
     char wifi_ssid[64] = "";
     char wifi_password[64] = "";
     int wifi_field_selected = 0;
@@ -3255,6 +3956,21 @@ int main(void)
     int stick_axis_prev = 0; /* debounce del eje Y del stick izq. traducido a HAT en pantallas fuera de STATE_MENU */
     ExecRequest exec_req = EXEC_NONE;
     int action   = ACTION_NONE;
+    if (s_return_to_catalog) {
+        s_return_to_catalog = false;
+        state = STATE_GAME_LIST;
+        prev_state = state;
+        games_selected = 0;
+        games_pt_idx = -1;
+        games_pt_str[0] = '\0';
+        cover_reset();
+        (void)catalog_scan_poll();
+        catalog_load();
+        for (int gi = 0; gi < g_games_n; gi++)
+            if (strcmp(g_games[gi].path, s_return_rom) == 0) { games_selected = gi; break; }
+        catalog_scan_start();
+        games_scan_running = (s_catalog_pid > 0);
+    }
     bool running = true;
     SDL_Event ev;
 
@@ -3471,7 +4187,7 @@ int main(void)
                         play_ui_click();
                     }
                     if (ev.key.key == SDLK_RETURN)
-                        action = selected + 1;
+                        action = MENU_ACTIONS[selected];
                 }
                 if (ev.type == SDL_EVENT_JOYSTICK_HAT_MOTION) {
                     if (ev.jhat.value == SDL_HAT_UP) {
@@ -3497,7 +4213,7 @@ int main(void)
                 }
                 if (ev.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN &&
                     ev.jbutton.button == BTN_SDL_A)
-                    action = selected + 1;
+                    action = MENU_ACTIONS[selected];
                 if (ev.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN &&
                     ev.jbutton.button == BTN_SDL_X &&
                     selected == 0 && has_last_game && last_game_rom_path[0]) {
@@ -3775,6 +4491,58 @@ int main(void)
                     ev.jbutton.button == BTN_SDL_B) {
                     theme_selected = read_theme_index();
                     state = STATE_SETTINGS;
+                }
+            }
+            else if (state == STATE_GAME_LIST) {
+                int gn = g_games_n;
+                bool g_launch = false;
+                if (ev.type == SDL_EVENT_KEY_DOWN) {
+                    if (ev.key.key == SDLK_UP && gn > 0) {
+                        games_selected = (games_selected - 1 + gn) % gn;
+                        play_ui_click();
+                    }
+                    if (ev.key.key == SDLK_DOWN && gn > 0) {
+                        games_selected = (games_selected + 1) % gn;
+                        play_ui_click();
+                    }
+                    if (ev.key.key == SDLK_RETURN && gn > 0) g_launch = true;
+                    if (ev.key.key == SDLK_ESCAPE) state = STATE_MENU;
+                }
+                if (ev.type == SDL_EVENT_JOYSTICK_HAT_MOTION && gn > 0) {
+                    if (ev.jhat.value == SDL_HAT_UP) {
+                        games_selected = (games_selected - 1 + gn) % gn;
+                        play_ui_click();
+                    } else if (ev.jhat.value == SDL_HAT_DOWN) {
+                        games_selected = (games_selected + 1) % gn;
+                        play_ui_click();
+                    }
+                }
+                if (ev.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN && gn > 0) {
+                    if (ev.jbutton.button == BTN_SDL_L1) {
+                        games_selected -= 10;
+                        if (games_selected < 0) games_selected = 0;
+                        play_ui_click();
+                    } else if (ev.jbutton.button == BTN_SDL_R1) {
+                        games_selected += 10;
+                        if (games_selected > gn - 1) games_selected = gn - 1;
+                        play_ui_click();
+                    } else if (ev.jbutton.button == BTN_SDL_A) {
+                        g_launch = true;
+                    }
+                }
+                if (ev.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN &&
+                    ev.jbutton.button == BTN_SDL_B)
+                    state = STATE_MENU;
+                if (g_launch && games_selected >= 0 && games_selected < gn) {
+                    play_ui_click();
+                    safe_copy(direct_launch_rom_path, g_games[games_selected].path,
+                              sizeof(direct_launch_rom_path));
+                    direct_launch_core_path[0] = '\0';
+                    s_return_to_catalog = true;
+                    safe_copy(s_return_rom, g_games[games_selected].path, sizeof(s_return_rom));
+                    direct_launch_rom = true;
+                    relaunch_after_retroarch = true;
+                    running = false;
                 }
             }
             else if (state == STATE_BLUETOOTH_CONFIG) {
@@ -4466,6 +5234,16 @@ int main(void)
             } else if (action == ACTION_SETTINGS) {
                 state = STATE_SETTINGS;
                 settings_selected = 0;
+            } else if (action == ACTION_GAMES) {
+                state = STATE_GAME_LIST;
+                games_selected = 0;
+                games_pt_idx = -1;
+                games_pt_str[0] = '\0';
+                cover_reset();
+                (void)catalog_scan_poll();
+                catalog_load();
+                catalog_scan_start();
+                games_scan_running = (s_catalog_pid > 0);
             }
             action = ACTION_NONE;
         }
@@ -4872,23 +5650,23 @@ int main(void)
                 float pill_radius = pill_h / 2.0f;
                 draw_rounded_rect_filled(ren, mx - 10.0f, menu_cursor_y - 5.0f,
                                  sel_w, pill_h, pill_radius, c_menu_selbg);
-                if (menu_icon_tex[i]) {
+                if (menu_icon_tex[MENU_ICON_IDX[i]]) {
                     /* Respiracion sutil: pulso senoidal 20px-23px, ~1.8s de ciclo */
                     float breath = (SDL_sinf((float)now_ticks * 0.0035f) + 1.0f) * 0.5f;
                     float icon_sz = 22.0f + (breath * 3.0f);
                     float icon_offset = (icon_sz - 22.0f) / 2.0f;
                     float icon_x = (mx + 8.0f) - icon_offset;
                     float icon_y = iy - icon_offset - 1.0f;
-                    SDL_SetTextureColorMod(menu_icon_tex[i], c_menu_gold.r, c_menu_gold.g, c_menu_gold.b);
+                    SDL_SetTextureColorMod(menu_icon_tex[MENU_ICON_IDX[i]], c_menu_gold.r, c_menu_gold.g, c_menu_gold.b);
                     SDL_FRect icon_dst = {icon_x, icon_y, icon_sz, icon_sz};
-                    SDL_RenderTexture(ren, menu_icon_tex[i], NULL, &icon_dst);
+                    SDL_RenderTexture(ren, menu_icon_tex[MENU_ICON_IDX[i]], NULL, &icon_dst);
                 }
                 draw_text(ren, f_med, menu_label, c_menu_gold, mx + 46.0f, iy);
             } else {
-                if (menu_icon_tex[i]) {
-                    SDL_SetTextureColorMod(menu_icon_tex[i], c_menu_beige.r, c_menu_beige.g, c_menu_beige.b);
+                if (menu_icon_tex[MENU_ICON_IDX[i]]) {
+                    SDL_SetTextureColorMod(menu_icon_tex[MENU_ICON_IDX[i]], c_menu_beige.r, c_menu_beige.g, c_menu_beige.b);
                     SDL_FRect icon_dst = {mx + 8.0f, iy - 1.0f, 22.0f, 22.0f};
-                    SDL_RenderTexture(ren, menu_icon_tex[i], NULL, &icon_dst);
+                    SDL_RenderTexture(ren, menu_icon_tex[MENU_ICON_IDX[i]], NULL, &icon_dst);
                 }
                 draw_text(ren, f_med, menu_label, c_menu_beige, mx + 46.0f, iy);
             }
@@ -4969,17 +5747,31 @@ int main(void)
              * recuadro de contorno con padding identico en los 4 lados,
              * alineado a la izquierda del nombre de la partida. */
             if (has_last_game && last_game_source[0]) {
-                int src_w = 0, src_h = 0;
-                TTF_GetStringSize(f_badge, last_game_source, 0, &src_w, &src_h);
+                int s_lead, s_inkw, s_top, cap_h;
+                badge_ink(f_badge, last_game_source, &s_lead, &s_inkw, &s_top, &cap_h);
                 float badge_pad = 4.0f;
-                float badge_w = (float)src_w + badge_pad * 2.0f;
-                float badge_h = (float)src_h + badge_pad * 2.0f;
+                float badge_w = (float)s_inkw + badge_pad * 2.0f;
+                float badge_h = (float)cap_h + badge_pad * 2.0f;
                 float badge_x = pill_x;
                 float badge_y = pill_y - badge_h - 4.0f;
                 draw_rounded_rect_outline(ren, badge_x, badge_y, badge_w, badge_h,
                                            2.0f, 1.0f, c_selbg, c_bg);
                 draw_text(ren, f_badge, last_game_source, c_selbg,
-                          badge_x + badge_pad, badge_y + badge_pad);
+                          badge_x + badge_pad - (float)s_lead,
+                          badge_y + badge_pad - (float)s_top);
+
+                /* Segundo recuadro: tiempo de juego acumulado */
+                if (last_game_time[0]) {
+                    int t_lead, t_inkw, t_top, t_cap;
+                    badge_ink(f_badge, last_game_time, &t_lead, &t_inkw, &t_top, &t_cap);
+                    float t_bw = (float)t_inkw + badge_pad * 2.0f;
+                    float t_bx = badge_x + badge_w + 4.0f;
+                    draw_rounded_rect_outline(ren, t_bx, badge_y, t_bw, badge_h,
+                                               2.0f, 1.0f, c_selbg, c_bg);
+                    draw_text(ren, f_badge, last_game_time, c_selbg,
+                              t_bx + badge_pad - (float)t_lead,
+                              badge_y + badge_pad - (float)t_top);
+                }
             }
         }
 
@@ -5270,6 +6062,186 @@ int main(void)
             draw_line(ren, mx, 438.0f, SCREEN_W - 20.0f, 438.0f, c_selbg);
             draw_footer(ren, f_sm,
                 tr("[DPAD] Elegir  [B] Aplicar  [A] Volver", "[DPAD] Choose  [B] Apply  [A] Back"), s_version);
+
+        } else if (state == STATE_GAME_LIST) {
+            if (games_scan_running && catalog_scan_poll()) {
+                char keep[300] = "";
+                if (games_selected >= 0 && games_selected < g_games_n)
+                    safe_copy(keep, g_games[games_selected].path, sizeof(keep));
+                catalog_load();
+                games_scan_running = false;
+                for (int gi = 0; gi < g_games_n; gi++)
+                    if (strcmp(g_games[gi].path, keep) == 0) { games_selected = gi; break; }
+                if (games_selected >= g_games_n)
+                    games_selected = g_games_n ? g_games_n - 1 : 0;
+                games_pt_idx = -1;
+                cover_reset();
+            }
+            draw_statusbar(ren, f_status_bold, status_time, status_wifi_up, status_battery, status_bt_up, bg_update_available, wifi_icon_tex, battery_icon_tex, bt_icon_tex, ssh_icon_tex, update_badge_tex);
+            draw_active_dash_breadcrumbs(ren, f_sm, mx, 25.0f, 2, tr("Catálogo Amiga", "Amiga Catalog"));
+            const float g_item_h = 35.0f, g_y0 = 64.0f;
+            const float g_lx = mx - 10.0f, g_list_w = 286.0f;
+            const int g_visible = 10;
+            const float g_ltop = g_y0 - 3.0f;
+            const float g_lbot = g_y0 + (float)(g_visible - 1) * g_item_h + (g_item_h - 6.0f) - 3.0f;
+            const float g_th = g_lbot - g_ltop;
+            const float g_sb_x = g_lx + g_list_w + 8.0f;
+            SDL_Color c_card = cat_mix(c_bg, c_menu_selbg, 0.12f);
+            SDL_Color c_track = cat_mix(c_bg, c_menu_selbg, 0.30f);
+            if (g_games_n == 0) {
+                draw_text(ren, f_sm,
+                          games_scan_running ? tr("Escaneando biblioteca...", "Scanning library...")
+                                             : tr("No hay juegos en la carpeta whdload", "No games in the whdload folder"),
+                          c_gray, mx + 8.0f, g_y0);
+            }
+            int g_scroll = 0;
+            if (games_selected >= g_visible) g_scroll = games_selected - g_visible + 1;
+            if (g_scroll > g_games_n - g_visible) g_scroll = g_games_n - g_visible;
+            if (g_scroll < 0) g_scroll = 0;
+            int g_lh = TTF_GetFontHeight(f_med);
+            for (int row = 0; row < g_visible && (row + g_scroll) < g_games_n; row++) {
+                int i = row + g_scroll;
+                float iy = g_y0 + row * g_item_h;
+                bool sel = (i == games_selected);
+                float pill_h = g_item_h - 6.0f;
+                float pill_top = iy - 3.0f;
+                float text_y = pill_top + (pill_h - (float)g_lh) / 2.0f;
+                if (sel)
+                    draw_rounded_rect_filled(ren, g_lx, pill_top, g_list_w, pill_h, pill_h / 2.0f, c_menu_selbg);
+                char st[96];
+                cat_short_title(g_games[i].title, st, sizeof(st));
+                draw_text_truncated(ren, f_med, st, sel ? c_menu_gold : c_menu_beige,
+                                    g_lx + 14.0f, text_y, g_list_w - 28.0f);
+            }
+            if (g_games_n > g_visible) {
+                float th = g_th * (float)g_visible / (float)g_games_n;
+                if (th < 24.0f) th = 24.0f;
+                float pos = (float)g_scroll / (float)(g_games_n - g_visible);
+                draw_rounded_rect_filled(ren, g_sb_x, g_ltop, 4.0f, g_th, 2.0f, c_track);
+                draw_rounded_rect_filled(ren, g_sb_x, g_ltop + pos * (g_th - th), 4.0f, th, 2.0f, c_menu_selbg);
+            }
+            if (g_games_n > 0 && games_selected < g_games_n) {
+                const CatGame *g = &g_games[games_selected];
+                char pos_a[12], pos_b[16];
+                snprintf(pos_a, sizeof(pos_a), "%d", games_selected + 1);
+                snprintf(pos_b, sizeof(pos_b), " / %d", g_games_n);
+                int pa_w = 0, pb_w = 0, pp_h = 0;
+                TTF_GetStringSize(f_sm, pos_a, 0, &pa_w, &pp_h);
+                TTF_GetStringSize(f_sm, pos_b, 0, &pb_w, &pp_h);
+                float pos_x = g_sb_x + 4.0f - (float)(pa_w + pb_w);
+                draw_text(ren, f_sm, pos_a, c_menu_beige, pos_x, g_lbot + 6.0f);
+                draw_text(ren, f_sm, pos_b, c_gray, pos_x + (float)pa_w, g_lbot + 6.0f);
+
+                float rx_g = g_sb_x + 4.0f + 12.0f;
+                float rw_g = SCREEN_W - 20.0f - rx_g;
+
+                /* Tarjeta superior: caratula + ficha */
+                float c1_y = g_ltop, c1_h = 148.0f;
+                draw_rounded_rect_filled(ren, rx_g, c1_y, rw_g, c1_h, 10.0f, c_card);
+                float cb_x = rx_g + 10.0f, cb_y = c1_y + 10.0f, cb_w = 108.0f, cb_h = 128.0f;
+                cover_tick(ren, g, games_selected);
+                float tw = 0.0f, th2 = 0.0f;
+                if (s_cover_tex) SDL_GetTextureSize(s_cover_tex, &tw, &th2);
+                if (s_cover_tex && tw > 0.0f && th2 > 0.0f) {
+                    float sc = cb_w / tw;
+                    if (cb_h / th2 < sc) sc = cb_h / th2;
+                    float dw = tw * sc, dh = th2 * sc;
+                    SDL_FRect cdst = { cb_x + (cb_w - dw) / 2.0f, cb_y + (cb_h - dh) / 2.0f, dw, dh };
+                    SDL_RenderTexture(ren, s_cover_tex, NULL, &cdst);
+                } else {
+                    const char *ph_txt = (s_cover_state == COVER_NONE || s_cover_state == COVER_FAILED)
+                        ? tr("SIN CARATULA", "NO COVER")
+                        : tr("CARGANDO...", "LOADING...");
+                    int ph_w = 0, ph_h = 0;
+                    TTF_GetStringSize(f_sm, ph_txt, 0, &ph_w, &ph_h);
+                    draw_rounded_rect_outline(ren, cb_x, cb_y, cb_w, cb_h, 6.0f, 1.0f, c_track, c_card);
+                    draw_text(ren, f_sm, ph_txt, c_gray,
+                              cb_x + (cb_w - (float)ph_w) / 2.0f, cb_y + (cb_h - (float)ph_h) / 2.0f);
+                }
+                float sep_x = cb_x + cb_w + 8.0f;
+                draw_line(ren, sep_x, c1_y + 10.0f, sep_x, c1_y + c1_h - 10.0f, c_track);
+                float inf_x = sep_x + 12.0f, inf_r = rx_g + rw_g - 12.0f;
+
+                char v_sys[24], v_ver[16], v_lang[16], v_size[24];
+                if (g->identified) {
+                    safe_copy(v_sys, (g->flags & GF_CD32) ? "CD32" : (g->flags & GF_CDTV) ? "CDTV"
+                                     : (g->flags & GF_AGA) ? "AGA" : "OCS/ECS", sizeof(v_sys));
+                    if (g->ver[0]) snprintf(v_ver, sizeof(v_ver), "V%s", g->ver);
+                    else safe_copy(v_ver, "--", sizeof(v_ver));
+                    if (g->lang[0]) {
+                        v_lang[0] = (char)toupper((unsigned char)g->lang[0]);
+                        v_lang[1] = (char)toupper((unsigned char)g->lang[1]);
+                        v_lang[2] = '\0';
+                    } else {
+                        cat_langs_from_title(g->title, v_lang, sizeof(v_lang));
+                        if (!v_lang[0]) safe_copy(v_lang, "EN", sizeof(v_lang));
+                    }
+                } else {
+                    safe_copy(v_sys, "--", sizeof(v_sys));
+                    safe_copy(v_ver, "--", sizeof(v_ver));
+                    safe_copy(v_lang, "--", sizeof(v_lang));
+                }
+                if (g->size >= 1048576L) snprintf(v_size, sizeof(v_size), "%.1f MB", (double)g->size / 1048576.0);
+                else snprintf(v_size, sizeof(v_size), "%ld KB", g->size / 1024L);
+                const char *lbl[5] = { tr("SISTEMA", "SYSTEM"), tr("VERSIÓN", "VERSION"),
+                                       tr("IDIOMA", "LANGUAGE"), tr("TIPO", "TYPE"), tr("TAMAÑO", "SIZE") };
+                const char *val[5] = { v_sys, v_ver, v_lang, "WHDLoad", v_size };
+                int xs_h = TTF_GetFontHeight(f_sm), sm_h = TTF_GetFontHeight(f_sm);
+                for (int k = 0; k < 5; k++) {
+                    float ry = c1_y + 12.0f + (float)k * 25.0f;
+                    int lw = 0, lh = 0, vw = 0, vh = 0;
+                    TTF_GetStringSize(f_sm, lbl[k], 0, &lw, &lh);
+                    TTF_GetStringSize(f_sm, val[k], 0, &vw, &vh);
+                    draw_text(ren, f_sm, lbl[k], c_gray, inf_x, ry + (25.0f - (float)xs_h) / 2.0f);
+                    float vmax = (inf_r - inf_x) - (float)lw - 8.0f;
+                    if ((float)vw > vmax)
+                        draw_text_truncated(ren, f_sm, val[k], c_menu_beige, inf_x + (float)lw + 8.0f,
+                                            ry + (25.0f - (float)sm_h) / 2.0f, vmax);
+                    else
+                        draw_text(ren, f_sm, val[k], c_menu_beige, inf_r - (float)vw,
+                                  ry + (25.0f - (float)sm_h) / 2.0f);
+                }
+
+                /* Tarjeta central: titulo completo (+ NTSC/BETA) */
+                float c3_h = 34.0f, c3_y = g_lbot - c3_h;
+                float c2_y = c1_y + c1_h + 8.0f, c2_h = c3_y - 8.0f - c2_y;
+                draw_rounded_rect_filled(ren, rx_g, c2_y, rw_g, c2_h, 10.0f, c_card);
+                TTF_Font *f_ttl = f_title ? f_title : f_med;
+                draw_text_wrapped(ren, f_ttl, g->title, c_menu_beige, rx_g + 12.0f, c2_y + 10.0f,
+                                  rw_g - 24.0f, (float)(TTF_GetFontHeight(f_ttl) + 2));
+                float fb_x = rx_g + 12.0f, fb_y = c2_y + c2_h - 28.0f;
+                if (!g->identified) {
+                    draw_text(ren, f_sm, tr("Sin identificar en los DAT", "Not found in the DATs"),
+                              c_gray, fb_x, fb_y + 4.0f);
+                } else {
+                    if (g->flags & GF_NTSC)
+                        fb_x += draw_badge(ren, f_badge, "NTSC", fb_x, fb_y, c_selbg, c_card) + 4.0f;
+                    if (g->flags & GF_BETA)
+                        fb_x += draw_badge(ren, f_badge, "BETA", fb_x, fb_y, c_selbg, c_card) + 4.0f;
+                }
+
+                /* Tarjeta inferior: tiempo de juego */
+                if (games_pt_idx != games_selected) {
+                    unsigned long pt = playtime_get(g->path);
+                    snprintf(games_pt_str, sizeof(games_pt_str), "%02luH %02luM %02luS",
+                             pt / 3600, (pt % 3600) / 60, pt % 60);
+                    games_pt_idx = games_selected;
+                }
+                draw_rounded_rect_filled(ren, rx_g, c3_y, rw_g, c3_h, 10.0f, c_card);
+                float ck = 18.0f, ckx = rx_g + 12.0f, cky = c3_y + (c3_h - ck) / 2.0f;
+                draw_rounded_rect_filled(ren, ckx, cky, ck, ck, ck / 2.0f, c_menu_selbg);
+                float cxm = ckx + ck / 2.0f, cym = cky + ck / 2.0f;
+                draw_line(ren, cxm, cym, cxm, cym - 5.0f, c_card);
+                draw_line(ren, cxm + 1.0f, cym, cxm + 1.0f, cym - 5.0f, c_card);
+                draw_line(ren, cxm, cym, cxm + 4.0f, cym, c_card);
+                draw_line(ren, cxm, cym + 1.0f, cxm + 4.0f, cym + 1.0f, c_card);
+                draw_text(ren, f_ttl, games_pt_str, c_menu_beige, ckx + ck + 10.0f,
+                          c3_y + (c3_h - (float)TTF_GetFontHeight(f_ttl)) / 2.0f);
+            }
+            draw_line(ren, mx, 438.0f, SCREEN_W - 20.0f, 438.0f, c_selbg);
+            draw_footer(ren, f_sm,
+                tr("[B] Lanzar  [DPAD] Navegar  [L1/R1] Pagina  [A] Volver",
+                   "[B] Launch  [DPAD] Navigate  [L1/R1] Page  [A] Back"), s_version);
 
         } else if (state == STATE_BLUETOOTH_CONFIG) {
             SDL_Color c_bt_card    = c_selbg;
@@ -6732,6 +7704,7 @@ int main(void)
     }
 
     if (logo_tex) SDL_DestroyTexture(logo_tex);
+    cover_release();
     for (int mi = 0; mi < MENU_ICON_COUNT; mi++)
         if (menu_icon_tex[mi]) SDL_DestroyTexture(menu_icon_tex[mi]);
     if (wifi_icon_tex) SDL_DestroyTexture(wifi_icon_tex);
@@ -6755,6 +7728,7 @@ int main(void)
     TTF_CloseFont(f_xs);
     TTF_CloseFont(f_xsm);
     TTF_CloseFont(f_status_bold);
+    TTF_CloseFont(f_title);
     TTF_CloseFont(f_badge);
     SDL_DestroyRenderer(ren);
     SDL_DestroyWindow(win);
@@ -6808,6 +7782,9 @@ int main(void)
         case EXEC_NONE:
         default:
             if (relaunch_after_retroarch) {
+                struct timespec pt0;
+                clock_gettime(CLOCK_BOOTTIME, &pt0);
+                time_t pt_wall0 = time(NULL);
                 pid_t pid = fork();
                 if (pid == 0) {
                     /* hijo: RetroArch toma la pantalla/DRM.
@@ -6836,6 +7813,20 @@ int main(void)
                 } else if (pid > 0) {
                     int status;
                     waitpid(pid, &status, 0);
+                    {
+                        /* Solo se acredita tiempo si RetroArch reescribio el
+                         * historial durante esta sesion (se cargo contenido) */
+                        struct timespec pt1;
+                        clock_gettime(CLOCK_BOOTTIME, &pt1);
+                        struct stat pst;
+                        if (stat(RETROARCH_HISTORY_PATH, &pst) == 0 &&
+                            pst.st_mtime >= pt_wall0 - 1) {
+                            char pn[256], pr[400], pc[256];
+                            if (get_last_played_game(pn, sizeof(pn), pr, sizeof(pr),
+                                                     pc, sizeof(pc)))
+                                playtime_add(pr, (unsigned long)(pt1.tv_sec - pt0.tv_sec));
+                        }
+                    }
                     direct_launch_rom = false;
                     /* al terminar RetroArch, volvemos al inicio del for(;;)
                      * para reinicializar SDL/DRM desde cero */
