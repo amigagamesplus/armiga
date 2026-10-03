@@ -3805,6 +3805,7 @@ int main(void)
     TTF_Font *f_gsm   = TTF_OpenFont(FONT_PATH_BOLD, 13);
     TTF_Font *f_mnu   = TTF_OpenFont(FONT_PATH_BOLD, 15);
     TTF_Font *f_ftr   = TTF_OpenFont(FONT_PATH_BOLD, 13);
+    TTF_Font *f_gxs   = TTF_OpenFont(FONT_PATH_BOLD, 9);
     if (!f_med || !f_sm || !f_lg || !f_xs || !f_xsm || !f_status_bold) {
         fprintf(stderr, "TTF_OpenFont: %s\n", SDL_GetError());
         SDL_DestroyRenderer(ren); SDL_DestroyWindow(win);
@@ -6178,7 +6179,7 @@ int main(void)
                 SDL_Color swatch_c = THEMES[i].accent;
                 SDL_Color labelc = sel ? THEMES[i].text_on_accent : c_menu_beige;
                 int lw = 0, lh = 0;
-                TTF_GetStringSize(f_med, THEME_NAMES[i][current_lang], 0, &lw, &lh);
+                TTF_GetStringSize(f_ftr, THEME_NAMES[i][current_lang], 0, &lw, &lh);
                 float pill_h = theme_item_h - 6.0f;
                 float pill_top = iy - 3.0f;
                 float text_y = pill_top + (pill_h - (float)lh) / 2.0f;
@@ -6188,14 +6189,14 @@ int main(void)
                     draw_rounded_rect_filled(ren, mx - 10.0f, pill_top, pill_w, pill_h, pill_h / 2.0f, swatch_c);
                 }
                 draw_rounded_rect_filled(ren, mx + 8.0f, dot_y, 20.0f, 20.0f, 10.0f, swatch_c);
-                draw_text(ren, f_med, THEME_NAMES[i][current_lang], labelc, mx + 40.0f, text_y);
+                draw_text(ren, f_ftr, THEME_NAMES[i][current_lang], labelc, mx + 40.0f, text_y);
             }
             if (theme_scroll > 0) {
-                draw_text(ren, f_xs, tr("más arriba ↑", "more above ↑"), c_menu_selbg,
+                draw_text(ren, f_gxs, tr("más arriba ↑", "more above ↑"), c_menu_selbg,
                           mx + 8.0f, LIST_MORE_ABOVE_Y);
             }
             if (theme_scroll + theme_visible < THEME_COUNT) {
-                draw_text(ren, f_xs, tr("más abajo ↓", "more below ↓"), c_menu_selbg,
+                draw_text(ren, f_gxs, tr("más abajo ↓", "more below ↓"), c_menu_selbg,
                           mx + 8.0f, LIST_MORE_BELOW_Y);
             }
             draw_line(ren, mx, 438.0f, SCREEN_W - 20.0f, 438.0f, c_selbg);
@@ -7877,6 +7878,7 @@ int main(void)
     TTF_CloseFont(f_gsm);
     TTF_CloseFont(f_mnu);
     TTF_CloseFont(f_ftr);
+    TTF_CloseFont(f_gxs);
     TTF_CloseFont(f_badge);
     SDL_DestroyRenderer(ren);
     SDL_DestroyWindow(win);
