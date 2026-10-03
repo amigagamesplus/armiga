@@ -7252,16 +7252,17 @@ draw_text(ren, f_ftr, "WIFI", labelc, mx + 8.0f, wty);
                              show_fps_counter ? "ON" : "OFF");
                     dev_label = dev_label_buf;
                 }
+                float ty = iy - 5.0f + (dev_item_h - 4.0f - (float)TTF_GetFontHeight(f_ftr)) / 2.0f;
                 if (i == dev_selected) {
                     int text_w = 0, text_h = 0;
-                    TTF_GetStringSize(f_sm, dev_label, 0, &text_w, &text_h);
+                    TTF_GetStringSize(f_ftr, dev_label, 0, &text_w, &text_h);
                     float sel_w = (float)text_w + 32.0f;
                     float pill_h = dev_item_h - 4.0f;
                     draw_rounded_rect_filled(ren, mx - 10.0f, iy - 5.0f,
                                      sel_w, pill_h, pill_h / 2.0f, c_menu_selbg);
-                    draw_text(ren, f_sm, dev_label, c_menu_gold, mx + 8.0f, iy);
+                    draw_text(ren, f_ftr, dev_label, c_menu_gold, mx + 8.0f, ty);
                 } else {
-                    draw_text(ren, f_sm, dev_label, c_menu_beige, mx + 8.0f, iy);
+                    draw_text(ren, f_ftr, dev_label, c_menu_beige, mx + 8.0f, ty);
                 }
             }
 
@@ -7290,10 +7291,10 @@ draw_text(ren, f_ftr, "WIFI", labelc, mx + 8.0f, wty);
                 float col2_x = dm_rx + 150.0f;
                 for (int i = 0; i < 4; i++) {
                     float ry = ry0 + i * row_h;
-                    draw_text(ren, f_sm, left_col[i].label, c_menu_beige, dm_rx, ry);
-                    draw_text(ren, f_med, left_col[i].val, c_menu_selbg, dm_rx, ry + 16.0f);
-                    draw_text(ren, f_sm, right_col[i].label, c_menu_beige, col2_x, ry);
-                    draw_text(ren, f_med, right_col[i].val, c_menu_selbg, col2_x, ry + 16.0f);
+                    draw_text(ren, f_ftr, left_col[i].label, c_menu_beige, dm_rx, ry);
+                    draw_text(ren, f_ftr, left_col[i].val, c_menu_selbg, dm_rx, ry + 16.0f);
+                    draw_text(ren, f_ftr, right_col[i].label, c_menu_beige, col2_x, ry);
+                    draw_text(ren, f_ftr, right_col[i].val, c_menu_selbg, col2_x, ry + 16.0f);
                 }
                 float dm_rx2 = rx - 140.0f;
                 float g_x0 = dm_rx2;
@@ -7311,8 +7312,8 @@ draw_text(ren, f_ftr, "WIFI", labelc, mx + 8.0f, wty);
                     ? tr("THROTTLING ACTIVO", "THROTTLING ACTIVE")
                     : tr("Normal", "Normal");
                 SDL_Color throttle_c = !throttle_applicable ? c_menu_beige : (throttling ? c_red : c_menu_selbg);
-                draw_text(ren, f_sm, tr("TEMPERATURA CPU", "CPU TEMPERATURE"), c_menu_beige, g_x0, g_y0 - 18.0f);
-                draw_text_right(ren, f_sm, throttle_label, throttle_c, g_x0 + g_w, g_y0 - 18.0f);
+                draw_text(ren, f_ftr, tr("TEMPERATURA CPU", "CPU TEMPERATURE"), c_menu_beige, g_x0, g_y0 - 18.0f);
+                draw_text_right(ren, f_ftr, throttle_label, throttle_c, g_x0 + g_w, g_y0 - 18.0f);
                 draw_rect_filled(ren, g_x0, g_y0, g_w, g_h, (SDL_Color){26, 24, 18, 255});
                 {
                     int tmin = 30, tmax = 90;
@@ -7333,7 +7334,7 @@ draw_text(ren, f_ftr, "WIFI", labelc, mx + 8.0f, wty);
                     if (g_devmode_temp_history_count > 0) {
                         char tbuf[16];
                         snprintf(tbuf, sizeof(tbuf), "%d C", g_devmode_temp_history[g_devmode_temp_history_count - 1]);
-                        draw_text(ren, f_med, tbuf, c_menu_selbg, g_x0 + 4.0f, g_y0 + 4.0f);
+                        draw_text(ren, f_ftr, tbuf, c_menu_selbg, g_x0 + 4.0f, g_y0 + 4.0f);
                     }
                 }
             }
@@ -7359,9 +7360,9 @@ draw_text(ren, f_ftr, "WIFI", labelc, mx + 8.0f, wty);
                 float box_x = (SCREEN_W - box_w) / 2.0f;
                 float box_y = (SCREEN_H - box_h) / 2.0f;
                 draw_rounded_rect_filled(ren, box_x, box_y, box_w, box_h, 16.0f, g_theme.row_bg);
-                draw_text_centered(ren, f_med, dm_label, g_theme.text_light,
+                draw_text_centered(ren, f_ftr, dm_label, g_theme.text_light,
                                    SCREEN_W / 2.0f, box_y + 30.0f);
-                draw_text_centered(ren, f_sm, tr("[B] Si        [A] No", "[B] Yes       [A] No"),
+                draw_text_centered(ren, f_ftr, tr("[B] Si        [A] No", "[B] Yes       [A] No"),
                                    g_theme.accent, SCREEN_W / 2.0f, box_y + 66.0f);
             }
 
