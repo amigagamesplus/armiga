@@ -3806,6 +3806,7 @@ int main(void)
     TTF_Font *f_mnu   = TTF_OpenFont(FONT_PATH_BOLD, 15);
     TTF_Font *f_ftr   = TTF_OpenFont(FONT_PATH_BOLD, 13);
     TTF_Font *f_gxs   = TTF_OpenFont(FONT_PATH_BOLD, 9);
+    TTF_Font *f_glg   = TTF_OpenFont(FONT_PATH_BOLD, 28);
     if (!f_med || !f_sm || !f_lg || !f_xs || !f_xsm || !f_status_bold) {
         fprintf(stderr, "TTF_OpenFont: %s\n", SDL_GetError());
         SDL_DestroyRenderer(ren); SDL_DestroyWindow(win);
@@ -6545,11 +6546,11 @@ int main(void)
             if (tz_scroll < 0) tz_scroll = 0;
 
             if (tz_scroll > 0) {
-                draw_text(ren, f_xs, tr("más arriba ↑", "more above ↑"), c_menu_selbg,
+                draw_text(ren, f_gxs, tr("más arriba ↑", "more above ↑"), c_menu_selbg,
                           mx + 8.0f, LIST_MORE_ABOVE_Y);
             }
             if (tz_scroll + tz_visible < TIMEZONE_LIST_COUNT) {
-                draw_text(ren, f_xs, tr("más abajo ↓", "more below ↓"), c_menu_selbg,
+                draw_text(ren, f_gxs, tr("más abajo ↓", "more below ↓"), c_menu_selbg,
                           mx + 8.0f, LIST_MORE_BELOW_Y);
             }
 
@@ -6564,7 +6565,8 @@ int main(void)
                 bool sel = (i == timezone_selected);
                 bool active = !strcmp(TIMEZONE_LIST[i].tz_name, timezone_current);
                 int text_w = 0, text_h = 0;
-                TTF_GetStringSize(f_sm, TIMEZONE_LIST[i].label[current_lang], 0, &text_w, &text_h);
+                TTF_GetStringSize(f_ftr, TIMEZONE_LIST[i].label[current_lang], 0, &text_w, &text_h);
+                float ty = iy - 3.0f + (tz_item_h + 2.0f - (float)TTF_GetFontHeight(f_ftr)) / 2.0f;
                 if (sel) {
                     float sel_w = (float)text_w + 42.0f;
                     float pill_h = tz_item_h + 2.0f;
@@ -6572,9 +6574,17 @@ int main(void)
                                      sel_w, pill_h, pill_h / 2.0f, c_menu_selbg);
                 }
                 SDL_Color labelc = sel ? c_menu_gold : c_menu_beige;
-                draw_text(ren, f_sm, TIMEZONE_LIST[i].label[current_lang], labelc, mx + 8.0f, iy);
+                draw_text(ren, f_ftr, TIMEZONE_LIST[i].label[current_lang], labelc, mx + 8.0f, ty);
                 if (active)
-                    draw_text(ren, f_sm, "✓", sel ? c_menu_gold : c_menu_selbg, mx + 8.0f + (float)text_w + 8.0f, iy);
+                    {
+                        SDL_Color ckc = sel ? c_menu_gold : c_menu_selbg;
+                        float ckx = mx + 8.0f + (float)text_w + 10.0f;
+                        float cky = iy + 8.0f;
+                        draw_line(ren, ckx, cky, ckx + 4.0f, cky + 4.0f, ckc);
+                        draw_line(ren, ckx, cky + 1.0f, ckx + 4.0f, cky + 5.0f, ckc);
+                        draw_line(ren, ckx + 4.0f, cky + 4.0f, ckx + 11.0f, cky - 4.0f, ckc);
+                        draw_line(ren, ckx + 4.0f, cky + 5.0f, ckx + 11.0f, cky - 3.0f, ckc);
+                    }
             }
 
             /* Panel derecho: hora en vivo de la zona resaltada por el cursor */
@@ -6585,9 +6595,9 @@ int main(void)
                     tz_preview_last_sel = timezone_selected;
                     tz_preview_last_time = now_ticks;
                 }
-                draw_text(ren, f_sm, tr("Hora actual", "Current time"), c_menu_beige, tzp_x, tz_y0);
-                draw_text(ren, f_lg, tz_preview_buf, c_menu_selbg, tzp_x, tz_y0 + 22.0f);
-                draw_text(ren, f_sm, TIMEZONE_LIST[timezone_selected].label[current_lang], c_menu_beige, tzp_x, tz_y0 + 66.0f);
+                draw_text(ren, f_ftr, tr("Hora actual", "Current time"), c_menu_beige, tzp_x, tz_y0);
+                draw_text(ren, f_glg, tz_preview_buf, c_menu_selbg, tzp_x, tz_y0 + 22.0f);
+                draw_text(ren, f_ftr, TIMEZONE_LIST[timezone_selected].label[current_lang], c_menu_beige, tzp_x, tz_y0 + 66.0f);
             }
 
             draw_line(ren, mx, 438.0f, SCREEN_W - 20.0f, 438.0f, c_selbg);
@@ -7880,6 +7890,7 @@ int main(void)
     TTF_CloseFont(f_mnu);
     TTF_CloseFont(f_ftr);
     TTF_CloseFont(f_gxs);
+    TTF_CloseFont(f_glg);
     TTF_CloseFont(f_badge);
     SDL_DestroyRenderer(ren);
     SDL_DestroyWindow(win);
