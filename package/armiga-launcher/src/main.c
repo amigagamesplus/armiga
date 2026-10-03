@@ -6235,10 +6235,15 @@ int main(void)
                 float pill_h = g_item_h - 6.0f;
                 float pill_top = iy - 3.0f;
                 float text_y = pill_top + (pill_h - (float)g_lh) / 2.0f;
-                if (sel)
-                    draw_rounded_rect_filled(ren, g_lx, pill_top, g_list_w, pill_h, pill_h / 2.0f, c_menu_selbg);
                 char st[96];
                 cat_short_title(g_games[i].title, st, sizeof(st));
+                if (sel) {
+                    int st_w = 0, st_h = 0;
+                    TTF_GetStringSize(f_med, st, 0, &st_w, &st_h);
+                    float sel_w = (float)st_w + 28.0f;
+                    if (sel_w > g_list_w) sel_w = g_list_w;
+                    draw_rounded_rect_filled(ren, g_lx, pill_top, sel_w, pill_h, pill_h / 2.0f, c_menu_selbg);
+                }
                 draw_text_truncated(ren, f_med, st, sel ? c_menu_gold : c_menu_beige,
                                     g_lx + 14.0f, text_y, g_list_w - 28.0f);
             }
