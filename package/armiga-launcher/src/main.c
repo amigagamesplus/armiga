@@ -6716,7 +6716,7 @@ int main(void)
             float bkl_y0 = 64.0f;
             float bkl_item_h = 26.0f;
             if (backup_count == 0) {
-                draw_text(ren, f_sm, tr("No hay copias disponibles", "No backups available"), c_gray, mx, bkl_y0);
+                draw_text(ren, f_ftr, tr("No hay copias disponibles", "No backups available"), c_gray, mx, bkl_y0);
             } else {
                 {
                     float target_y = bkl_y0 + backup_list_selected * bkl_item_h;
@@ -6726,16 +6726,16 @@ int main(void)
                     float iy = bkl_y0 + i * bkl_item_h;
                     if (i == backup_list_selected) {
                         int text_w = 0, text_h = 0;
-                        TTF_GetStringSize(f_sm, backup_list[i], 0, &text_w, &text_h);
+                        TTF_GetStringSize(f_ftr, backup_list[i], 0, &text_w, &text_h);
                         float sel_w = (float)text_w + 32.0f;
                         float pill_h = 32.0f;
                         float pill_y = bkl_cursor_y - (pill_h - bkl_item_h) / 2.0f - 5.0f;
                         float text_y = pill_y + (pill_h - (float)text_h) / 2.0f;
                         draw_rounded_rect_filled(ren, mx - 10.0f, pill_y,
                                          sel_w, pill_h, pill_h / 2.0f, c_menu_selbg);
-                        draw_text(ren, f_sm, backup_list[i], c_menu_gold, mx + 8.0f, text_y);
+                        draw_text(ren, f_ftr, backup_list[i], c_menu_gold, mx + 8.0f, text_y);
                     } else {
-                        draw_text(ren, f_sm, backup_list[i], c_gray, mx + 8.0f, iy);
+                        draw_text(ren, f_ftr, backup_list[i], c_gray, mx + 8.0f, iy);
                     }
                 }
             }
@@ -6764,9 +6764,9 @@ int main(void)
                 float box_x = (SCREEN_W - box_w) / 2.0f;
                 float box_y = (SCREEN_H - box_h) / 2.0f;
                 draw_rounded_rect_filled(ren, box_x, box_y, box_w, box_h, 16.0f, g_theme.row_bg);
-                draw_text_centered(ren, f_med, bkl_confirm_label, g_theme.text_light,
+                draw_text_centered(ren, f_ftr, bkl_confirm_label, g_theme.text_light,
                                    SCREEN_W / 2.0f, box_y + 30.0f);
-                draw_text_centered(ren, f_sm, tr("[B] Si        [A] No", "[B] Yes       [A] No"),
+                draw_text_centered(ren, f_ftr, tr("[B] Si        [A] No", "[B] Yes       [A] No"),
                                    g_theme.accent, SCREEN_W / 2.0f, box_y + 66.0f);
             }
 
