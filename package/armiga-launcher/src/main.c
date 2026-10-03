@@ -7007,15 +7007,16 @@ int main(void)
                 const char *ssid_disp = wifi_ssid[0] ? wifi_ssid : "--";
                 if (sel) {
                     int lw = 0, lh = 0, vw = 0, vh = 0;
-                    TTF_GetStringSize(f_sm, "SSID", 0, &lw, &lh);
-                    TTF_GetStringSize(f_med, ssid_disp, 0, &vw, &vh);
+                    TTF_GetStringSize(f_ftr, "SSID", 0, &lw, &lh);
+                    TTF_GetStringSize(f_ftr, ssid_disp, 0, &vw, &vh);
                     float sel_w = (float)(lw > vw ? lw : vw) + 40.0f;
                     float pill_h = wifi_item_h + 4.0f;
                     draw_rounded_rect_filled(ren, mx - 14.0f, wifi_cursor_y - 8.0f,
                                      sel_w, pill_h, pill_h / 2.0f, c_menu_selbg);
                 }
-                draw_text(ren, f_sm, "SSID", labelc, mx + 8.0f, iy);
-                draw_text(ren, f_med, ssid_disp, labelc, mx + 8.0f, iy + 16.0f);
+                                float wty = iy - 8.0f + (wifi_item_h + 4.0f - (16.0f + (float)TTF_GetFontHeight(f_ftr))) / 2.0f;
+draw_text(ren, f_ftr, "SSID", labelc, mx + 8.0f, wty);
+                draw_text(ren, f_ftr, ssid_disp, labelc, mx + 8.0f, wty + 16.0f);
             }
 
             {
@@ -7034,15 +7035,16 @@ int main(void)
                 }
                 if (sel) {
                     int lw = 0, lh = 0, vw = 0, vh = 0;
-                    TTF_GetStringSize(f_sm, tr("CONTRASEÑA", "PASSWORD"), 0, &lw, &lh);
-                    TTF_GetStringSize(f_med, masked, 0, &vw, &vh);
+                    TTF_GetStringSize(f_ftr, tr("CONTRASEÑA", "PASSWORD"), 0, &lw, &lh);
+                    TTF_GetStringSize(f_ftr, masked, 0, &vw, &vh);
                     float sel_w = (float)(lw > vw ? lw : vw) + 40.0f;
                     float pill_h = wifi_item_h + 4.0f;
                     draw_rounded_rect_filled(ren, mx - 14.0f, wifi_cursor_y - 8.0f,
                                      sel_w, pill_h, pill_h / 2.0f, c_menu_selbg);
                 }
-                draw_text(ren, f_sm, tr("CONTRASEÑA", "PASSWORD"), labelc, mx + 8.0f, iy);
-                draw_text(ren, f_med, masked, labelc, mx + 8.0f, iy + 16.0f);
+                                float wty = iy - 8.0f + (wifi_item_h + 4.0f - (16.0f + (float)TTF_GetFontHeight(f_ftr))) / 2.0f;
+draw_text(ren, f_ftr, tr("CONTRASEÑA", "PASSWORD"), labelc, mx + 8.0f, wty);
+                draw_text(ren, f_ftr, masked, labelc, mx + 8.0f, wty + 16.0f);
             }
 
             {
@@ -7052,15 +7054,16 @@ int main(void)
                 const char *wifi_status_disp = wifi_enabled ? tr("ACTIVADO", "ENABLED") : tr("DESACTIVADO", "DISABLED");
                 if (sel) {
                     int lw = 0, lh = 0, vw = 0, vh = 0;
-                    TTF_GetStringSize(f_sm, "WIFI", 0, &lw, &lh);
-                    TTF_GetStringSize(f_med, wifi_status_disp, 0, &vw, &vh);
+                    TTF_GetStringSize(f_ftr, "WIFI", 0, &lw, &lh);
+                    TTF_GetStringSize(f_ftr, wifi_status_disp, 0, &vw, &vh);
                     float sel_w = (float)(lw > vw ? lw : vw) + 40.0f;
                     float pill_h = wifi_item_h + 4.0f;
                     draw_rounded_rect_filled(ren, mx - 14.0f, wifi_cursor_y - 8.0f,
                                      sel_w, pill_h, pill_h / 2.0f, c_menu_selbg);
                 }
-                draw_text(ren, f_sm, "WIFI", labelc, mx + 8.0f, iy);
-                draw_text(ren, f_med, wifi_status_disp, labelc, mx + 8.0f, iy + 16.0f);
+                                float wty = iy - 8.0f + (wifi_item_h + 4.0f - (16.0f + (float)TTF_GetFontHeight(f_ftr))) / 2.0f;
+draw_text(ren, f_ftr, "WIFI", labelc, mx + 8.0f, wty);
+                draw_text(ren, f_ftr, wifi_status_disp, labelc, mx + 8.0f, wty + 16.0f);
             }
 
             draw_line(ren, mx, 438.0f, SCREEN_W - 20.0f, 438.0f, c_selbg);
