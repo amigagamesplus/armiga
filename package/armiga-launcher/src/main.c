@@ -7169,7 +7169,7 @@ draw_text(ren, f_ftr, "WIFI", labelc, mx + 8.0f, wty);
                 s_version);
 
         } else if (state == STATE_KEYBOARD) {
-            draw_text(ren, f_sm,
+            draw_text(ren, f_ftr,
                 wifi_field_selected == 0 ? "SSID" : tr("CONTRASEÑA", "PASSWORD"),
                 c_green, mx, 20.0f);
             draw_statusbar(ren, f_status_bold, status_time, status_wifi_up, status_battery, status_bt_up, bg_update_available, wifi_icon_tex, battery_icon_tex, bt_icon_tex, ssh_icon_tex, update_badge_tex);
@@ -7186,13 +7186,14 @@ draw_text(ren, f_ftr, "WIFI", labelc, mx + 8.0f, wty);
                 safe_copy(kb_display, kb_buffer, sizeof(kb_display));
             }
             float kb_box_max_w = (SCREEN_W - 40.0f) - 16.0f;
-            draw_text_truncated(ren, f_med, kb_display[0] ? kb_display : "", c_kb_val, mx + 8.0f, 62.0f, kb_box_max_w);
+            float kty = 56.0f + (30.0f - (float)TTF_GetFontHeight(f_ftr)) / 2.0f;
+            draw_text_truncated(ren, f_ftr, kb_display[0] ? kb_display : "", c_kb_val, mx + 8.0f, kty, kb_box_max_w);
             if ((SDL_GetTicks() / 500) % 2 == 0) {
                 int dw = 0, dh = 0;
-                TTF_GetStringSize(f_med, kb_display, 0, &dw, &dh);
+                TTF_GetStringSize(f_ftr, kb_display, 0, &dw, &dh);
                 float cursor_x = mx + 8.0f + (float)dw + 2.0f;
                 if (cursor_x < mx + 8.0f + kb_box_max_w) {
-                    draw_text(ren, f_med, "|", c_kb_val, cursor_x, 62.0f);
+                    draw_text(ren, f_ftr, "|", c_kb_val, cursor_x, kty);
                 }
             }
 
@@ -7220,10 +7221,10 @@ draw_text(ren, f_ftr, "WIFI", labelc, mx + 8.0f, wty);
                     if (sel) {
                         SDL_Color c_kb_sel_text = c_menu_gold;
                         draw_rounded_rect_filled(ren, kx, ky, kw, key_h, 4.0f, c_selbg);
-                        draw_text_centered(ren, f_sm, label, c_kb_sel_text, kx + kw/2.0f, ky + key_h/2.0f - 6.0f);
+                        draw_text_centered(ren, f_ftr, label, c_kb_sel_text, kx + kw/2.0f, ky + (key_h - (float)TTF_GetFontHeight(f_ftr)) / 2.0f);
                     } else {
                         draw_rounded_rect_filled(ren, kx, ky, kw, key_h, 4.0f, c_keybg);
-                        draw_text_centered(ren, f_sm, label, c_gray, kx + kw/2.0f, ky + key_h/2.0f - 6.0f);
+                        draw_text_centered(ren, f_ftr, label, c_gray, kx + kw/2.0f, ky + (key_h - (float)TTF_GetFontHeight(f_ftr)) / 2.0f);
                     }
                 }
             }
