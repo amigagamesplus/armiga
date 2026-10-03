@@ -6289,7 +6289,7 @@ int main(void)
                     int ph_w = 0, ph_h = 0;
                     TTF_GetStringSize(f_sm, ph_txt, 0, &ph_w, &ph_h);
                     draw_rounded_rect_outline(ren, cb_x, cb_y, cb_w, cb_h, 6.0f, 1.0f, c_track, c_card);
-                    draw_text(ren, f_sm, ph_txt, c_gray,
+                    draw_text(ren, f_sm, ph_txt, cat_mix(c_card, c_menu_beige, 0.40f),
                               cb_x + (cb_w - (float)ph_w) / 2.0f, cb_y + (cb_h - (float)ph_h) / 2.0f);
                 }
                 float sep_x = cb_x + cb_w + 8.0f;
