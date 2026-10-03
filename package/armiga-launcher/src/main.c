@@ -6781,7 +6781,7 @@ int main(void)
             float arx_y0 = 64.0f;
             float arx_item_h = 34.0f;
             if (arexx_count == 0) {
-                draw_text(ren, f_sm, tr("No hay scripts disponibles", "No scripts available"), c_gray, mx, arx_y0);
+                draw_text(ren, f_ftr, tr("No hay scripts disponibles", "No scripts available"), c_gray, mx, arx_y0);
             } else {
                 SDL_Color c_white_icon = {255, 255, 255, 255};
                 float icon_size = 20.0f;
@@ -6796,7 +6796,7 @@ int main(void)
                         SDL_RenderTexture(ren, arexx_icon_tex, NULL, &icon_dst);
                     }
                     int text_w = 0, text_h = 0;
-                    TTF_GetStringSize(f_sm, arexx_scripts[i].filename, 0, &text_w, &text_h);
+                    TTF_GetStringSize(f_ftr, arexx_scripts[i].filename, 0, &text_w, &text_h);
                     float row_h = 26.0f;
                     float text_y = iy + (row_h - (float)text_h) / 2.0f;
                     if (i == arexx_selected) {
@@ -6804,9 +6804,9 @@ int main(void)
                         float pill_x0 = text_x - 16.0f;
                         float text_draw_x = pill_x0 + (sel_w - (float)text_w) / 2.0f;
                         draw_rounded_rect_filled(ren, pill_x0, iy, sel_w, row_h, row_h / 2.0f, c_menu_selbg);
-                        draw_text(ren, f_sm, arexx_scripts[i].filename, c_menu_gold, text_draw_x, text_y);
+                        draw_text(ren, f_ftr, arexx_scripts[i].filename, c_menu_gold, text_draw_x, text_y);
                     } else {
-                        draw_text(ren, f_sm, arexx_scripts[i].filename, c_gray, text_x, text_y);
+                        draw_text(ren, f_ftr, arexx_scripts[i].filename, c_gray, text_x, text_y);
                     }
                 }
                 if (arexx_md5_cached_for != arexx_selected) {
@@ -6818,7 +6818,7 @@ int main(void)
                 const char *desc_line = arexx_scripts[arexx_selected].desc[current_lang];
                 float box_pad = 16.0f;
                 int md5_w = 0, md5_h = 0;
-                TTF_GetStringSize(f_sm, md5_line, 0, &md5_w, &md5_h);
+                TTF_GetStringSize(f_ftr, md5_line, 0, &md5_w, &md5_h);
                 float box_w = (float)md5_w + box_pad * 2.0f;
                 if (box_w < 240.0f) box_w = 240.0f;
                 if (box_w > SCREEN_W - mx * 2.0f) box_w = SCREEN_W - mx * 2.0f;
@@ -6826,7 +6826,7 @@ int main(void)
                 float desc_line_h = 16.0f;
                 float desc_max_line_w = 0.0f;
                 if (arexx_desc_cached_for != arexx_selected || arexx_desc_cached_lang != current_lang) {
-                    arexx_desc_lines_cached = measure_text_wrapped(f_sm, desc_line, desc_max_w, &arexx_desc_max_line_w_cached);
+                    arexx_desc_lines_cached = measure_text_wrapped(f_ftr, desc_line, desc_max_w, &arexx_desc_max_line_w_cached);
                     arexx_desc_cached_for = arexx_selected;
                     arexx_desc_cached_lang = current_lang;
                 }
@@ -6837,12 +6837,12 @@ int main(void)
                 float box_y = 438.0f - 12.0f - box_h;
                 SDL_Color c_bg_box = g_theme.bg;
                 draw_rounded_rect_outline(ren, box_x, box_y, box_w, box_h, 10.0f, 2.0f, c_menu_selbg, c_bg_box);
-                draw_text_wrapped(ren, f_sm, desc_line, c_gray, box_x + box_pad, box_y + box_pad, desc_max_w, desc_line_h);
-                draw_text(ren, f_sm, md5_line, c_gray, box_x + box_pad, box_y + box_pad + (float)desc_lines * desc_line_h + 6.0f);
+                draw_text_wrapped(ren, f_ftr, desc_line, c_gray, box_x + box_pad, box_y + box_pad, desc_max_w, desc_line_h);
+                draw_text(ren, f_ftr, md5_line, c_gray, box_x + box_pad, box_y + box_pad + (float)desc_lines * desc_line_h + 6.0f);
             }
             char arx_counter[24];
             snprintf(arx_counter, sizeof(arx_counter), "%d %s %d", arexx_count, tr("de", "of"), AREXX_MAX_SCRIPTS);
-            draw_text(ren, f_sm, arx_counter, c_gray, mx, 418.0f);
+            draw_text(ren, f_ftr, arx_counter, c_gray, mx, 418.0f);
             draw_line(ren, mx, 438.0f, SCREEN_W - 20.0f, 438.0f, c_selbg);
             draw_footer(ren, f_ftr, tr("[B] Ejecutar  [A] Volver", "[B] Run  [A] Back"), s_version);
 
