@@ -6625,15 +6625,17 @@ int main(void)
                 const char *dim_val_disp = DIM_TIMEOUT_LABELS[dim_timeout_selected][current_lang];
                 if (sel) {
                     int lw = 0, lh = 0, vw = 0, vh = 0;
-                    TTF_GetStringSize(f_sm, tr("Atenuar tras", "Dim after"), 0, &lw, &lh);
-                    TTF_GetStringSize(f_med, dim_val_disp, 0, &vw, &vh);
+                    TTF_GetStringSize(f_ftr, tr("Atenuar tras", "Dim after"), 0, &lw, &lh);
+                    TTF_GetStringSize(f_ftr, dim_val_disp, 0, &vw, &vh);
                     float sel_w = (float)(lw > vw ? lw : vw) + 40.0f;
                     float pill_h = dim_item_h - 2.0f;
                     draw_rounded_rect_filled(ren, mx - 14.0f, dim_cursor_y - 4.0f,
                                      sel_w, pill_h, pill_h / 2.0f, c_menu_selbg);
                 }
-                draw_text(ren, f_sm, tr("Atenuar tras", "Dim after"), labelc, mx + 8.0f, iy);
-                draw_text(ren, f_med, dim_val_disp, labelc, mx + 8.0f, iy + 16.0f);
+                float hh0 = (float)TTF_GetFontHeight(f_ftr);
+                float ty0 = iy - 4.0f + (dim_item_h - 2.0f - (16.0f + hh0)) / 2.0f;
+                draw_text(ren, f_ftr, tr("Atenuar tras", "Dim after"), labelc, mx + 8.0f, ty0);
+                draw_text(ren, f_ftr, dim_val_disp, labelc, mx + 8.0f, ty0 + 16.0f);
             }
 
             {
@@ -6642,22 +6644,25 @@ int main(void)
                 SDL_Color labelc = sel ? c_menu_gold : c_menu_beige;
                 if (sel) {
                     int lw = 0, lh = 0;
-                    TTF_GetStringSize(f_sm, tr("Brillo al atenuar", "Brightness when dimmed"), 0, &lw, &lh);
+                    TTF_GetStringSize(f_ftr, tr("Brillo al atenuar", "Brightness when dimmed"), 0, &lw, &lh);
                     float bar_total_w = dim_bar_w + 10.0f + 40.0f; /* barra + gap + "100%" aprox */
                     float sel_w = ((float)lw > bar_total_w ? (float)lw : bar_total_w) + 40.0f;
                     float pill_h = dim_item_h + 2.0f;
                     draw_rounded_rect_filled(ren, mx - 14.0f, dim_cursor_y - 8.0f,
                                      sel_w, pill_h, pill_h / 2.0f, c_menu_selbg);
                 }
-                draw_text(ren, f_sm, tr("Brillo al atenuar", "Brightness when dimmed"),
-                          labelc, mx + 8.0f, iy);
+                float hh1 = (float)TTF_GetFontHeight(f_ftr);
+                float blk1 = (16.0f + hh1 > 30.0f) ? 16.0f + hh1 : 30.0f;
+                float ty1 = iy - 8.0f + (dim_item_h + 2.0f - blk1) / 2.0f;
+                draw_text(ren, f_ftr, tr("Brillo al atenuar", "Brightness when dimmed"),
+                          labelc, mx + 8.0f, ty1);
                 float bar_x = mx + 8.0f;
-                float bar_y = iy + 20.0f;
+                float bar_y = ty1 + 20.0f;
                 float frac = dim_percent / 100.0f;
                 draw_bar_rounded(ren, bar_x, bar_y, dim_bar_w, dim_bar_h, frac, c_selbg, labelc);
                 char valbuf[8];
                 snprintf(valbuf, sizeof(valbuf), "%d%%", dim_percent);
-                draw_text(ren, f_sm, valbuf, labelc, bar_x + dim_bar_w + 10.0f, iy + 16.0f);
+                draw_text(ren, f_ftr, valbuf, labelc, bar_x + dim_bar_w + 10.0f, ty1 + 16.0f);
             }
 
             draw_line(ren, mx, 438.0f, SCREEN_W - 20.0f, 438.0f, c_selbg);
