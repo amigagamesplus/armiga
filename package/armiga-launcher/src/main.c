@@ -3806,6 +3806,7 @@ int main(void)
     TTF_Font *f_mnu   = TTF_OpenFont(FONT_PATH_BOLD, 15);
     TTF_Font *f_ftr   = TTF_OpenFont(FONT_PATH_BOLD, 13);
     TTF_Font *f_gxs   = TTF_OpenFont(FONT_PATH_BOLD, 9);
+    TTF_Font *f_gxsm  = TTF_OpenFont(FONT_PATH_BOLD, 11);
     TTF_Font *f_glg   = TTF_OpenFont(FONT_PATH_BOLD, 28);
     if (!f_med || !f_sm || !f_lg || !f_xs || !f_xsm || !f_status_bold) {
         fprintf(stderr, "TTF_OpenFont: %s\n", SDL_GetError());
@@ -6872,11 +6873,11 @@ int main(void)
             }
             draw_statusbar(ren, f_status_bold, status_time, status_wifi_up, status_battery, status_bt_up, bg_update_available, wifi_icon_tex, battery_icon_tex, bt_icon_tex, ssh_icon_tex, update_badge_tex);
             draw_active_dash_breadcrumbs(ren, f_ftr, mx, 25.0f, 3, tr("Ejecutando Script", "Running Script"));
-            draw_text(ren, f_sm, arexx_scripts[arexx_selected].filename, c_menu_selbg, mx, 60.0f);
+            draw_text(ren, f_ftr, arexx_scripts[arexx_selected].filename, c_menu_selbg, mx, 60.0f);
             if (arexx_still_running) {
                 int fname_w = 0, fname_h = 0;
-                TTF_GetStringSize(f_sm, arexx_scripts[arexx_selected].filename, 0, &fname_w, &fname_h);
-                draw_text_animdots(ren, f_xs, tr("Ejecutando", "Running"), c_gray, mx + (float)fname_w + 16.0f, 62.0f, SDL_GetTicks());
+                TTF_GetStringSize(f_ftr, arexx_scripts[arexx_selected].filename, 0, &fname_w, &fname_h);
+                draw_text_animdots(ren, f_gxs, tr("Ejecutando", "Running"), c_gray, mx + (float)fname_w + 16.0f, 62.0f, SDL_GetTicks());
             }
             float arxr_y0 = 90.0f;
             float arxr_line_h = 16.0f;
@@ -6921,7 +6922,7 @@ int main(void)
                             do {
                                 int fit_w = 0; size_t fit_len = 0;
                                 if (remaining_len > 0)
-                                    TTF_MeasureString(f_xsm, cursor, remaining_len, (int)arxr_avail_w, &fit_w, &fit_len);
+                                    TTF_MeasureString(f_gxsm, cursor, remaining_len, (int)arxr_avail_w, &fit_w, &fit_len);
                                 if (remaining_len > 0 && fit_len == 0) fit_len = 1; /* progreso garantizado */
                                 size_t break_len = fit_len;
                                 if (fit_len < remaining_len) {
@@ -6971,7 +6972,7 @@ int main(void)
                     if (strstr(src_line, "[CORRECTO]") || strstr(src_line, "[OK]")) line_c = c_arxr_lime;
                     else if (strstr(src_line, "[INCORRECTO]") || strstr(src_line, "[CRITICO]")) line_c = c_arxr_red;
                     else if (strstr(src_line, "[AVISO]")) line_c = g_theme.accent;
-                    draw_text(ren, f_xsm, arxr_wrap[i].text, line_c, mx, arxr_y0 + (i - arxr_start) * arxr_line_h);
+                    draw_text(ren, f_gxsm, arxr_wrap[i].text, line_c, mx, arxr_y0 + (i - arxr_start) * arxr_line_h);
                 }
             if (!arexx_still_running && arxr_nlines > arxr_max_visible) {
                 char scroll_info[32];
@@ -6979,7 +6980,7 @@ int main(void)
                          arxr_start + 1,
                          (arxr_start + arxr_max_visible < arxr_nlines) ? arxr_start + arxr_max_visible : arxr_nlines,
                          arxr_nlines);
-                draw_text_right(ren, f_xs, scroll_info, c_gray, SCREEN_W - 20.0f, 70.0f);
+                draw_text_right(ren, f_gxs, scroll_info, c_gray, SCREEN_W - 20.0f, 70.0f);
             }
             draw_line(ren, mx, 438.0f, SCREEN_W - 20.0f, 438.0f, c_selbg);
             if (!arexx_still_running && arxr_nlines > arxr_max_visible)
@@ -7898,6 +7899,7 @@ int main(void)
     TTF_CloseFont(f_mnu);
     TTF_CloseFont(f_ftr);
     TTF_CloseFont(f_gxs);
+    TTF_CloseFont(f_gxsm);
     TTF_CloseFont(f_glg);
     TTF_CloseFont(f_badge);
     SDL_DestroyRenderer(ren);
