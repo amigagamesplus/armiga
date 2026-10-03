@@ -6116,13 +6116,13 @@ int main(void)
                 snprintf(desc_flat, sizeof(desc_flat), "%s", perf_opts[i].desc[current_lang]);
                 for (char *p = desc_flat; *p; p++) if (*p == '\n') *p = ' ';
                 int tw = 0, th = 0;
-                TTF_GetStringSize(f_med, perf_opts[i].title[current_lang], 0, &tw, &th);
+                TTF_GetStringSize(f_ftr, perf_opts[i].title[current_lang], 0, &tw, &th);
                 if (perf_desc_cached_lang != current_lang) {
                     for (int pj = 0; pj < 3; pj++) {
                         char desc_flat_pj[128];
                         snprintf(desc_flat_pj, sizeof(desc_flat_pj), "%s", perf_opts[pj].desc[current_lang]);
                         for (char *p = desc_flat_pj; *p; p++) if (*p == '\n') *p = ' ';
-                        perf_desc_lines_cached[pj] = measure_text_wrapped(f_sm, desc_flat_pj, perf_w - 30.0f, &perf_desc_max_line_w_cached[pj]);
+                        perf_desc_lines_cached[pj] = measure_text_wrapped(f_ftr, desc_flat_pj, perf_w - 30.0f, &perf_desc_max_line_w_cached[pj]);
                     }
                     perf_desc_cached_lang = current_lang;
                 }
@@ -6138,17 +6138,22 @@ int main(void)
                 float text_bottom = 20.0f + (float)desc_line_count * 15.0f;
                 float content_bottom = (icon_bottom > text_bottom) ? icon_bottom : text_bottom;
                 float pill_h3 = content_bottom + 16.0f;
+                float pill_top3 = iy - 8.0f;
+                float blk_h = 20.0f + (float)(desc_line_count > 0 ? desc_line_count - 1 : 0) * 15.0f
+                              + (float)TTF_GetFontHeight(f_ftr);
+                float ty0 = pill_top3 + (pill_h3 - blk_h) / 2.0f;
+                float icon_y3 = pill_top3 + (pill_h3 - 24.0f) / 2.0f;
                 if (sel) {
                     draw_rounded_rect_filled(ren, perf_x - 10.0f, perf_cursor_y - 8.0f,
                                      pill_w2, pill_h3, pill_h3 / 2.0f, c_menu_selbg);
                 }
                 if (perf_opts[i].icon) {
                     SDL_SetTextureColorMod(perf_opts[i].icon, titlec.r, titlec.g, titlec.b);
-                    SDL_FRect icon_dst = {perf_x + 4.0f, iy, 24.0f, 24.0f};
+                    SDL_FRect icon_dst = {perf_x + 4.0f, icon_y3, 24.0f, 24.0f};
                     SDL_RenderTexture(ren, perf_opts[i].icon, NULL, &icon_dst);
                 }
-                draw_text(ren, f_med, perf_opts[i].title[current_lang], titlec, perf_x + 38.0f, iy);
-                draw_text_wrapped(ren, f_sm, desc_flat, titlec, perf_x + 38.0f, iy + 20.0f, perf_w - 30.0f, 15.0f);
+                draw_text(ren, f_ftr, perf_opts[i].title[current_lang], titlec, perf_x + 38.0f, ty0);
+                draw_text_wrapped(ren, f_ftr, desc_flat, titlec, perf_x + 38.0f, ty0 + 20.0f, perf_w - 30.0f, 15.0f);
             }
             draw_line(ren, mx, 438.0f, SCREEN_W - 20.0f, 438.0f, c_selbg);
             draw_footer(ren, f_ftr,
