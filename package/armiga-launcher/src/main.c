@@ -6675,20 +6675,21 @@ int main(void)
             }
             for (int i = 0; i < BACKUP_MENU_COUNT; i++) {
                 float iy = bkm_y0 + i * bkm_item_h;
+                float ty = iy - 5.0f + (bkm_item_h - 4.0f - (float)TTF_GetFontHeight(f_ftr)) / 2.0f;
                 if (i == backup_selected) {
                     int text_w = 0, text_h = 0;
-                    TTF_GetStringSize(f_med, BACKUP_MENU_ITEMS[i][current_lang], 0, &text_w, &text_h);
+                    TTF_GetStringSize(f_ftr, BACKUP_MENU_ITEMS[i][current_lang], 0, &text_w, &text_h);
                     float sel_w = (float)text_w + 32.0f;
                     float pill_h = bkm_item_h - 4.0f;
                     draw_rounded_rect_filled(ren, mx - 10.0f, bkm_cursor_y - 5.0f,
                                      sel_w, pill_h, pill_h / 2.0f, c_menu_selbg);
-                    draw_text(ren, f_med, BACKUP_MENU_ITEMS[i][current_lang], c_menu_gold, mx + 8.0f, iy);
+                    draw_text(ren, f_ftr, BACKUP_MENU_ITEMS[i][current_lang], c_menu_gold, mx + 8.0f, ty);
                 } else {
-                    draw_text(ren, f_med, BACKUP_MENU_ITEMS[i][current_lang], c_menu_beige, mx + 8.0f, iy);
+                    draw_text(ren, f_ftr, BACKUP_MENU_ITEMS[i][current_lang], c_menu_beige, mx + 8.0f, ty);
                 }
             }
             if (backup_creating) {
-                draw_text_animdots(ren, f_sm, tr("Generando copia de seguridad", "Creating backup"),
+                draw_text_animdots(ren, f_ftr, tr("Generando copia de seguridad", "Creating backup"),
                           c_white, mx, bkm_y0 + BACKUP_MENU_COUNT * bkm_item_h + 20.0f, now_ticks);
             } else if (backup_msg_until > 0 && SDL_GetTicks() < backup_msg_until) {
                 char msgbuf[128];
@@ -6703,7 +6704,7 @@ int main(void)
                     safe_copy(msgbuf, tr("Error al crear la copia de seguridad", "Error creating backup"), sizeof(msgbuf));
                     msgc = c_red;
                 }
-                draw_text_truncated(ren, f_sm, msgbuf,
+                draw_text_truncated(ren, f_ftr, msgbuf,
                           msgc, mx, bkm_y0 + BACKUP_MENU_COUNT * bkm_item_h + 20.0f, SCREEN_W - 40.0f);
             }
             draw_line(ren, mx, 438.0f, SCREEN_W - 20.0f, 438.0f, c_selbg);
