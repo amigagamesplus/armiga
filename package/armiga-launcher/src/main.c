@@ -6010,9 +6010,10 @@ int main(void)
                 } else {
                     safe_copy(item_label, SETTINGS_MENU_ITEMS[i][current_lang], sizeof(item_label));
                 }
+                float ty = iy - 5.0f + (settings_item_h - 4.0f - (float)TTF_GetFontHeight(f_ftr)) / 2.0f;
                 if (i == settings_selected) {
                     int text_w = 0, text_h = 0;
-                    TTF_GetStringSize(f_med, item_label, 0, &text_w, &text_h);
+                    TTF_GetStringSize(f_ftr, item_label, 0, &text_w, &text_h);
                     float sel_w = 46.0f + (float)text_w + 32.0f;
                     float pill_h = settings_item_h - 4.0f;
                     draw_rounded_rect_filled(ren, mx - 10.0f, settings_cursor_y - 5.0f,
@@ -6022,22 +6023,22 @@ int main(void)
                         SDL_FRect icon_dst = {mx + 8.0f, iy - 2.0f, 22.0f, 22.0f};
                         SDL_RenderTexture(ren, menu_icon_tex[4], NULL, &icon_dst);
                     }
-                    draw_text(ren, f_med, item_label, c_menu_gold, mx + 46.0f, iy);
+                    draw_text(ren, f_ftr, item_label, c_menu_gold, mx + 46.0f, ty);
                 } else {
                     if (menu_icon_tex[4]) {
                         SDL_SetTextureColorMod(menu_icon_tex[4], c_menu_beige.r, c_menu_beige.g, c_menu_beige.b);
                         SDL_FRect icon_dst = {mx + 8.0f, iy - 2.0f, 22.0f, 22.0f};
                         SDL_RenderTexture(ren, menu_icon_tex[4], NULL, &icon_dst);
                     }
-                    draw_text(ren, f_med, item_label, c_menu_beige, mx + 46.0f, iy);
+                    draw_text(ren, f_ftr, item_label, c_menu_beige, mx + 46.0f, ty);
                 }
             }
             if (settings_scroll > 0) {
-                draw_text(ren, f_xs, tr("más arriba ↑", "more above ↑"), c_menu_selbg,
+                draw_text(ren, f_gxs, tr("más arriba ↑", "more above ↑"), c_menu_selbg,
                           mx + 8.0f, LIST_MORE_ABOVE_Y);
             }
             if (settings_scroll + settings_visible < SETTINGS_MENU_COUNT) {
-                draw_text(ren, f_xs, tr("más abajo ↓", "more below ↓"), c_menu_selbg,
+                draw_text(ren, f_gxs, tr("más abajo ↓", "more below ↓"), c_menu_selbg,
                           mx + 8.0f, LIST_MORE_BELOW_Y);
             }
 
@@ -6057,9 +6058,9 @@ int main(void)
                 float box_x = (SCREEN_W - box_w) / 2.0f;
                 float box_y = (SCREEN_H - box_h) / 2.0f;
                 draw_rounded_rect_filled(ren, box_x, box_y, box_w, box_h, 16.0f, g_theme.row_bg);
-                draw_text_centered(ren, f_med, tr("¿Restablecer valores de fábrica?", "Factory reset?"),
+                draw_text_centered(ren, f_ftr, tr("¿Restablecer valores de fábrica?", "Factory reset?"),
                                    g_theme.text_light, SCREEN_W / 2.0f, box_y + 30.0f);
-                draw_text_centered(ren, f_sm, tr("[B] Si        [A] No", "[B] Yes       [A] No"),
+                draw_text_centered(ren, f_ftr, tr("[B] Si        [A] No", "[B] Yes       [A] No"),
                                    g_theme.accent, SCREEN_W / 2.0f, box_y + 66.0f);
             }
 
