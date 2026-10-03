@@ -3801,6 +3801,8 @@ int main(void)
     TTF_Font *f_status_bold = TTF_OpenFont(FONT_PATH_BOLD, FONT_STATUSBAR);
     TTF_Font *f_badge = TTF_OpenFont(FONT_PATH_BOLD, FONT_BADGE);
     TTF_Font *f_title = TTF_OpenFont(FONT_PATH_BOLD, 20);
+    TTF_Font *f_gmed  = TTF_OpenFont(FONT_PATH_BOLD, 15);
+    TTF_Font *f_gsm   = TTF_OpenFont(FONT_PATH_BOLD, FONT_SM);
     if (!f_med || !f_sm || !f_lg || !f_xs || !f_xsm || !f_status_bold) {
         fprintf(stderr, "TTF_OpenFont: %s\n", SDL_GetError());
         SDL_DestroyRenderer(ren); SDL_DestroyWindow(win);
@@ -6218,7 +6220,7 @@ int main(void)
             SDL_Color c_card = cat_mix(c_bg, c_menu_selbg, 0.12f);
             SDL_Color c_track = cat_mix(c_bg, c_menu_selbg, 0.30f);
             if (g_games_n == 0) {
-                draw_text(ren, f_sm,
+                draw_text(ren, f_gsm,
                           games_scan_running ? tr("Escaneando biblioteca...", "Scanning library...")
                                              : tr("No hay juegos en la carpeta whdload", "No games in the whdload folder"),
                           c_gray, mx + 8.0f, g_y0);
@@ -6227,7 +6229,7 @@ int main(void)
             if (games_selected >= g_visible) g_scroll = games_selected - g_visible + 1;
             if (g_scroll > g_games_n - g_visible) g_scroll = g_games_n - g_visible;
             if (g_scroll < 0) g_scroll = 0;
-            int g_lh = TTF_GetFontHeight(f_med);
+            int g_lh = TTF_GetFontHeight(f_gmed);
             for (int row = 0; row < g_visible && (row + g_scroll) < g_games_n; row++) {
                 int i = row + g_scroll;
                 float iy = g_y0 + row * g_item_h;
@@ -6239,12 +6241,12 @@ int main(void)
                 cat_short_title(g_games[i].title, st, sizeof(st));
                 if (sel) {
                     int st_w = 0, st_h = 0;
-                    TTF_GetStringSize(f_med, st, 0, &st_w, &st_h);
+                    TTF_GetStringSize(f_gmed, st, 0, &st_w, &st_h);
                     float sel_w = (float)st_w + 28.0f;
                     if (sel_w > g_list_w) sel_w = g_list_w;
                     draw_rounded_rect_filled(ren, g_lx, pill_top, sel_w, pill_h, pill_h / 2.0f, c_menu_selbg);
                 }
-                draw_text_truncated(ren, f_med, st, sel ? c_menu_gold : c_menu_beige,
+                draw_text_truncated(ren, f_gmed, st, sel ? c_menu_gold : c_menu_beige,
                                     g_lx + 14.0f, text_y, g_list_w - 28.0f);
             }
             if (g_games_n > g_visible) {
@@ -6260,11 +6262,11 @@ int main(void)
                 snprintf(pos_a, sizeof(pos_a), "%d", games_selected + 1);
                 snprintf(pos_b, sizeof(pos_b), " / %d", g_games_n);
                 int pa_w = 0, pb_w = 0, pp_h = 0;
-                TTF_GetStringSize(f_sm, pos_a, 0, &pa_w, &pp_h);
-                TTF_GetStringSize(f_sm, pos_b, 0, &pb_w, &pp_h);
+                TTF_GetStringSize(f_gsm, pos_a, 0, &pa_w, &pp_h);
+                TTF_GetStringSize(f_gsm, pos_b, 0, &pb_w, &pp_h);
                 float pos_x = g_sb_x + 4.0f - (float)(pa_w + pb_w);
-                draw_text(ren, f_sm, pos_a, c_menu_beige, pos_x, g_lbot + 6.0f);
-                draw_text(ren, f_sm, pos_b, c_gray, pos_x + (float)pa_w, g_lbot + 6.0f);
+                draw_text(ren, f_gsm, pos_a, c_menu_beige, pos_x, g_lbot + 6.0f);
+                draw_text(ren, f_gsm, pos_b, c_gray, pos_x + (float)pa_w, g_lbot + 6.0f);
 
                 float rx_g = g_sb_x + 4.0f + 12.0f;
                 float rw_g = SCREEN_W - 20.0f - rx_g;
@@ -6287,9 +6289,9 @@ int main(void)
                         ? tr("SIN CARATULA", "NO COVER")
                         : tr("CARGANDO...", "LOADING...");
                     int ph_w = 0, ph_h = 0;
-                    TTF_GetStringSize(f_sm, ph_txt, 0, &ph_w, &ph_h);
+                    TTF_GetStringSize(f_gsm, ph_txt, 0, &ph_w, &ph_h);
                     draw_rounded_rect_outline(ren, cb_x, cb_y, cb_w, cb_h, 6.0f, 1.0f, c_track, c_card);
-                    draw_text(ren, f_sm, ph_txt, cat_mix(c_card, c_menu_beige, 0.40f),
+                    draw_text(ren, f_gsm, ph_txt, cat_mix(c_card, c_menu_beige, 0.40f),
                               cb_x + (cb_w - (float)ph_w) / 2.0f, cb_y + (cb_h - (float)ph_h) / 2.0f);
                 }
                 float sep_x = cb_x + cb_w + 8.0f;
@@ -6320,19 +6322,19 @@ int main(void)
                 const char *lbl[5] = { tr("SISTEMA", "SYSTEM"), tr("VERSIÓN", "VERSION"),
                                        tr("IDIOMA", "LANGUAGE"), tr("TIPO", "TYPE"), tr("TAMAÑO", "SIZE") };
                 const char *val[5] = { v_sys, v_ver, v_lang, "WHDLoad", v_size };
-                int xs_h = TTF_GetFontHeight(f_sm), sm_h = TTF_GetFontHeight(f_sm);
+                int xs_h = TTF_GetFontHeight(f_gsm), sm_h = TTF_GetFontHeight(f_gsm);
                 for (int k = 0; k < 5; k++) {
                     float ry = c1_y + 12.0f + (float)k * 25.0f;
                     int lw = 0, lh = 0, vw = 0, vh = 0;
-                    TTF_GetStringSize(f_sm, lbl[k], 0, &lw, &lh);
-                    TTF_GetStringSize(f_sm, val[k], 0, &vw, &vh);
-                    draw_text(ren, f_sm, lbl[k], c_gray, inf_x, ry + (25.0f - (float)xs_h) / 2.0f);
+                    TTF_GetStringSize(f_gsm, lbl[k], 0, &lw, &lh);
+                    TTF_GetStringSize(f_gsm, val[k], 0, &vw, &vh);
+                    draw_text(ren, f_gsm, lbl[k], c_gray, inf_x, ry + (25.0f - (float)xs_h) / 2.0f);
                     float vmax = (inf_r - inf_x) - (float)lw - 8.0f;
                     if ((float)vw > vmax)
-                        draw_text_truncated(ren, f_sm, val[k], c_menu_beige, inf_x + (float)lw + 8.0f,
+                        draw_text_truncated(ren, f_gsm, val[k], c_menu_beige, inf_x + (float)lw + 8.0f,
                                             ry + (25.0f - (float)sm_h) / 2.0f, vmax);
                     else
-                        draw_text(ren, f_sm, val[k], c_menu_beige, inf_r - (float)vw,
+                        draw_text(ren, f_gsm, val[k], c_menu_beige, inf_r - (float)vw,
                                   ry + (25.0f - (float)sm_h) / 2.0f);
                 }
 
@@ -6340,12 +6342,12 @@ int main(void)
                 float c3_h = 34.0f, c3_y = g_lbot - c3_h;
                 float c2_y = c1_y + c1_h + 8.0f, c2_h = c3_y - 8.0f - c2_y;
                 draw_rounded_rect_filled(ren, rx_g, c2_y, rw_g, c2_h, 10.0f, c_card);
-                TTF_Font *f_ttl = f_title ? f_title : f_med;
+                TTF_Font *f_ttl = f_title ? f_title : f_gmed;
                 draw_text_wrapped(ren, f_ttl, g->title, c_menu_beige, rx_g + 12.0f, c2_y + 10.0f,
                                   rw_g - 24.0f, (float)(TTF_GetFontHeight(f_ttl) + 2));
                 float fb_x = rx_g + 12.0f, fb_y = c2_y + c2_h - 28.0f;
                 if (!g->identified) {
-                    draw_text(ren, f_sm, tr("Sin identificar en los DAT", "Not found in the DATs"),
+                    draw_text(ren, f_gsm, tr("Sin identificar en los DAT", "Not found in the DATs"),
                               c_gray, fb_x, fb_y + 4.0f);
                 } else {
                     if (g->flags & GF_NTSC)
@@ -7863,6 +7865,8 @@ int main(void)
     TTF_CloseFont(f_xsm);
     TTF_CloseFont(f_status_bold);
     TTF_CloseFont(f_title);
+    TTF_CloseFont(f_gmed);
+    TTF_CloseFont(f_gsm);
     TTF_CloseFont(f_badge);
     SDL_DestroyRenderer(ren);
     SDL_DestroyWindow(win);
