@@ -3803,6 +3803,7 @@ int main(void)
     TTF_Font *f_title = TTF_OpenFont(FONT_PATH_BOLD, 20);
     TTF_Font *f_gmed  = TTF_OpenFont(FONT_PATH_BOLD, 15);
     TTF_Font *f_gsm   = TTF_OpenFont(FONT_PATH_BOLD, FONT_SM);
+    TTF_Font *f_mnu   = TTF_OpenFont(FONT_PATH_BOLD, 15);
     if (!f_med || !f_sm || !f_lg || !f_xs || !f_xsm || !f_status_bold) {
         fprintf(stderr, "TTF_OpenFont: %s\n", SDL_GetError());
         SDL_DestroyRenderer(ren); SDL_DestroyWindow(win);
@@ -5770,7 +5771,8 @@ int main(void)
             float iy = menu_y0 + i * item_h;
             const char *menu_label = MENU_ITEMS[i][current_lang];
             int label_w = 0, label_h = 0;
-            TTF_GetStringSize(f_med, menu_label, 0, &label_w, &label_h);
+            TTF_GetStringSize(f_mnu, menu_label, 0, &label_w, &label_h);
+            float ty = iy - 5.0f + (item_h - 4.0f - (float)label_h) / 2.0f; /* centro de la pildora */
             /* Ancho de la pildora (real o "virtual" si no esta seleccionada),
              * usado tambien para posicionar el contador de ROMs siempre al
              * mismo sitio, se mueva o no la seleccion. */
@@ -5792,14 +5794,14 @@ int main(void)
                     SDL_FRect icon_dst = {icon_x, icon_y, icon_sz, icon_sz};
                     SDL_RenderTexture(ren, menu_icon_tex[MENU_ICON_IDX[i]], NULL, &icon_dst);
                 }
-                draw_text(ren, f_med, menu_label, c_menu_gold, mx + 46.0f, iy);
+                draw_text(ren, f_mnu, menu_label, c_menu_gold, mx + 46.0f, ty);
             } else {
                 if (menu_icon_tex[MENU_ICON_IDX[i]]) {
                     SDL_SetTextureColorMod(menu_icon_tex[MENU_ICON_IDX[i]], c_menu_beige.r, c_menu_beige.g, c_menu_beige.b);
                     SDL_FRect icon_dst = {mx + 8.0f, iy - 1.0f, 22.0f, 22.0f};
                     SDL_RenderTexture(ren, menu_icon_tex[MENU_ICON_IDX[i]], NULL, &icon_dst);
                 }
-                draw_text(ren, f_med, menu_label, c_menu_beige, mx + 46.0f, iy);
+                draw_text(ren, f_mnu, menu_label, c_menu_beige, mx + 46.0f, ty);
             }
 
             /* Contador total de ROMs, fuera de la pildora de seleccion
@@ -5807,7 +5809,7 @@ int main(void)
             if (i == 0) {
                 char rom_count_buf[16];
                 snprintf(rom_count_buf, sizeof(rom_count_buf), "(%d)", total_roms);
-                draw_text(ren, f_med, rom_count_buf, c_menu_beige, mx - 10.0f + item_pill_w + 10.0f, iy);
+                draw_text(ren, f_mnu, rom_count_buf, c_menu_beige, mx - 10.0f + item_pill_w + 10.0f, ty);
             }
 
         }
@@ -7867,6 +7869,7 @@ int main(void)
     TTF_CloseFont(f_title);
     TTF_CloseFont(f_gmed);
     TTF_CloseFont(f_gsm);
+    TTF_CloseFont(f_mnu);
     TTF_CloseFont(f_badge);
     SDL_DestroyRenderer(ren);
     SDL_DestroyWindow(win);
