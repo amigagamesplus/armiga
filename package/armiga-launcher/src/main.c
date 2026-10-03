@@ -3802,7 +3802,7 @@ int main(void)
     TTF_Font *f_badge = TTF_OpenFont(FONT_PATH_BOLD, FONT_BADGE);
     TTF_Font *f_title = TTF_OpenFont(FONT_PATH_BOLD, 20);
     TTF_Font *f_gmed  = TTF_OpenFont(FONT_PATH_BOLD, 15);
-    TTF_Font *f_gsm   = TTF_OpenFont(FONT_PATH_BOLD, FONT_SM);
+    TTF_Font *f_gsm   = TTF_OpenFont(FONT_PATH_BOLD, 13);
     TTF_Font *f_mnu   = TTF_OpenFont(FONT_PATH_BOLD, 15);
     TTF_Font *f_ftr   = TTF_OpenFont(FONT_PATH_BOLD, 13);
     if (!f_med || !f_sm || !f_lg || !f_xs || !f_xsm || !f_status_bold) {
@@ -6071,8 +6071,8 @@ int main(void)
                 float bar_w = 220.0f, bar_h = 10.0f;
                 char valbuf[8];
                 snprintf(valbuf, sizeof(valbuf), "%d%%", brightness_pct);
-                draw_text(ren, f_sm, tr("Brillo", "Brightness"), c_green, mx + 8.0f, iy);
-                draw_text(ren, f_med, valbuf, c_white, mx + 8.0f, iy + 16.0f);
+                draw_text(ren, f_gsm, tr("Brillo", "Brightness"), c_green, mx + 8.0f, iy);
+                draw_text(ren, f_ftr, valbuf, c_white, mx + 8.0f, iy + 16.0f);
                 float frac = brightness_pct / 100.0f;
                 SDL_Color c_bar_lime = c_selbg;
                 draw_bar_rounded(ren, mx + 8.0f, iy + 44.0f, bar_w, bar_h, frac, c_bar_lime, c_white);
