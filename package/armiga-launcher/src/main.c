@@ -3805,6 +3805,7 @@ int main(void)
     TTF_Font *f_gsm   = TTF_OpenFont(FONT_PATH_BOLD, 13);
     TTF_Font *f_mnu   = TTF_OpenFont(FONT_PATH_BOLD, 15);
     TTF_Font *f_ftr   = TTF_OpenFont(FONT_PATH_BOLD, 13);
+    TTF_Font *f_gset  = TTF_OpenFont(FONT_PATH_BOLD, 14);
     TTF_Font *f_gxs   = TTF_OpenFont(FONT_PATH_BOLD, 9);
     TTF_Font *f_gxsm  = TTF_OpenFont(FONT_PATH_BOLD, 11);
     TTF_Font *f_glg   = TTF_OpenFont(FONT_PATH_BOLD, 28);
@@ -6012,10 +6013,10 @@ int main(void)
                 } else {
                     safe_copy(item_label, SETTINGS_MENU_ITEMS[i][current_lang], sizeof(item_label));
                 }
-                float ty = iy - 5.0f + (settings_item_h - 4.0f - (float)TTF_GetFontHeight(f_ftr)) / 2.0f;
+                float ty = iy - 5.0f + (settings_item_h - 4.0f - (float)TTF_GetFontHeight(f_gset)) / 2.0f;
                 if (i == settings_selected) {
                     int text_w = 0, text_h = 0;
-                    TTF_GetStringSize(f_ftr, item_label, 0, &text_w, &text_h);
+                    TTF_GetStringSize(f_gset, item_label, 0, &text_w, &text_h);
                     float sel_w = 46.0f + (float)text_w + 32.0f;
                     float pill_h = settings_item_h - 4.0f;
                     draw_rounded_rect_filled(ren, mx - 10.0f, settings_cursor_y - 5.0f,
@@ -6025,14 +6026,14 @@ int main(void)
                         SDL_FRect icon_dst = {mx + 8.0f, iy - 2.0f, 22.0f, 22.0f};
                         SDL_RenderTexture(ren, menu_icon_tex[4], NULL, &icon_dst);
                     }
-                    draw_text(ren, f_ftr, item_label, c_menu_gold, mx + 46.0f, ty);
+                    draw_text(ren, f_gset, item_label, c_menu_gold, mx + 46.0f, ty);
                 } else {
                     if (menu_icon_tex[4]) {
                         SDL_SetTextureColorMod(menu_icon_tex[4], c_menu_beige.r, c_menu_beige.g, c_menu_beige.b);
                         SDL_FRect icon_dst = {mx + 8.0f, iy - 2.0f, 22.0f, 22.0f};
                         SDL_RenderTexture(ren, menu_icon_tex[4], NULL, &icon_dst);
                     }
-                    draw_text(ren, f_ftr, item_label, c_menu_beige, mx + 46.0f, ty);
+                    draw_text(ren, f_gset, item_label, c_menu_beige, mx + 46.0f, ty);
                 }
             }
             if (settings_scroll > 0) {
@@ -7904,6 +7905,7 @@ draw_text(ren, f_ftr, "WIFI", labelc, mx + 8.0f, wty);
     TTF_CloseFont(f_gsm);
     TTF_CloseFont(f_mnu);
     TTF_CloseFont(f_ftr);
+    TTF_CloseFont(f_gset);
     TTF_CloseFont(f_gxs);
     TTF_CloseFont(f_gxsm);
     TTF_CloseFont(f_glg);
