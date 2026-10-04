@@ -7597,12 +7597,12 @@ draw_text(ren, f_ftr, "WIFI", labelc, mx + 8.0f, wty);
             draw_active_dash_breadcrumbs(ren, f_ftr, CX, 25.0f, 3, tr("Test de mando", "Controller Test"));
 
             if (!joy) {
-                draw_text(ren, f_sm, tr("No se detecta ningún mando.", "No controller detected."), c_gray, CX, 100.0f);
+                draw_text(ren, f_ftr, tr("No se detecta ningún mando.", "No controller detected."), c_gray, CX, 100.0f);
             } else {
                 /* ── D-PAD (hat) ────────────────────────────────────────── */
                 float dpad_cx = 140.0f, dpad_cy = 160.0f, dpad_sz = 26.0f, dpad_gap = 4.0f;
                 Uint8 hat = SDL_GetJoystickHat(joy, 0);
-                draw_text_centered(ren, f_sm, "D-Pad", c_gray, dpad_cx, dpad_cy - 70.0f);
+                draw_text_centered(ren, f_ftr, "D-Pad", c_gray, dpad_cx, dpad_cy - 70.0f);
                 bool dpad_up_p    = hat & SDL_HAT_UP;
                 bool dpad_down_p  = hat & SDL_HAT_DOWN;
                 bool dpad_left_p  = hat & SDL_HAT_LEFT;
@@ -7624,7 +7624,7 @@ draw_text(ren, f_ftr, "WIFI", labelc, mx + 8.0f, wty);
 
                 /* ── STICK IZQUIERDO (ejes 0,1) ─────────────────────────── */
                 float stickL_cx = 320.0f, stickL_cy = 160.0f, stick_r = 45.0f, dot_r = 8.0f;
-                draw_text_centered(ren, f_sm, tr("Stick Izq.", "Left Stick"), c_gray, stickL_cx, stickL_cy - 70.0f);
+                draw_text_centered(ren, f_ftr, tr("Stick Izq.", "Left Stick"), c_gray, stickL_cx, stickL_cy - 70.0f);
                 { SDL_Color ring_c = g_theme.accent; SDL_Color bg_c = g_theme.bg;
                   draw_rounded_rect_outline(ren, stickL_cx - stick_r, stickL_cy - stick_r, stick_r*2, stick_r*2, stick_r, 2.0f, ring_c, bg_c); }
                 { SDL_Color deadzone_c = COL_DEADZONE;
@@ -7641,11 +7641,11 @@ draw_text(ren, f_ftr, "WIFI", labelc, mx + 8.0f, wty);
                   SDL_Color dot_c = l3_pressed ? g_theme.alert : g_theme.accent;
                   draw_circle_filled(ren, dotL_x, dotL_y, dot_r, dot_c); }
                 { char buf[24]; snprintf(buf, sizeof(buf), "X:%d Y:%d", axL_x, axL_y);
-                  draw_text_centered(ren, f_xsm, buf, c_gray, stickL_cx, stickL_cy + stick_r + 10.0f); }
+                  draw_text_centered(ren, f_gxsm, buf, c_gray, stickL_cx, stickL_cy + stick_r + 10.0f); }
 
                 /* ── STICK DERECHO (ejes 2,3) ───────────────────────────── */
                 float stickR_cx = 500.0f, stickR_cy = 160.0f;
-                draw_text_centered(ren, f_sm, tr("Stick Dcho.", "Right Stick"), c_gray, stickR_cx, stickR_cy - 70.0f);
+                draw_text_centered(ren, f_ftr, tr("Stick Dcho.", "Right Stick"), c_gray, stickR_cx, stickR_cy - 70.0f);
                 { SDL_Color ring_c = g_theme.accent; SDL_Color bg_c = g_theme.bg;
                   draw_rounded_rect_outline(ren, stickR_cx - stick_r, stickR_cy - stick_r, stick_r*2, stick_r*2, stick_r, 2.0f, ring_c, bg_c); }
                 { SDL_Color deadzone_c = COL_DEADZONE;
@@ -7662,7 +7662,7 @@ draw_text(ren, f_ftr, "WIFI", labelc, mx + 8.0f, wty);
                   SDL_Color dot_c = r3_pressed ? g_theme.alert : g_theme.accent;
                   draw_circle_filled(ren, dotR_x, dotR_y, dot_r, dot_c); }
                 { char buf[24]; snprintf(buf, sizeof(buf), "X:%d Y:%d", axR_x, axR_y);
-                  draw_text_centered(ren, f_xsm, buf, c_gray, stickR_cx, stickR_cy + stick_r + 10.0f); }
+                  draw_text_centered(ren, f_gxsm, buf, c_gray, stickR_cx, stickR_cy + stick_r + 10.0f); }
 
                 /* ── BOTONES (indice SDL crudo, sin asumir nombres no verificados) ── */
                 /* El D-pad se expone via HID tambien como BTN_DPAD_*
@@ -7673,7 +7673,7 @@ draw_text(ren, f_ftr, "WIFI", labelc, mx + 8.0f, wty);
                  * reales) para no mostrar recuadros que nunca se iluminan. */
                 int n_btn_raw = SDL_GetNumJoystickButtons(joy);
                 int n_btn = (n_btn_raw > 13) ? 13 : n_btn_raw;
-                draw_text_centered(ren, f_sm, tr("Botones", "Buttons"), c_gray, SCREEN_W / 2.0f, 260.0f);
+                draw_text_centered(ren, f_ftr, tr("Botones", "Buttons"), c_gray, SCREEN_W / 2.0f, 260.0f);
                 float btn_y0 = 285.0f, btn_w = 36.0f, btn_h = 36.0f, btn_gap = 8.0f;
                 static const int btn_row_sizes[2] = {7, 6}; /* 13 botones reales: 7 arriba, 6 abajo */
                 for (int b = 0; b < n_btn; b++) {
@@ -7694,9 +7694,9 @@ draw_text(ren, f_ftr, "WIFI", labelc, mx + 8.0f, wty);
                     }
                     char bl[4]; snprintf(bl, sizeof(bl), "%d", b);
                     int tw = 0, th = 0;
-                    TTF_GetStringSize(f_med, bl, 0, &tw, &th);
+                    TTF_GetStringSize(f_ftr, bl, 0, &tw, &th);
                     SDL_Color txt_c = pressed ? (SDL_Color){0,0,0,255} : g_theme.accent;
-                    draw_text(ren, f_med, bl, txt_c, bx + btn_w/2.0f - (float)tw/2.0f, by + btn_h/2.0f - (float)th/2.0f);
+                    draw_text(ren, f_ftr, bl, txt_c, bx + btn_w/2.0f - (float)tw/2.0f, by + btn_h/2.0f - (float)th/2.0f);
                 }
 
                 /* Nombre del boton pulsado, segun orden estandar evdev/SDL
@@ -7745,13 +7745,13 @@ draw_text(ren, f_ftr, "WIFI", labelc, mx + 8.0f, wty);
                     }
                     if (any_pressed) {
                         SDL_Color name_c = g_theme.accent;
-                        draw_text_centered(ren, f_sm, active_btns_str, name_c, SCREEN_W / 2.0f, 385.0f);
+                        draw_text_centered(ren, f_ftr, active_btns_str, name_c, SCREEN_W / 2.0f, 385.0f);
                     }
                 }
             }
 
             { SDL_Color joytest_c = g_theme.accent;
-              draw_text_right(ren, f_sm, "armiga-joytest v1.1", joytest_c, SCREEN_W - 20.0f, 414.0f); }
+              draw_text_right(ren, f_ftr, "armiga-joytest v1.1", joytest_c, SCREEN_W - 20.0f, 414.0f); }
             /* Test de vibracion: mantener L2 (indice 6, confirmado en
              * hardware) dispara un pulso corto de rumble, repetido
              * mientras se mantenga pulsado (50ms por pulso, sin overlap
