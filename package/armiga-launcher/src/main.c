@@ -3806,6 +3806,7 @@ int main(void)
     TTF_Font *f_mnu   = TTF_OpenFont(FONT_PATH_BOLD, 15);
     TTF_Font *f_ftr   = TTF_OpenFont(FONT_PATH_BOLD, 13);
     TTF_Font *f_gset  = TTF_OpenFont(FONT_PATH_BOLD, 14);
+    TTF_Font *f_garx  = TTF_OpenFont(FONT_PATH_BOLD, 14);
     TTF_Font *f_gxs   = TTF_OpenFont(FONT_PATH_BOLD, 9);
     TTF_Font *f_gxsm  = TTF_OpenFont(FONT_PATH_BOLD, 11);
     TTF_Font *f_glg   = TTF_OpenFont(FONT_PATH_BOLD, 28);
@@ -6799,7 +6800,7 @@ int main(void)
                         SDL_RenderTexture(ren, arexx_icon_tex, NULL, &icon_dst);
                     }
                     int text_w = 0, text_h = 0;
-                    TTF_GetStringSize(f_ftr, arexx_scripts[i].filename, 0, &text_w, &text_h);
+                    TTF_GetStringSize(f_garx, arexx_scripts[i].filename, 0, &text_w, &text_h);
                     float row_h = 26.0f;
                     float text_y = iy + (row_h - (float)text_h) / 2.0f;
                     if (i == arexx_selected) {
@@ -6807,9 +6808,9 @@ int main(void)
                         float pill_x0 = text_x - 16.0f;
                         float text_draw_x = pill_x0 + (sel_w - (float)text_w) / 2.0f;
                         draw_rounded_rect_filled(ren, pill_x0, iy, sel_w, row_h, row_h / 2.0f, c_menu_selbg);
-                        draw_text(ren, f_ftr, arexx_scripts[i].filename, c_menu_gold, text_draw_x, text_y);
+                        draw_text(ren, f_garx, arexx_scripts[i].filename, c_menu_gold, text_draw_x, text_y);
                     } else {
-                        draw_text(ren, f_ftr, arexx_scripts[i].filename, c_gray, text_x, text_y);
+                        draw_text(ren, f_garx, arexx_scripts[i].filename, c_gray, text_x, text_y);
                     }
                 }
                 if (arexx_md5_cached_for != arexx_selected) {
@@ -7906,6 +7907,7 @@ draw_text(ren, f_ftr, "WIFI", labelc, mx + 8.0f, wty);
     TTF_CloseFont(f_mnu);
     TTF_CloseFont(f_ftr);
     TTF_CloseFont(f_gset);
+    TTF_CloseFont(f_garx);
     TTF_CloseFont(f_gxs);
     TTF_CloseFont(f_gxsm);
     TTF_CloseFont(f_glg);
