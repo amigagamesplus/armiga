@@ -5762,7 +5762,7 @@ int main(void)
         }
 
         /* Slogan */
-        draw_text(ren, f_sm, "68K SOUL, ARM64 HEART.", c_dkgreen, mx + 2.0f, 94.0f);
+        draw_text(ren, f_ftr, "68K SOUL, ARM64 HEART.", c_dkgreen, mx + 2.0f, 94.0f);
 
         draw_statusbar(ren, f_status_bold, status_time, status_wifi_up, status_battery, status_bt_up, bg_update_available, wifi_icon_tex, battery_icon_tex, bt_icon_tex, ssh_icon_tex, update_badge_tex);
 
@@ -5820,13 +5820,13 @@ int main(void)
 
         /* Panel derecho: contexto de la opcion seleccionada */
         {
-            draw_text_truncated(ren, f_sm, MENU_ITEMS[selected][current_lang], c_green, rx, menu_y0, rx_max_w);
+            draw_text_truncated(ren, f_ftr, MENU_ITEMS[selected][current_lang], c_green, rx, menu_y0, rx_max_w);
             /* Descripcion: reemplaza el separador de linea original por espacio,
              * y envuelve el texto completo sin truncar nunca. */
             char desc_flat[128];
             snprintf(desc_flat, sizeof(desc_flat), "%s", MENU_DESC[selected][current_lang]);
             for (char *p = desc_flat; *p; p++) if (*p == '\n') *p = ' ';
-            int n_lines = draw_text_wrapped(ren, f_sm, desc_flat, c_gray,
+            int n_lines = draw_text_wrapped(ren, f_ftr, desc_flat, c_gray,
                                              rx, menu_y0 + 18.0f, rx_max_w, 16.0f);
             /* Info adicional del sistema, extensible: anadir mas lineas aqui */
             char ctx_lines[4][64];
@@ -5848,7 +5848,7 @@ int main(void)
             float ctx_max_line_w = 0.0f;
             for (int ci = 0; ci < ctx_n; ci++) {
                 int clw = 0, clh = 0;
-                TTF_GetStringSize(f_sm, ctx_lines[ci], 0, &clw, &clh);
+                TTF_GetStringSize(f_ftr, ctx_lines[ci], 0, &clw, &clh);
                 if ((float)clw > ctx_max_line_w) ctx_max_line_w = (float)clw;
             }
             float ctx_box_x = rx - ctx_box_pad;
@@ -5859,7 +5859,7 @@ int main(void)
             SDL_Color c_ctx_box_border = c_selbg;
             draw_rounded_rect_outline(ren, ctx_box_x, ctx_box_y, ctx_box_w, ctx_box_h,
                                        10.0f, 2.0f, c_ctx_box_border, c_ctx_box_bg);
-            draw_context_panel(ren, f_sm, rx, ctx_y, ctx_lines, ctx_n, c_dkgreen);
+            draw_context_panel(ren, f_ftr, rx, ctx_y, ctx_lines, ctx_n, c_dkgreen);
         }
         /* Pildora "Ultima partida", centrada, ancho ajustado al contenido.
          * Solo visible con Catalogo Amiga seleccionado (selected==0). */
@@ -5872,13 +5872,13 @@ int main(void)
                 safe_copy(last_game_pill_buf, tr("Sin partidas recientes", "No recent games"), sizeof(last_game_pill_buf));
             }
             int pill_text_w = 0, pill_text_h = 0;
-            TTF_GetStringSize(f_sm, last_game_pill_buf, 0, &pill_text_w, &pill_text_h);
+            TTF_GetStringSize(f_ftr, last_game_pill_buf, 0, &pill_text_w, &pill_text_h);
             float pill_max_w = SCREEN_W - 40.0f;
             float pill_w = (float)pill_text_w;
             if (pill_w > pill_max_w) pill_w = pill_max_w;
             float pill_x = (SCREEN_W - (float)pill_text_w) / 2.0f;
             float pill_y = 438.0f - 10.0f - (float)pill_text_h;
-            draw_text_truncated(ren, f_sm, last_game_pill_buf, c_dkgreen, pill_x, pill_y, pill_max_w);
+            draw_text_truncated(ren, f_ftr, last_game_pill_buf, c_dkgreen, pill_x, pill_y, pill_max_w);
 
             /* Badge de la carpeta de origen (ADF/DEMOSCENE/HDF/IPF/WHDLOAD),
              * recuadro de contorno con padding identico en los 4 lados,
