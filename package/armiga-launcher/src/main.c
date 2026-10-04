@@ -7540,48 +7540,48 @@ draw_text(ren, f_ftr, "WIFI", labelc, mx + 8.0f, wty);
             {
                 char buf[64];
                 snprintf(buf, sizeof(buf), tr("Versión instalada:   %s", "Installed version:   %s"), s_version);
-                draw_text(ren, f_sm, buf, c_gray, UX, 64.0f);
+                draw_text(ren, f_ftr, buf, c_gray, UX, 64.0f);
             }
 
             if (update_phase == UPD_CHECKING) {
-                draw_text_animdots(ren, f_sm, tr("Comprobando actualizaciones", "Checking for updates"), c_white, UX, 100.0f, now_ticks);
+                draw_text_animdots(ren, f_ftr, tr("Comprobando actualizaciones", "Checking for updates"), c_white, UX, 100.0f, now_ticks);
 
             } else if (update_phase == UPD_NO_UPDATE) {
-                draw_text(ren, f_sm, tr("El sistema está actualizado.", "System is up to date."), c_green, UX, 100.0f);
+                draw_text(ren, f_ftr, tr("El sistema está actualizado.", "System is up to date."), c_green, UX, 100.0f);
 
             } else if (update_phase == UPD_CONFIRM) {
                 char buf[64];
                 snprintf(buf, sizeof(buf), tr("Nueva versión disponible:   %s", "New version available:   %s"), upd_new_ver);
-                draw_text(ren, f_sm, buf, c_green, UX, 100.0f);
-                draw_text(ren, f_sm, tr("La descarga se realizará en segundo plano.", "The download will run in the background."), c_gray, UX, 122.0f);
-                draw_text(ren, f_sm, tr("El dispositivo se reiniciará al completar.", "The device will restart when finished."), c_gray, UX, 140.0f);
-                draw_text(ren, f_med, tr("[B] Descargar e instalar", "[B] Download and install"), c_green,  UX,          188.0f);
-                draw_text(ren, f_med, tr("[A] Cancelar", "[A] Cancel"),             c_gray,   UX + 260.0f, 188.0f);
+                draw_text(ren, f_ftr, buf, c_green, UX, 100.0f);
+                draw_text(ren, f_ftr, tr("La descarga se realizará en segundo plano.", "The download will run in the background."), c_gray, UX, 122.0f);
+                draw_text(ren, f_ftr, tr("El dispositivo se reiniciará al completar.", "The device will restart when finished."), c_gray, UX, 140.0f);
+                draw_text(ren, f_ftr, tr("[B] Descargar e instalar", "[B] Download and install"), c_green,  UX,          188.0f);
+                draw_text(ren, f_ftr, tr("[A] Cancelar", "[A] Cancel"),             c_gray,   UX + 260.0f, 188.0f);
 
             } else if (update_phase == UPD_DOWNLOADING) {
-                draw_text_animdots(ren, f_sm, tr("Descargando actualización", "Downloading update"), c_white, UX, 100.0f, now_ticks);
+                draw_text_animdots(ren, f_ftr, tr("Descargando actualización", "Downloading update"), c_white, UX, 100.0f, now_ticks);
                 /* Barra de progreso */
                 int pct = (int)(upd_progress * 100.0f);
                 char pct_buf[8]; snprintf(pct_buf, sizeof(pct_buf), "%d%%", pct);
                 { SDL_Color _c_upd_bg = g_theme.row_bg;
                   SDL_Color _c_upd_fill = c_selbg;
                   draw_bar_rounded(ren, UX, 122.0f, 260.0f, 12.0f, upd_progress, _c_upd_bg, _c_upd_fill); }
-                draw_text(ren, f_sm, pct_buf, c_white, UX + 270.0f, 118.0f);
-                draw_text(ren, f_sm, tr("No apagues el dispositivo durante la descarga.", "Do not turn off the device during download."), c_gray, UX, 144.0f);
+                draw_text(ren, f_ftr, pct_buf, c_white, UX + 270.0f, 118.0f);
+                draw_text(ren, f_ftr, tr("No apagues el dispositivo durante la descarga.", "Do not turn off the device during download."), c_gray, UX, 144.0f);
 
             } else if (update_phase == UPD_VERIFYING) {
-                draw_text_animdots(ren, f_sm, tr("Verificando integridad", "Verifying integrity"), c_white, UX, 100.0f, now_ticks);
+                draw_text_animdots(ren, f_ftr, tr("Verificando integridad", "Verifying integrity"), c_white, UX, 100.0f, now_ticks);
 
             } else if (update_phase == UPD_READY) {
-                draw_text(ren, f_sm, tr("Actualización lista. Reiniciando...", "Update ready. Restarting..."), c_green, UX, 100.0f);
+                draw_text(ren, f_ftr, tr("Actualización lista. Reiniciando...", "Update ready. Restarting..."), c_green, UX, 100.0f);
                 /* Reiniciar automáticamente */
                 SDL_Delay(2000);
                 exec_req = EXEC_REBOOT;
                 running  = false;
 
             } else if (update_phase == UPD_ERROR) {
-                { SDL_Color _c_red = g_theme.alert; draw_text(ren, f_sm, "Error:", _c_red, UX, 100.0f); }
-                draw_text(ren, f_sm, upd_msg,  c_gray, UX, 118.0f);
+                { SDL_Color _c_red = g_theme.alert; draw_text(ren, f_ftr, "Error:", _c_red, UX, 100.0f); }
+                draw_text(ren, f_ftr, upd_msg,  c_gray, UX, 118.0f);
             }
 
             draw_line(ren, UX, 438.0f, SCREEN_W - 20.0f, 438.0f, c_selbg);
