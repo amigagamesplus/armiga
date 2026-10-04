@@ -7398,12 +7398,12 @@ draw_text(ren, f_ftr, "WIFI", labelc, mx + 8.0f, wty);
             {
                 char page_ind[16];
                 snprintf(page_ind, sizeof(page_ind), "%d/2", sysinfo_page + 1);
-                draw_text_right(ren, f_sm, page_ind, c_dkgreen, SCREEN_W - 20.0f, 418.0f);
+                draw_text_right(ren, f_ftr, page_ind, c_dkgreen, SCREEN_W - 20.0f, 418.0f);
             }
 
 /* Macro auxiliar: título de bloque */
 #define SI_BLOCK_TITLE(xpos, ypos, title) do { \
-    draw_text(ren, f_sm, title, c_si_title, (xpos), (ypos)); \
+    draw_text(ren, f_ftr, title, c_si_title, (xpos), (ypos)); \
 } while(0)
 
 /* Macro fila: fondo alterno (zebra) + etiqueta + valor alineado a col_right */
@@ -7412,10 +7412,10 @@ draw_text(ren, f_ftr, "WIFI", labelc, mx + 8.0f, wty);
     if (si_row_idx % 2 == 0) \
         draw_rounded_rect_filled(ren, (xpos) - 10.0f, _row_top, (col_right) - (xpos) + 20.0f, SI_ROW_H, SI_ROW_H / 2.0f, c_row_bg); \
     si_row_idx++; \
-    { int _th = 0, _tw0 = 0; TTF_GetStringSize(f_sm, (lbl), 0, &_tw0, &_th); \
+    { int _th = 0, _tw0 = 0; TTF_GetStringSize(f_ftr, (lbl), 0, &_tw0, &_th); \
       float _text_y = _row_top + (SI_ROW_H - (float)_th) / 2.0f; \
-      draw_text(ren, f_sm,  (lbl), c_gray,  (xpos),       _text_y); \
-      draw_text_right(ren, f_sm, (val), c_white, (col_right), _text_y); } \
+      draw_text(ren, f_ftr,  (lbl), c_gray,  (xpos),       _text_y); \
+      draw_text_right(ren, f_ftr, (val), c_white, (col_right), _text_y); } \
 } while(0)
 
 /* Macro fila con barra: etiqueta, barra, valor */
@@ -7425,10 +7425,10 @@ draw_text(ren, f_ftr, "WIFI", labelc, mx + 8.0f, wty);
         draw_rounded_rect_filled(ren, (xpos) - 10.0f, _row_top, (col_right) - (xpos) + 20.0f, SI_ROW_H, SI_ROW_H / 2.0f, c_row_bg); \
     si_row_idx++; \
     { int _fw = 0, _fh = 0; \
-      TTF_GetStringSize(f_sm, (val), 0, &_fw, &_fh); \
+      TTF_GetStringSize(f_ftr, (val), 0, &_fw, &_fh); \
       float _text_y = _row_top + (SI_ROW_H - (float)_fh) / 2.0f; \
-      draw_text(ren, f_sm, (lbl), c_gray, (xpos), _text_y); \
-      draw_text(ren, f_sm, (val), c_white, (col_right) - (float)_fw, _text_y); \
+      draw_text(ren, f_ftr, (lbl), c_gray, (xpos), _text_y); \
+      draw_text(ren, f_ftr, (val), c_white, (col_right) - (float)_fw, _text_y); \
       float _bw = 60.0f; \
       float _bh = 6.0f; \
       float _bar_right = (col_right) - (float)_fw - 10.0f; \
