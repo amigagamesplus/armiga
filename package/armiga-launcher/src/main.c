@@ -7416,7 +7416,7 @@ draw_text(ren, f_ftr, "WIFI", labelc, mx + 8.0f, wty);
         draw_rounded_rect_filled(ren, (xpos) - 10.0f, _row_top, (col_right) - (xpos) + 20.0f, SI_ROW_H, SI_ROW_H / 2.0f, c_row_bg); \
     si_row_idx++; \
     { int _th = 0, _tw0 = 0; TTF_GetStringSize(f_ftr, (lbl), 0, &_tw0, &_th); \
-      float _text_y = _row_top + (SI_ROW_H - (float)_th) / 2.0f; \
+      float _text_y = _row_top + (SI_ROW_H - (float)_th) / 2.0f + 1.0f; \
       draw_text(ren, f_ftr,  (lbl), c_gray,  (xpos),       _text_y); \
       draw_text_right(ren, f_ftr, (val), c_white, (col_right), _text_y); } \
 } while(0)
@@ -7429,7 +7429,7 @@ draw_text(ren, f_ftr, "WIFI", labelc, mx + 8.0f, wty);
     si_row_idx++; \
     { int _fw = 0, _fh = 0; \
       TTF_GetStringSize(f_ftr, (val), 0, &_fw, &_fh); \
-      float _text_y = _row_top + (SI_ROW_H - (float)_fh) / 2.0f; \
+      float _text_y = _row_top + (SI_ROW_H - (float)_fh) / 2.0f + 1.0f; \
       draw_text(ren, f_ftr, (lbl), c_gray, (xpos), _text_y); \
       draw_text(ren, f_ftr, (val), c_white, (col_right) - (float)_fw, _text_y); \
       float _bw = 60.0f; \
