@@ -6400,10 +6400,10 @@ int main(void)
                 float toggle_y = 64.0f;
                 float toggle_h = 34.0f;
                 int lw = 0, lh = 0;
-                TTF_GetStringSize(f_med, "Bluetooth", 0, &lw, &lh);
+                TTF_GetStringSize(f_ftr, "Bluetooth", 0, &lw, &lh);
                 const char *bt_status = bt_enabled ? tr("ACTIVADO", "ENABLED") : tr("DESACTIVADO", "DISABLED");
                 int sw = 0, sh = 0;
-                TTF_GetStringSize(f_sm, bt_status, 0, &sw, &sh);
+                TTF_GetStringSize(f_ftr, bt_status, 0, &sw, &sh);
                 float badge_pad = 10.0f;
                 float badge_w = (float)sw + badge_pad * 2.0f;
                 float badge_h = (float)sh + 6.0f;
@@ -6411,32 +6411,32 @@ int main(void)
                 float badge_gap = 16.0f;
                 float toggle_w = label_pad + (float)lw + badge_gap + badge_w + 12.0f;
                 draw_rounded_rect_filled(ren, mx, toggle_y, toggle_w, toggle_h, toggle_h / 2.0f, c_bt_card);
-                draw_text(ren, f_med, "Bluetooth", c_menu_gold, mx + label_pad, toggle_y + 8.0f);
+                draw_text(ren, f_ftr, "Bluetooth", c_menu_gold, mx + label_pad, toggle_y + (toggle_h - (float)TTF_GetFontHeight(f_ftr)) / 2.0f);
                 float badge_x = mx + toggle_w - 12.0f - badge_w;
                 float badge_y = toggle_y + (toggle_h - badge_h) / 2.0f;
                 SDL_Color badge_bg = bt_enabled ? g_theme.bg : g_theme.row_bg;
                 draw_rounded_rect_filled(ren, badge_x, badge_y, badge_w, badge_h, badge_h / 2.0f, badge_bg);
                 SDL_Color bt_status_c = bt_enabled ? c_green : c_white;
-                draw_text(ren, f_sm, bt_status, bt_status_c, badge_x + badge_pad, badge_y + 3.0f);
+                draw_text(ren, f_ftr, bt_status, bt_status_c, badge_x + badge_pad, badge_y + 3.0f);
                 if (bt_connected_mac[0] && bt_connected_name[0]) {
                     char paired_buf[80];
                     snprintf(paired_buf, sizeof(paired_buf), "%s %s", tr("Conectado a", "Connected to"), bt_connected_name);
                     int pw = 0, ph = 0;
-                    TTF_GetStringSize(f_sm, paired_buf, 0, &pw, &ph);
+                    TTF_GetStringSize(f_ftr, paired_buf, 0, &pw, &ph);
                     float pbadge_pad = 12.0f;
                     float pbadge_max_w = SCREEN_W - mx - (mx + toggle_w + 16.0f);
                     float pbadge_w = (float)pw + pbadge_pad * 2.0f;
                     if (pbadge_w > pbadge_max_w) pbadge_w = pbadge_max_w;
                     float pbadge_h = toggle_h;
                     draw_rounded_rect_filled(ren, mx + toggle_w + 16.0f, toggle_y, pbadge_w, pbadge_h, pbadge_h / 2.0f, c_bt_card);
-                    draw_text_truncated(ren, f_sm, paired_buf, c_menu_gold, mx + toggle_w + 16.0f + pbadge_pad, toggle_y + (pbadge_h - (float)ph) / 2.0f,
+                    draw_text_truncated(ren, f_ftr, paired_buf, c_menu_gold, mx + toggle_w + 16.0f + pbadge_pad, toggle_y + (pbadge_h - (float)ph) / 2.0f,
                                          pbadge_w - pbadge_pad * 2.0f);
                 }
             }
             if (!bt_enabled) {
-                draw_text(ren, f_sm, tr("Bluetooth desactivado", "Bluetooth disabled"), c_menu_beige, mx, 116.0f);
+                draw_text(ren, f_ftr, tr("Bluetooth desactivado", "Bluetooth disabled"), c_menu_beige, mx, 116.0f);
             } else {
-                draw_text(ren, f_sm, tr("DISPOSITIVOS DISPONIBLES", "AVAILABLE DEVICES"), c_menu_selbg, mx, 112.0f);
+                draw_text(ren, f_ftr, tr("DISPOSITIVOS DISPONIBLES", "AVAILABLE DEVICES"), c_menu_selbg, mx, 112.0f);
                 float bt_y0 = 134.0f;
                 float bt_item_h = 30.0f;
                 int bt_visible = 9;
@@ -6454,7 +6454,7 @@ int main(void)
                 if (bt_scroll < 0) bt_scroll = 0;
                 bt_show_up_indicator = (bt_scroll > 0);
                 if (bt_show_up_indicator) {
-                    draw_text_right(ren, f_xs, tr("más arriba ↑", "more above ↑"), c_menu_selbg,
+                    draw_text_right(ren, f_gxs, tr("más arriba ↑", "more above ↑"), c_menu_selbg,
                                      SCREEN_W - mx - 6.0f, 112.0f);
                 }
                 {
@@ -6465,6 +6465,7 @@ int main(void)
                     int i = row + bt_scroll;
                     float iy = bt_y0 + row * bt_item_h;
                     float row_h = bt_item_h - 4.0f;
+                    float ty = iy - 4.0f + (row_h - (float)TTF_GetFontHeight(f_ftr)) / 2.0f;
                     const char *label = bt_devices[i].name[0] ? bt_devices[i].name : bt_devices[i].mac;
                     bool sel = (i == bt_selected);
                     bool connected = (bt_connected_mac[0] && !strcmp(bt_connected_mac, bt_devices[i].mac));
@@ -6475,37 +6476,37 @@ int main(void)
                          * basta como indicador, evita informacion duplicada. */
                     } else if (sel) {
                         int lbl_w = 0, lbl_h = 0;
-                        TTF_GetStringSize(f_sm, label, 0, &lbl_w, &lbl_h);
+                        TTF_GetStringSize(f_ftr, label, 0, &lbl_w, &lbl_h);
                         float pill_pad = 10.0f;
                         float pill_x = mx + 4.0f - pill_pad;
                         float pill_w = (float)lbl_w + pill_pad * 2.0f;
                         draw_rounded_rect_filled(ren, pill_x, bt_cursor_y - 4.0f, pill_w, row_h, row_h / 2.0f, c_menu_selbg);
                     }
                     SDL_Color labelc = connected ? c_menu_gold : (sel ? c_menu_gold : c_menu_beige);
-                    draw_text(ren, f_sm, label, labelc, mx + 4.0f, iy);
+                    draw_text(ren, f_ftr, label, labelc, mx + 4.0f, ty);
                     if (connected) {
                         /* Sin badge aqui: ya se muestra "Emparejado: <nombre>"
                          * en la pildora de arriba, este texto era redundante. */
                     } else if (bt_devices[i].has_rssi) {
                         char rbuf[16];
                         snprintf(rbuf, sizeof(rbuf), "%d dBm", bt_devices[i].rssi);
-                        draw_text_right(ren, f_sm, rbuf, c_menu_selbg, SCREEN_W - mx - 6.0f, iy);
+                        draw_text_right(ren, f_ftr, rbuf, c_menu_selbg, SCREEN_W - mx - 6.0f, ty);
                     }
                 }
                 if (bt_scroll + bt_list_rows < bt_device_count) {
                     char more_buf[32];
                     snprintf(more_buf, sizeof(more_buf), "+ %d %s", bt_device_count - (bt_scroll + bt_list_rows), tr("dispositivos mas", "more devices"));
-                    draw_text(ren, f_xs, more_buf, c_menu_selbg, mx + 4.0f, bt_y0 + bt_list_rows * bt_item_h + 4.0f);
+                    draw_text(ren, f_gxs, more_buf, c_menu_selbg, mx + 4.0f, bt_y0 + bt_list_rows * bt_item_h + 4.0f);
                 }
                 if (bt_device_count == 0 && !bt_scanning) {
-                    draw_text(ren, f_sm, tr("Ningun dispositivo encontrado", "No devices found"), c_menu_beige, mx, bt_y0);
+                    draw_text(ren, f_ftr, tr("Ningun dispositivo encontrado", "No devices found"), c_menu_beige, mx, bt_y0);
                 }
                 if (bt_connecting) {
                     char cbuf[96];
                     snprintf(cbuf, sizeof(cbuf), "%s %s...", tr("Conectando a", "Connecting to"), bt_devices[bt_selected].name[0] ? bt_devices[bt_selected].name : bt_devices[bt_selected].mac);
-                    draw_text(ren, f_sm, cbuf, c_menu_selbg, mx, 392.0f);
+                    draw_text(ren, f_ftr, cbuf, c_menu_selbg, mx, 392.0f);
                 } else if (bt_connect_status[0]) {
-                    draw_text(ren, f_sm, bt_connect_status, c_menu_selbg, mx, 392.0f);
+                    draw_text(ren, f_ftr, bt_connect_status, c_menu_selbg, mx, 392.0f);
                 }
                 if (bt_scanning) {
                     float sp_cx = mx + 6.0f;
@@ -6526,7 +6527,7 @@ int main(void)
                         };
                         draw_rect_filled(ren, dx - 1.5f, dy - 1.5f, 3.0f, 3.0f, dotc);
                     }
-                    draw_text(ren, f_sm, tr("Buscando dispositivos...", "Searching for devices..."), c_menu_beige, mx + 20.0f, 416.0f);
+                    draw_text(ren, f_ftr, tr("Buscando dispositivos...", "Searching for devices..."), c_menu_beige, mx + 20.0f, 416.0f);
                 }
             }
             draw_line(ren, mx, 438.0f, SCREEN_W - 20.0f, 438.0f, c_selbg);
