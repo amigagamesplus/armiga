@@ -3771,6 +3771,9 @@ int main(void)
     char direct_launch_core_path[256] = "";
     config_load();
 
+    /* SDL 3.4.18 imprime con SDL_Log() cada formato GBM que prueba (nivel info);
+     * se silencia la categoria de aplicacion, avisos y errores de SDL siguen saliendo */
+    SDL_SetLogPriority(SDL_LOG_CATEGORY_APPLICATION, SDL_LOG_PRIORITY_WARN);
     if (!SDL_Init(SDL_INIT_VIDEO | SDL_INIT_JOYSTICK | SDL_INIT_AUDIO)) {
         fprintf(stderr, "SDL_Init: %s\n", SDL_GetError());
         return 1;
