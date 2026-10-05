@@ -3808,6 +3808,7 @@ int main(void)
     TTF_Font *f_gset  = TTF_OpenFont(FONT_PATH_BOLD, 14);
     TTF_Font *f_garx  = TTF_OpenFont(FONT_PATH_BOLD, 14);
     TTF_Font *f_gcr   = TTF_OpenFont(FONT_PATH_BOLD, 14);
+    TTF_Font *f_gpw   = TTF_OpenFont(FONT_PATH_BOLD, 14);
     TTF_Font *f_gxs   = TTF_OpenFont(FONT_PATH_BOLD, 9);
     TTF_Font *f_gxsm  = TTF_OpenFont(FONT_PATH_BOLD, 11);
     TTF_Font *f_glg   = TTF_OpenFont(FONT_PATH_BOLD, 28);
@@ -5944,7 +5945,7 @@ int main(void)
             float box_y = (SCREEN_H - box_h) / 2.0f;
             draw_rounded_rect_filled(ren, box_x, box_y, box_w, box_h, 16.0f, g_theme.row_bg);
 
-            draw_text_centered(ren, f_ftr, tr("¿Qué quieres hacer?", "What do you want to do?"),
+            draw_text_centered(ren, f_gpw, tr("¿Qué quieres hacer?", "What do you want to do?"),
                                g_theme.text_light, SCREEN_W / 2.0f, box_y + 18.0f);
 
             float opt_w = 130.0f, opt_h = 48.0f;
@@ -5960,9 +5961,9 @@ int main(void)
 
             draw_rounded_rect_filled(ren, opt_x0, opt_y, opt_w, opt_h, opt_h / 2.0f,
                                      power_popup_selected == 0 ? sel_bg : unsel_bg);
-            draw_text_centered(ren, f_ftr, tr("Apagar", "Power Off"),
+            draw_text_centered(ren, f_gpw, tr("Apagar", "Power Off"),
                                power_popup_selected == 0 ? sel_fg : unsel_fg,
-                               opt_x0 + opt_w / 2.0f, opt_y + (opt_h - (float)TTF_GetFontHeight(f_ftr)) / 2.0f);
+                               opt_x0 + opt_w / 2.0f, opt_y + (opt_h - (float)TTF_GetFontHeight(f_gpw)) / 2.0f);
 
             if (power_popup_selected == 1) {
                 draw_rounded_rect_filled(ren, opt_x1, opt_y, opt_w, opt_h, opt_h / 2.0f, sel_bg);
@@ -5970,11 +5971,11 @@ int main(void)
                 draw_rounded_rect_outline(ren, opt_x1, opt_y, opt_w, opt_h, opt_h / 2.0f,
                                            2.0f, c_selbg, unsel_bg);
             }
-            draw_text_centered(ren, f_ftr, tr("Reiniciar", "Reboot"),
+            draw_text_centered(ren, f_gpw, tr("Reiniciar", "Reboot"),
                                power_popup_selected == 1 ? sel_fg : unsel_fg,
-                               opt_x1 + opt_w / 2.0f, opt_y + (opt_h - (float)TTF_GetFontHeight(f_ftr)) / 2.0f);
+                               opt_x1 + opt_w / 2.0f, opt_y + (opt_h - (float)TTF_GetFontHeight(f_gpw)) / 2.0f);
 
-            draw_text_centered(ren, f_ftr, tr("[DPAD] Elegir  [B] Confirmar  [A] Cancelar",
+            draw_text_centered(ren, f_gpw, tr("[DPAD] Elegir  [B] Confirmar  [A] Cancelar",
                                              "[DPAD] Choose  [B] Confirm  [A] Cancel"),
                                g_theme.text_light, SCREEN_W / 2.0f, box_y + 116.0f);
         }
@@ -7910,6 +7911,7 @@ draw_text(ren, f_ftr, "WIFI", labelc, mx + 8.0f, wty);
     TTF_CloseFont(f_gset);
     TTF_CloseFont(f_garx);
     TTF_CloseFont(f_gcr);
+    TTF_CloseFont(f_gpw);
     TTF_CloseFont(f_gxs);
     TTF_CloseFont(f_gxsm);
     TTF_CloseFont(f_glg);
