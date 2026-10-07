@@ -1672,9 +1672,26 @@ static void badge_ink(TTF_Font *f, const char *s, int *lead, int *ink_w,
 
 #define PLAYTIME_PATH "/media/amiga_data/playtime.log"
 
-/* Formato: "<segundos>\t<ruta_rom>\n" por linea. */
-static unsigned long playtime_get(const char *rom_path)
+/* Formato: "<segundos>\t<clave>\n". Clave = CRC32 de la ROM (8 hex) si es del
+ * catalogo; si no, la ruta. Las lineas antiguas con ruta tambien se aceptan y
+ * se fusionan en la clave nueva al acreditar tiempo. */
+static bool cat_crc32_file(const char *path, unsigned *out);
+static void cat_crc_init(void);
+
+static void playtime_key(const char *rom_path, unsigned crc, char *key, size_t sz)
 {
+    if (crc == 0 && strncmp(rom_path, "/media/amiga_data/roms/whdload/", 31) == 0) {
+        cat_crc_init();
+        if (!cat_crc32_file(rom_path, &crc)) crc = 0;
+    }
+    if (crc) snprintf(key, sz, "%08x", crc);
+    else snprintf(key, sz, "%s", rom_path);
+}
+
+static unsigned long playtime_get(const char *rom_path, unsigned crc)
+{
+    char key[400];
+    playtime_key(rom_path, crc, key, sizeof(key));
     FILE *f = fopen(PLAYTIME_PATH, "r");
     if (!f) return 0;
     char line[600];
@@ -1685,20 +1702,23 @@ static unsigned long playtime_get(const char *rom_path)
         *tab = '\0';
         char *p = tab + 1;
         p[strcspn(p, "\r\n")] = '\0';
-        if (strcmp(p, rom_path) == 0) { r = strtoul(line, NULL, 10); break; }
+        if (strcmp(p, key) == 0 || strcmp(p, rom_path) == 0)
+            r += strtoul(line, NULL, 10);
     }
     fclose(f);
     return r;
 }
 
-static void playtime_add(const char *rom_path, unsigned long secs)
+static void playtime_add(const char *rom_path, unsigned crc, unsigned long secs)
 {
     if (!rom_path[0] || secs == 0) return;
+    char key[400];
+    playtime_key(rom_path, crc, key, sizeof(key));
     const char *tmp = PLAYTIME_PATH ".tmp";
     FILE *out = fopen(tmp, "w");
     if (!out) return;
     FILE *in = fopen(PLAYTIME_PATH, "r");
-    bool found = false;
+    unsigned long total = secs;
     char line[600];
     if (in) {
         while (fgets(line, sizeof(line), in)) {
@@ -1707,16 +1727,14 @@ static void playtime_add(const char *rom_path, unsigned long secs)
             *tab = '\0';
             char *p = tab + 1;
             p[strcspn(p, "\r\n")] = '\0';
-            if (strcmp(p, rom_path) == 0) {
-                fprintf(out, "%lu\t%s\n", strtoul(line, NULL, 10) + secs, p);
-                found = true;
-            } else {
+            if (strcmp(p, key) == 0 || strcmp(p, rom_path) == 0)
+                total += strtoul(line, NULL, 10);
+            else
                 fprintf(out, "%s\t%s\n", line, p);
-            }
         }
         fclose(in);
     }
-    if (!found) fprintf(out, "%lu\t%s\n", secs, rom_path);
+    fprintf(out, "%lu\t%s\n", total, key);
     fflush(out);
     fsync(fileno(out));
     fclose(out);
@@ -1782,6 +1800,58 @@ static bool cat_crc32_file(const char *path, unsigned *out)
     return ok;
 }
 
+#define COVER_DIR   "/media/amiga_data/covers"
+#define COVER_STAMP COVER_DIR "/.idx_stamp"
+
+/* Vacia la cache de caratulas (*.png / *.none) si el games.idx cargado no es
+ * el que la genero. Sello = CRC32 del contenido del indice (no su mtime). */
+static void covers_sync_with_index(const unsigned char *b, size_t sz)
+{
+    cat_crc_init();
+    unsigned crc = 0xFFFFFFFFu;
+    for (size_t i = 0; i < sz; i++)
+        crc = cat_crc_table[(crc ^ b[i]) & 0xFF] ^ (crc >> 8);
+    crc ^= 0xFFFFFFFFu;
+
+    mkdir(COVER_DIR, 0755);
+    unsigned old = 0;
+    bool have = false;
+    FILE *sf = fopen(COVER_STAMP, "r");
+    if (sf) {
+        have = (fscanf(sf, "%x", &old) == 1);
+        fclose(sf);
+    }
+    if (have && old == crc) return;
+
+    DIR *d = opendir(COVER_DIR);
+    if (d) {
+        struct dirent *e;
+        while ((e = readdir(d)) != NULL) {
+            const char *n = e->d_name;
+            size_t l = strlen(n);
+            const char *ext = (l == 12) ? n + 8 : (l == 13) ? n + 8 : NULL;
+            if (!ext || (strcmp(ext, ".png") != 0 && strcmp(ext, ".none") != 0)) continue;
+            bool hex = true;
+            for (int k = 0; k < 8; k++) if (!isxdigit((unsigned char)n[k])) hex = false;
+            if (!hex) continue;
+            char full[96];
+            snprintf(full, sizeof(full), COVER_DIR "/%s", n);
+            unlink(full);
+        }
+        closedir(d);
+    }
+    char tmp[96];
+    snprintf(tmp, sizeof(tmp), COVER_STAMP ".tmp");
+    FILE *wf = fopen(tmp, "w");
+    if (wf) {
+        fprintf(wf, "%08x\n", crc);
+        fflush(wf);
+        fsync(fileno(wf));
+        fclose(wf);
+        rename(tmp, COVER_STAMP);
+    }
+}
+
 static bool games_idx_load(void)
 {
     if (g_idx) return true;
@@ -1804,6 +1874,7 @@ static bool games_idx_load(void)
     }
     g_idx = b; g_idx_size = (size_t)sz;
     g_idx_count = cnt; g_idx_rec_off = ro; g_idx_str_off = so;
+    covers_sync_with_index(b, (size_t)sz);
     return true;
 }
 
@@ -1909,6 +1980,32 @@ static bool catalog_scan_poll(void)
     if (r == 0) return false;
     s_catalog_pid = -1;
     return true;
+}
+
+/* Letra de agrupacion de un titulo; digitos y simbolos forman el bloque '#' */
+static int cat_bucket(const CatGame *g)
+{
+    unsigned char c = (unsigned char)g->title[0];
+    return isalpha(c) ? toupper(c) : '#';
+}
+
+/* dir > 0: inicio de la letra siguiente. dir < 0: inicio de la letra actual
+ * y, si ya se esta en el, inicio de la anterior. */
+static int cat_letter_jump(const CatGame *g, int n, int sel, int dir)
+{
+    if (n <= 0 || sel < 0 || sel >= n) return sel;
+    int cur = cat_bucket(&g[sel]);
+    if (dir > 0) {
+        for (int i = sel + 1; i < n; i++)
+            if (cat_bucket(&g[i]) != cur) return i;
+        return sel;
+    }
+    int i = sel;
+    while (i > 0 && cat_bucket(&g[i - 1]) == cur) i--;
+    if (i < sel || i == 0) return i;
+    int prev = cat_bucket(&g[i - 1]);
+    while (i > 0 && cat_bucket(&g[i - 1]) == prev) i--;
+    return i;
 }
 
 static int cat_game_cmp(const void *a, const void *b)
@@ -3551,6 +3648,13 @@ static void cover_reset(void) { s_cover_sel = -1; }
 static void cover_release(void)
 {
     if (s_cover_tex) { SDL_DestroyTexture(s_cover_tex); s_cover_tex = NULL; }
+    if (s_dl_pid > 0) {
+        kill(s_dl_pid, SIGKILL);
+        waitpid(s_dl_pid, NULL, 0);
+        s_dl_pid = -1;
+        unlink(COVER_TMP);
+        unlink(COVER_TMP ".code");
+    }
     s_cover_sel = -1;
     s_cover_state = COVER_IDLE;
 }
@@ -3667,6 +3771,9 @@ int main(void)
     char direct_launch_core_path[256] = "";
     config_load();
 
+    /* SDL 3.4.18 imprime con SDL_Log() cada formato GBM que prueba (nivel info);
+     * se silencia la categoria de aplicacion, avisos y errores de SDL siguen saliendo */
+    SDL_SetLogPriority(SDL_LOG_CATEGORY_APPLICATION, SDL_LOG_PRIORITY_WARN);
     if (!SDL_Init(SDL_INIT_VIDEO | SDL_INIT_JOYSTICK | SDL_INIT_AUDIO)) {
         fprintf(stderr, "SDL_Init: %s\n", SDL_GetError());
         return 1;
@@ -3697,6 +3804,17 @@ int main(void)
     TTF_Font *f_status_bold = TTF_OpenFont(FONT_PATH_BOLD, FONT_STATUSBAR);
     TTF_Font *f_badge = TTF_OpenFont(FONT_PATH_BOLD, FONT_BADGE);
     TTF_Font *f_title = TTF_OpenFont(FONT_PATH_BOLD, 20);
+    TTF_Font *f_gmed  = TTF_OpenFont(FONT_PATH_BOLD, 15);
+    TTF_Font *f_gsm   = TTF_OpenFont(FONT_PATH_BOLD, 13);
+    TTF_Font *f_mnu   = TTF_OpenFont(FONT_PATH_BOLD, 15);
+    TTF_Font *f_ftr   = TTF_OpenFont(FONT_PATH_BOLD, 13);
+    TTF_Font *f_gset  = TTF_OpenFont(FONT_PATH_BOLD, 14);
+    TTF_Font *f_garx  = TTF_OpenFont(FONT_PATH_BOLD, 14);
+    TTF_Font *f_gcr   = TTF_OpenFont(FONT_PATH_BOLD, 14);
+    TTF_Font *f_gpw   = TTF_OpenFont(FONT_PATH_BOLD, 14);
+    TTF_Font *f_gxs   = TTF_OpenFont(FONT_PATH_BOLD, 9);
+    TTF_Font *f_gxsm  = TTF_OpenFont(FONT_PATH_BOLD, 11);
+    TTF_Font *f_glg   = TTF_OpenFont(FONT_PATH_BOLD, 28);
     if (!f_med || !f_sm || !f_lg || !f_xs || !f_xsm || !f_status_bold) {
         fprintf(stderr, "TTF_OpenFont: %s\n", SDL_GetError());
         SDL_DestroyRenderer(ren); SDL_DestroyWindow(win);
@@ -3867,7 +3985,7 @@ int main(void)
     char last_game_time[48] = "";
     if (has_last_game) {
         extract_rom_source_label(last_game_rom_path, last_game_source, sizeof(last_game_source));
-        unsigned long pt = playtime_get(last_game_rom_path);
+        unsigned long pt = playtime_get(last_game_rom_path, 0);
         if (pt >= 3600)
             snprintf(last_game_time, sizeof(last_game_time), "%luH %02luM %02luS",
                      pt / 3600, (pt % 3600) / 60, pt % 60);
@@ -3953,6 +4071,9 @@ int main(void)
     AppState state = STATE_MENU;
     AppState prev_state = STATE_MENU;
     int menu_axis_prev = 0; /* reset al re-entrar a STATE_MENU, evita movimiento fantasma (B05) */
+    int gl_hat_dir = 0;     /* D-pad fisico mantenido en la lista: -1 arriba, +1 abajo */
+    int gl_hold_dir = 0;    /* direccion en autorepetido (D-pad o stick) */
+    Uint64 gl_hold_next = 0;
     int stick_axis_prev = 0; /* debounce del eje Y del stick izq. traducido a HAT en pantallas fuera de STATE_MENU */
     ExecRequest exec_req = EXEC_NONE;
     int action   = ACTION_NONE;
@@ -4091,6 +4212,9 @@ int main(void)
                     apply_perf_profile(perf_selected);
                 }
             }
+            if (ev.type == SDL_EVENT_JOYSTICK_HAT_MOTION)
+                gl_hat_dir = (ev.jhat.value & SDL_HAT_UP) ? -1 :
+                             (ev.jhat.value & SDL_HAT_DOWN) ? 1 : 0;
             /* Traduce el eje Y del stick izquierdo a eventos HAT sinteticos,
              * para que cualquier pantalla que ya escucha
              * SDL_EVENT_JOYSTICK_HAT_MOTION (D-pad) responda tambien al
@@ -4514,6 +4638,12 @@ int main(void)
                         play_ui_click();
                     } else if (ev.jhat.value == SDL_HAT_DOWN) {
                         games_selected = (games_selected + 1) % gn;
+                        play_ui_click();
+                    } else if (ev.jhat.value == SDL_HAT_LEFT) {
+                        games_selected = cat_letter_jump(g_games, gn, games_selected, -1);
+                        play_ui_click();
+                    } else if (ev.jhat.value == SDL_HAT_RIGHT) {
+                        games_selected = cat_letter_jump(g_games, gn, games_selected, +1);
                         play_ui_click();
                     }
                 }
@@ -5343,6 +5473,19 @@ int main(void)
                 set_cpu_governor("powersave");
             }
         }
+        if (state == STATE_GAME_LIST && g_games_n > 0) {
+            int hd = gl_hat_dir ? gl_hat_dir : stick_axis_prev;
+            if (hd != gl_hold_dir) {
+                gl_hold_dir = hd;
+                gl_hold_next = now_ticks + 350;
+            } else if (hd != 0 && now_ticks >= gl_hold_next) {
+                int ns = games_selected + hd;
+                if (ns >= 0 && ns < g_games_n) games_selected = ns;
+                gl_hold_next = now_ticks + 60;
+            }
+        } else {
+            gl_hold_dir = 0;
+        }
         if (state == STATE_LED_CONFIG && led_repeat_dir != 0 &&
             now_ticks >= led_repeat_next) {
             int *led_vals[LED_SLIDER_COUNT] = {
@@ -5626,7 +5769,7 @@ int main(void)
         }
 
         /* Slogan */
-        draw_text(ren, f_sm, "68K SOUL, ARM64 HEART.", c_dkgreen, mx + 2.0f, 94.0f);
+        draw_text(ren, f_ftr, "68K SOUL, ARM64 HEART.", c_dkgreen, mx + 2.0f, 94.0f);
 
         draw_statusbar(ren, f_status_bold, status_time, status_wifi_up, status_battery, status_bt_up, bg_update_available, wifi_icon_tex, battery_icon_tex, bt_icon_tex, ssh_icon_tex, update_badge_tex);
 
@@ -5639,7 +5782,8 @@ int main(void)
             float iy = menu_y0 + i * item_h;
             const char *menu_label = MENU_ITEMS[i][current_lang];
             int label_w = 0, label_h = 0;
-            TTF_GetStringSize(f_med, menu_label, 0, &label_w, &label_h);
+            TTF_GetStringSize(f_mnu, menu_label, 0, &label_w, &label_h);
+            float ty = iy - 5.0f + (item_h - 4.0f - (float)label_h) / 2.0f; /* centro de la pildora */
             /* Ancho de la pildora (real o "virtual" si no esta seleccionada),
              * usado tambien para posicionar el contador de ROMs siempre al
              * mismo sitio, se mueva o no la seleccion. */
@@ -5661,14 +5805,14 @@ int main(void)
                     SDL_FRect icon_dst = {icon_x, icon_y, icon_sz, icon_sz};
                     SDL_RenderTexture(ren, menu_icon_tex[MENU_ICON_IDX[i]], NULL, &icon_dst);
                 }
-                draw_text(ren, f_med, menu_label, c_menu_gold, mx + 46.0f, iy);
+                draw_text(ren, f_mnu, menu_label, c_menu_gold, mx + 46.0f, ty);
             } else {
                 if (menu_icon_tex[MENU_ICON_IDX[i]]) {
                     SDL_SetTextureColorMod(menu_icon_tex[MENU_ICON_IDX[i]], c_menu_beige.r, c_menu_beige.g, c_menu_beige.b);
                     SDL_FRect icon_dst = {mx + 8.0f, iy - 1.0f, 22.0f, 22.0f};
                     SDL_RenderTexture(ren, menu_icon_tex[MENU_ICON_IDX[i]], NULL, &icon_dst);
                 }
-                draw_text(ren, f_med, menu_label, c_menu_beige, mx + 46.0f, iy);
+                draw_text(ren, f_mnu, menu_label, c_menu_beige, mx + 46.0f, ty);
             }
 
             /* Contador total de ROMs, fuera de la pildora de seleccion
@@ -5676,20 +5820,20 @@ int main(void)
             if (i == 0) {
                 char rom_count_buf[16];
                 snprintf(rom_count_buf, sizeof(rom_count_buf), "(%d)", total_roms);
-                draw_text(ren, f_med, rom_count_buf, c_menu_beige, mx - 10.0f + item_pill_w + 10.0f, iy);
+                draw_text(ren, f_mnu, rom_count_buf, c_menu_beige, mx - 10.0f + item_pill_w + 10.0f, ty);
             }
 
         }
 
         /* Panel derecho: contexto de la opcion seleccionada */
         {
-            draw_text_truncated(ren, f_sm, MENU_ITEMS[selected][current_lang], c_green, rx, menu_y0, rx_max_w);
+            draw_text_truncated(ren, f_ftr, MENU_ITEMS[selected][current_lang], c_green, rx, menu_y0, rx_max_w);
             /* Descripcion: reemplaza el separador de linea original por espacio,
              * y envuelve el texto completo sin truncar nunca. */
             char desc_flat[128];
             snprintf(desc_flat, sizeof(desc_flat), "%s", MENU_DESC[selected][current_lang]);
             for (char *p = desc_flat; *p; p++) if (*p == '\n') *p = ' ';
-            int n_lines = draw_text_wrapped(ren, f_sm, desc_flat, c_gray,
+            int n_lines = draw_text_wrapped(ren, f_ftr, desc_flat, c_gray,
                                              rx, menu_y0 + 18.0f, rx_max_w, 16.0f);
             /* Info adicional del sistema, extensible: anadir mas lineas aqui */
             char ctx_lines[4][64];
@@ -5711,7 +5855,7 @@ int main(void)
             float ctx_max_line_w = 0.0f;
             for (int ci = 0; ci < ctx_n; ci++) {
                 int clw = 0, clh = 0;
-                TTF_GetStringSize(f_sm, ctx_lines[ci], 0, &clw, &clh);
+                TTF_GetStringSize(f_ftr, ctx_lines[ci], 0, &clw, &clh);
                 if ((float)clw > ctx_max_line_w) ctx_max_line_w = (float)clw;
             }
             float ctx_box_x = rx - ctx_box_pad;
@@ -5722,7 +5866,7 @@ int main(void)
             SDL_Color c_ctx_box_border = c_selbg;
             draw_rounded_rect_outline(ren, ctx_box_x, ctx_box_y, ctx_box_w, ctx_box_h,
                                        10.0f, 2.0f, c_ctx_box_border, c_ctx_box_bg);
-            draw_context_panel(ren, f_sm, rx, ctx_y, ctx_lines, ctx_n, c_dkgreen);
+            draw_context_panel(ren, f_ftr, rx, ctx_y, ctx_lines, ctx_n, c_dkgreen);
         }
         /* Pildora "Ultima partida", centrada, ancho ajustado al contenido.
          * Solo visible con Catalogo Amiga seleccionado (selected==0). */
@@ -5735,13 +5879,13 @@ int main(void)
                 safe_copy(last_game_pill_buf, tr("Sin partidas recientes", "No recent games"), sizeof(last_game_pill_buf));
             }
             int pill_text_w = 0, pill_text_h = 0;
-            TTF_GetStringSize(f_sm, last_game_pill_buf, 0, &pill_text_w, &pill_text_h);
+            TTF_GetStringSize(f_ftr, last_game_pill_buf, 0, &pill_text_w, &pill_text_h);
             float pill_max_w = SCREEN_W - 40.0f;
             float pill_w = (float)pill_text_w;
             if (pill_w > pill_max_w) pill_w = pill_max_w;
             float pill_x = (SCREEN_W - (float)pill_text_w) / 2.0f;
             float pill_y = 438.0f - 10.0f - (float)pill_text_h;
-            draw_text_truncated(ren, f_sm, last_game_pill_buf, c_dkgreen, pill_x, pill_y, pill_max_w);
+            draw_text_truncated(ren, f_ftr, last_game_pill_buf, c_dkgreen, pill_x, pill_y, pill_max_w);
 
             /* Badge de la carpeta de origen (ADF/DEMOSCENE/HDF/IPF/WHDLOAD),
              * recuadro de contorno con padding identico en los 4 lados,
@@ -5777,7 +5921,7 @@ int main(void)
 
         /* Barra inferior */
         draw_line(ren, mx, 438.0f, SCREEN_W - 20.0f, 438.0f, c_selbg);
-        draw_footer(ren, f_sm, tr("[B] Seleccionar  [DPAD] Navegar  [L1] Idioma  [MODE+A] Sonido", "[B] Select  [DPAD] Navigate  [L1] Language  [MODE+A] Sound"), s_version);
+        draw_footer(ren, f_ftr, tr("[B] Seleccionar  [DPAD] Navegar  [L1] Idioma  [MODE+A] Sonido", "[B] Select  [DPAD] Navigate  [L1] Language  [MODE+A] Sound"), s_version);
 
         /* Barra de progreso del hold de modo dev (si se está manteniendo) */
         if (devmode_combo_held && devmode_hold_start != 0) {
@@ -5804,7 +5948,7 @@ int main(void)
             float box_y = (SCREEN_H - box_h) / 2.0f;
             draw_rounded_rect_filled(ren, box_x, box_y, box_w, box_h, 16.0f, g_theme.row_bg);
 
-            draw_text_centered(ren, f_med, tr("¿Qué quieres hacer?", "What do you want to do?"),
+            draw_text_centered(ren, f_gpw, tr("¿Qué quieres hacer?", "What do you want to do?"),
                                g_theme.text_light, SCREEN_W / 2.0f, box_y + 18.0f);
 
             float opt_w = 130.0f, opt_h = 48.0f;
@@ -5820,9 +5964,9 @@ int main(void)
 
             draw_rounded_rect_filled(ren, opt_x0, opt_y, opt_w, opt_h, opt_h / 2.0f,
                                      power_popup_selected == 0 ? sel_bg : unsel_bg);
-            draw_text_centered(ren, f_med, tr("Apagar", "Power Off"),
+            draw_text_centered(ren, f_gpw, tr("Apagar", "Power Off"),
                                power_popup_selected == 0 ? sel_fg : unsel_fg,
-                               opt_x0 + opt_w / 2.0f, opt_y + opt_h / 2.0f - 9.0f);
+                               opt_x0 + opt_w / 2.0f, opt_y + (opt_h - (float)TTF_GetFontHeight(f_gpw)) / 2.0f);
 
             if (power_popup_selected == 1) {
                 draw_rounded_rect_filled(ren, opt_x1, opt_y, opt_w, opt_h, opt_h / 2.0f, sel_bg);
@@ -5830,18 +5974,18 @@ int main(void)
                 draw_rounded_rect_outline(ren, opt_x1, opt_y, opt_w, opt_h, opt_h / 2.0f,
                                            2.0f, c_selbg, unsel_bg);
             }
-            draw_text_centered(ren, f_med, tr("Reiniciar", "Reboot"),
+            draw_text_centered(ren, f_gpw, tr("Reiniciar", "Reboot"),
                                power_popup_selected == 1 ? sel_fg : unsel_fg,
-                               opt_x1 + opt_w / 2.0f, opt_y + opt_h / 2.0f - 9.0f);
+                               opt_x1 + opt_w / 2.0f, opt_y + (opt_h - (float)TTF_GetFontHeight(f_gpw)) / 2.0f);
 
-            draw_text_centered(ren, f_sm, tr("[DPAD] Elegir  [B] Confirmar  [A] Cancelar",
+            draw_text_centered(ren, f_gpw, tr("[DPAD] Elegir  [B] Confirmar  [A] Cancelar",
                                              "[DPAD] Choose  [B] Confirm  [A] Cancel"),
                                g_theme.text_light, SCREEN_W / 2.0f, box_y + 116.0f);
         }
 
         } else if (state == STATE_SETTINGS || (state == STATE_CONFIRM && confirm_return_state == STATE_SETTINGS)) {
             draw_statusbar(ren, f_status_bold, status_time, status_wifi_up, status_battery, status_bt_up, bg_update_available, wifi_icon_tex, battery_icon_tex, bt_icon_tex, ssh_icon_tex, update_badge_tex);
-            draw_active_dash_breadcrumbs(ren, f_sm, mx, 25.0f, 2, tr("Configuración", "Settings"));
+            draw_active_dash_breadcrumbs(ren, f_gcr, mx, 25.0f, 2, tr("Configuración", "Settings"));
 
             float settings_y0 = 64.0f;
             float settings_item_h = 32.0f;
@@ -5875,9 +6019,10 @@ int main(void)
                 } else {
                     safe_copy(item_label, SETTINGS_MENU_ITEMS[i][current_lang], sizeof(item_label));
                 }
+                float ty = iy - 5.0f + (settings_item_h - 4.0f - (float)TTF_GetFontHeight(f_gset)) / 2.0f;
                 if (i == settings_selected) {
                     int text_w = 0, text_h = 0;
-                    TTF_GetStringSize(f_med, item_label, 0, &text_w, &text_h);
+                    TTF_GetStringSize(f_gset, item_label, 0, &text_w, &text_h);
                     float sel_w = 46.0f + (float)text_w + 32.0f;
                     float pill_h = settings_item_h - 4.0f;
                     draw_rounded_rect_filled(ren, mx - 10.0f, settings_cursor_y - 5.0f,
@@ -5887,27 +6032,27 @@ int main(void)
                         SDL_FRect icon_dst = {mx + 8.0f, iy - 2.0f, 22.0f, 22.0f};
                         SDL_RenderTexture(ren, menu_icon_tex[4], NULL, &icon_dst);
                     }
-                    draw_text(ren, f_med, item_label, c_menu_gold, mx + 46.0f, iy);
+                    draw_text(ren, f_gset, item_label, c_menu_gold, mx + 46.0f, ty);
                 } else {
                     if (menu_icon_tex[4]) {
                         SDL_SetTextureColorMod(menu_icon_tex[4], c_menu_beige.r, c_menu_beige.g, c_menu_beige.b);
                         SDL_FRect icon_dst = {mx + 8.0f, iy - 2.0f, 22.0f, 22.0f};
                         SDL_RenderTexture(ren, menu_icon_tex[4], NULL, &icon_dst);
                     }
-                    draw_text(ren, f_med, item_label, c_menu_beige, mx + 46.0f, iy);
+                    draw_text(ren, f_gset, item_label, c_menu_beige, mx + 46.0f, ty);
                 }
             }
             if (settings_scroll > 0) {
-                draw_text(ren, f_xs, tr("más arriba ↑", "more above ↑"), c_menu_selbg,
+                draw_text(ren, f_gxs, tr("más arriba ↑", "more above ↑"), c_menu_selbg,
                           mx + 8.0f, LIST_MORE_ABOVE_Y);
             }
             if (settings_scroll + settings_visible < SETTINGS_MENU_COUNT) {
-                draw_text(ren, f_xs, tr("más abajo ↓", "more below ↓"), c_menu_selbg,
+                draw_text(ren, f_gxs, tr("más abajo ↓", "more below ↓"), c_menu_selbg,
                           mx + 8.0f, LIST_MORE_BELOW_Y);
             }
 
             draw_line(ren, mx, 438.0f, SCREEN_W - 20.0f, 438.0f, c_selbg);
-            draw_footer(ren, f_sm, tr("[B] Seleccionar  [A] Volver", "[B] Select  [A] Back"), s_version);
+            draw_footer(ren, f_ftr, tr("[B] Seleccionar  [A] Volver", "[B] Select  [A] Back"), s_version);
 
             /* Overlay de confirmacion (factory reset) sobre Settings ya
              * dibujado, mismo patron que el popup de Apagar/Reiniciar. */
@@ -5922,35 +6067,35 @@ int main(void)
                 float box_x = (SCREEN_W - box_w) / 2.0f;
                 float box_y = (SCREEN_H - box_h) / 2.0f;
                 draw_rounded_rect_filled(ren, box_x, box_y, box_w, box_h, 16.0f, g_theme.row_bg);
-                draw_text_centered(ren, f_med, tr("¿Restablecer valores de fábrica?", "Factory reset?"),
+                draw_text_centered(ren, f_ftr, tr("¿Restablecer valores de fábrica?", "Factory reset?"),
                                    g_theme.text_light, SCREEN_W / 2.0f, box_y + 30.0f);
-                draw_text_centered(ren, f_sm, tr("[B] Si        [A] No", "[B] Yes       [A] No"),
+                draw_text_centered(ren, f_ftr, tr("[B] Si        [A] No", "[B] Yes       [A] No"),
                                    g_theme.accent, SCREEN_W / 2.0f, box_y + 66.0f);
             }
 
         } else if (state == STATE_BRIGHTNESS_CONFIG) {
             draw_statusbar(ren, f_status_bold, status_time, status_wifi_up, status_battery, status_bt_up, bg_update_available, wifi_icon_tex, battery_icon_tex, bt_icon_tex, ssh_icon_tex, update_badge_tex);
-            draw_active_dash_breadcrumbs(ren, f_sm, mx, 25.0f, 3, tr("Brillo de pantalla", "Screen Brightness"));
+            draw_active_dash_breadcrumbs(ren, f_gcr, mx, 25.0f, 3, tr("Brillo de pantalla", "Screen Brightness"));
 
             {
                 float iy = 90.0f;
                 float bar_w = 220.0f, bar_h = 10.0f;
                 char valbuf[8];
                 snprintf(valbuf, sizeof(valbuf), "%d%%", brightness_pct);
-                draw_text(ren, f_sm, tr("Brillo", "Brightness"), c_green, mx + 8.0f, iy);
-                draw_text(ren, f_med, valbuf, c_white, mx + 8.0f, iy + 16.0f);
+                draw_text(ren, f_gsm, tr("Brillo", "Brightness"), c_green, mx + 8.0f, iy);
+                draw_text(ren, f_ftr, valbuf, c_white, mx + 8.0f, iy + 16.0f);
                 float frac = brightness_pct / 100.0f;
                 SDL_Color c_bar_lime = c_selbg;
                 draw_bar_rounded(ren, mx + 8.0f, iy + 44.0f, bar_w, bar_h, frac, c_bar_lime, c_white);
             }
 
             draw_line(ren, mx, 438.0f, SCREEN_W - 20.0f, 438.0f, c_selbg);
-            draw_footer(ren, f_sm,
+            draw_footer(ren, f_ftr,
                 tr("[<>] Ajustar  [B] Aplicar  [A] Volver", "[<>] Adjust  [B] Apply  [A] Back"), s_version);
 
         } else if (state == STATE_PERF_CONFIG) {
             draw_statusbar(ren, f_status_bold, status_time, status_wifi_up, status_battery, status_bt_up, bg_update_available, wifi_icon_tex, battery_icon_tex, bt_icon_tex, ssh_icon_tex, update_badge_tex);
-            draw_active_dash_breadcrumbs(ren, f_sm, mx, 25.0f, 3, tr("Rendimiento", "Performance"));
+            draw_active_dash_breadcrumbs(ren, f_gcr, mx, 25.0f, 3, tr("Rendimiento", "Performance"));
             struct { const char *title[2]; const char *desc[2]; SDL_Texture *icon; } perf_opts[3] = {
                 {{"Rendimiento máximo", "Maximum performance"},
                  {"CPU y GPU siempre a máxima\nfrecuencia. Mayor consumo.",
@@ -5982,13 +6127,13 @@ int main(void)
                 snprintf(desc_flat, sizeof(desc_flat), "%s", perf_opts[i].desc[current_lang]);
                 for (char *p = desc_flat; *p; p++) if (*p == '\n') *p = ' ';
                 int tw = 0, th = 0;
-                TTF_GetStringSize(f_med, perf_opts[i].title[current_lang], 0, &tw, &th);
+                TTF_GetStringSize(f_ftr, perf_opts[i].title[current_lang], 0, &tw, &th);
                 if (perf_desc_cached_lang != current_lang) {
                     for (int pj = 0; pj < 3; pj++) {
                         char desc_flat_pj[128];
                         snprintf(desc_flat_pj, sizeof(desc_flat_pj), "%s", perf_opts[pj].desc[current_lang]);
                         for (char *p = desc_flat_pj; *p; p++) if (*p == '\n') *p = ' ';
-                        perf_desc_lines_cached[pj] = measure_text_wrapped(f_sm, desc_flat_pj, perf_w - 30.0f, &perf_desc_max_line_w_cached[pj]);
+                        perf_desc_lines_cached[pj] = measure_text_wrapped(f_ftr, desc_flat_pj, perf_w - 30.0f, &perf_desc_max_line_w_cached[pj]);
                     }
                     perf_desc_cached_lang = current_lang;
                 }
@@ -6004,25 +6149,30 @@ int main(void)
                 float text_bottom = 20.0f + (float)desc_line_count * 15.0f;
                 float content_bottom = (icon_bottom > text_bottom) ? icon_bottom : text_bottom;
                 float pill_h3 = content_bottom + 16.0f;
+                float pill_top3 = iy - 8.0f;
+                float blk_h = 20.0f + (float)(desc_line_count > 0 ? desc_line_count - 1 : 0) * 15.0f
+                              + (float)TTF_GetFontHeight(f_ftr);
+                float ty0 = pill_top3 + (pill_h3 - blk_h) / 2.0f;
+                float icon_y3 = pill_top3 + (pill_h3 - 24.0f) / 2.0f;
                 if (sel) {
                     draw_rounded_rect_filled(ren, perf_x - 10.0f, perf_cursor_y - 8.0f,
                                      pill_w2, pill_h3, pill_h3 / 2.0f, c_menu_selbg);
                 }
                 if (perf_opts[i].icon) {
                     SDL_SetTextureColorMod(perf_opts[i].icon, titlec.r, titlec.g, titlec.b);
-                    SDL_FRect icon_dst = {perf_x + 4.0f, iy, 24.0f, 24.0f};
+                    SDL_FRect icon_dst = {perf_x + 4.0f, icon_y3, 24.0f, 24.0f};
                     SDL_RenderTexture(ren, perf_opts[i].icon, NULL, &icon_dst);
                 }
-                draw_text(ren, f_med, perf_opts[i].title[current_lang], titlec, perf_x + 38.0f, iy);
-                draw_text_wrapped(ren, f_sm, desc_flat, titlec, perf_x + 38.0f, iy + 20.0f, perf_w - 30.0f, 15.0f);
+                draw_text(ren, f_ftr, perf_opts[i].title[current_lang], titlec, perf_x + 38.0f, ty0);
+                draw_text_wrapped(ren, f_ftr, desc_flat, titlec, perf_x + 38.0f, ty0 + 20.0f, perf_w - 30.0f, 15.0f);
             }
             draw_line(ren, mx, 438.0f, SCREEN_W - 20.0f, 438.0f, c_selbg);
-            draw_footer(ren, f_sm,
+            draw_footer(ren, f_ftr,
                 tr("[DPAD] Elegir  [B] Aplicar  [A] Volver", "[DPAD] Choose  [B] Apply  [A] Back"), s_version);
 
         } else if (state == STATE_THEME_CONFIG) {
             draw_statusbar(ren, f_status_bold, status_time, status_wifi_up, status_battery, status_bt_up, bg_update_available, wifi_icon_tex, battery_icon_tex, bt_icon_tex, ssh_icon_tex, update_badge_tex);
-            draw_active_dash_breadcrumbs(ren, f_sm, mx, 25.0f, 3, tr("Tema", "Theme"));
+            draw_active_dash_breadcrumbs(ren, f_gcr, mx, 25.0f, 3, tr("Tema", "Theme"));
             float theme_item_h = 40.0f;
             float theme_y0 = 64.0f;
             int theme_visible = 8;
@@ -6039,7 +6189,7 @@ int main(void)
                 SDL_Color swatch_c = THEMES[i].accent;
                 SDL_Color labelc = sel ? THEMES[i].text_on_accent : c_menu_beige;
                 int lw = 0, lh = 0;
-                TTF_GetStringSize(f_med, THEME_NAMES[i][current_lang], 0, &lw, &lh);
+                TTF_GetStringSize(f_ftr, THEME_NAMES[i][current_lang], 0, &lw, &lh);
                 float pill_h = theme_item_h - 6.0f;
                 float pill_top = iy - 3.0f;
                 float text_y = pill_top + (pill_h - (float)lh) / 2.0f;
@@ -6049,18 +6199,18 @@ int main(void)
                     draw_rounded_rect_filled(ren, mx - 10.0f, pill_top, pill_w, pill_h, pill_h / 2.0f, swatch_c);
                 }
                 draw_rounded_rect_filled(ren, mx + 8.0f, dot_y, 20.0f, 20.0f, 10.0f, swatch_c);
-                draw_text(ren, f_med, THEME_NAMES[i][current_lang], labelc, mx + 40.0f, text_y);
+                draw_text(ren, f_ftr, THEME_NAMES[i][current_lang], labelc, mx + 40.0f, text_y);
             }
             if (theme_scroll > 0) {
-                draw_text(ren, f_xs, tr("más arriba ↑", "more above ↑"), c_menu_selbg,
+                draw_text(ren, f_gxs, tr("más arriba ↑", "more above ↑"), c_menu_selbg,
                           mx + 8.0f, LIST_MORE_ABOVE_Y);
             }
             if (theme_scroll + theme_visible < THEME_COUNT) {
-                draw_text(ren, f_xs, tr("más abajo ↓", "more below ↓"), c_menu_selbg,
+                draw_text(ren, f_gxs, tr("más abajo ↓", "more below ↓"), c_menu_selbg,
                           mx + 8.0f, LIST_MORE_BELOW_Y);
             }
             draw_line(ren, mx, 438.0f, SCREEN_W - 20.0f, 438.0f, c_selbg);
-            draw_footer(ren, f_sm,
+            draw_footer(ren, f_ftr,
                 tr("[DPAD] Elegir  [B] Aplicar  [A] Volver", "[DPAD] Choose  [B] Apply  [A] Back"), s_version);
 
         } else if (state == STATE_GAME_LIST) {
@@ -6078,7 +6228,7 @@ int main(void)
                 cover_reset();
             }
             draw_statusbar(ren, f_status_bold, status_time, status_wifi_up, status_battery, status_bt_up, bg_update_available, wifi_icon_tex, battery_icon_tex, bt_icon_tex, ssh_icon_tex, update_badge_tex);
-            draw_active_dash_breadcrumbs(ren, f_sm, mx, 25.0f, 2, tr("Catálogo Amiga", "Amiga Catalog"));
+            draw_active_dash_breadcrumbs(ren, f_gcr, mx, 25.0f, 2, tr("Catálogo Amiga", "Amiga Catalog"));
             const float g_item_h = 35.0f, g_y0 = 64.0f;
             const float g_lx = mx - 10.0f, g_list_w = 286.0f;
             const int g_visible = 10;
@@ -6089,7 +6239,7 @@ int main(void)
             SDL_Color c_card = cat_mix(c_bg, c_menu_selbg, 0.12f);
             SDL_Color c_track = cat_mix(c_bg, c_menu_selbg, 0.30f);
             if (g_games_n == 0) {
-                draw_text(ren, f_sm,
+                draw_text(ren, f_gsm,
                           games_scan_running ? tr("Escaneando biblioteca...", "Scanning library...")
                                              : tr("No hay juegos en la carpeta whdload", "No games in the whdload folder"),
                           c_gray, mx + 8.0f, g_y0);
@@ -6098,7 +6248,7 @@ int main(void)
             if (games_selected >= g_visible) g_scroll = games_selected - g_visible + 1;
             if (g_scroll > g_games_n - g_visible) g_scroll = g_games_n - g_visible;
             if (g_scroll < 0) g_scroll = 0;
-            int g_lh = TTF_GetFontHeight(f_med);
+            int g_lh = TTF_GetFontHeight(f_gmed);
             for (int row = 0; row < g_visible && (row + g_scroll) < g_games_n; row++) {
                 int i = row + g_scroll;
                 float iy = g_y0 + row * g_item_h;
@@ -6106,11 +6256,16 @@ int main(void)
                 float pill_h = g_item_h - 6.0f;
                 float pill_top = iy - 3.0f;
                 float text_y = pill_top + (pill_h - (float)g_lh) / 2.0f;
-                if (sel)
-                    draw_rounded_rect_filled(ren, g_lx, pill_top, g_list_w, pill_h, pill_h / 2.0f, c_menu_selbg);
                 char st[96];
                 cat_short_title(g_games[i].title, st, sizeof(st));
-                draw_text_truncated(ren, f_med, st, sel ? c_menu_gold : c_menu_beige,
+                if (sel) {
+                    int st_w = 0, st_h = 0;
+                    TTF_GetStringSize(f_gmed, st, 0, &st_w, &st_h);
+                    float sel_w = (float)st_w + 28.0f;
+                    if (sel_w > g_list_w) sel_w = g_list_w;
+                    draw_rounded_rect_filled(ren, g_lx, pill_top, sel_w, pill_h, pill_h / 2.0f, c_menu_selbg);
+                }
+                draw_text_truncated(ren, f_gmed, st, sel ? c_menu_gold : c_menu_beige,
                                     g_lx + 14.0f, text_y, g_list_w - 28.0f);
             }
             if (g_games_n > g_visible) {
@@ -6126,11 +6281,11 @@ int main(void)
                 snprintf(pos_a, sizeof(pos_a), "%d", games_selected + 1);
                 snprintf(pos_b, sizeof(pos_b), " / %d", g_games_n);
                 int pa_w = 0, pb_w = 0, pp_h = 0;
-                TTF_GetStringSize(f_sm, pos_a, 0, &pa_w, &pp_h);
-                TTF_GetStringSize(f_sm, pos_b, 0, &pb_w, &pp_h);
+                TTF_GetStringSize(f_gsm, pos_a, 0, &pa_w, &pp_h);
+                TTF_GetStringSize(f_gsm, pos_b, 0, &pb_w, &pp_h);
                 float pos_x = g_sb_x + 4.0f - (float)(pa_w + pb_w);
-                draw_text(ren, f_sm, pos_a, c_menu_beige, pos_x, g_lbot + 6.0f);
-                draw_text(ren, f_sm, pos_b, c_gray, pos_x + (float)pa_w, g_lbot + 6.0f);
+                draw_text(ren, f_gsm, pos_a, c_menu_beige, pos_x, g_lbot + 6.0f);
+                draw_text(ren, f_gsm, pos_b, c_gray, pos_x + (float)pa_w, g_lbot + 6.0f);
 
                 float rx_g = g_sb_x + 4.0f + 12.0f;
                 float rw_g = SCREEN_W - 20.0f - rx_g;
@@ -6153,9 +6308,9 @@ int main(void)
                         ? tr("SIN CARATULA", "NO COVER")
                         : tr("CARGANDO...", "LOADING...");
                     int ph_w = 0, ph_h = 0;
-                    TTF_GetStringSize(f_sm, ph_txt, 0, &ph_w, &ph_h);
+                    TTF_GetStringSize(f_gsm, ph_txt, 0, &ph_w, &ph_h);
                     draw_rounded_rect_outline(ren, cb_x, cb_y, cb_w, cb_h, 6.0f, 1.0f, c_track, c_card);
-                    draw_text(ren, f_sm, ph_txt, c_gray,
+                    draw_text(ren, f_gsm, ph_txt, cat_mix(c_card, c_menu_beige, 0.40f),
                               cb_x + (cb_w - (float)ph_w) / 2.0f, cb_y + (cb_h - (float)ph_h) / 2.0f);
                 }
                 float sep_x = cb_x + cb_w + 8.0f;
@@ -6186,19 +6341,19 @@ int main(void)
                 const char *lbl[5] = { tr("SISTEMA", "SYSTEM"), tr("VERSIÓN", "VERSION"),
                                        tr("IDIOMA", "LANGUAGE"), tr("TIPO", "TYPE"), tr("TAMAÑO", "SIZE") };
                 const char *val[5] = { v_sys, v_ver, v_lang, "WHDLoad", v_size };
-                int xs_h = TTF_GetFontHeight(f_sm), sm_h = TTF_GetFontHeight(f_sm);
+                int xs_h = TTF_GetFontHeight(f_gsm), sm_h = TTF_GetFontHeight(f_gsm);
                 for (int k = 0; k < 5; k++) {
                     float ry = c1_y + 12.0f + (float)k * 25.0f;
                     int lw = 0, lh = 0, vw = 0, vh = 0;
-                    TTF_GetStringSize(f_sm, lbl[k], 0, &lw, &lh);
-                    TTF_GetStringSize(f_sm, val[k], 0, &vw, &vh);
-                    draw_text(ren, f_sm, lbl[k], c_gray, inf_x, ry + (25.0f - (float)xs_h) / 2.0f);
+                    TTF_GetStringSize(f_gsm, lbl[k], 0, &lw, &lh);
+                    TTF_GetStringSize(f_gsm, val[k], 0, &vw, &vh);
+                    draw_text(ren, f_gsm, lbl[k], cat_mix(c_card, c_menu_beige, 0.40f), inf_x, ry + (25.0f - (float)xs_h) / 2.0f);
                     float vmax = (inf_r - inf_x) - (float)lw - 8.0f;
                     if ((float)vw > vmax)
-                        draw_text_truncated(ren, f_sm, val[k], c_menu_beige, inf_x + (float)lw + 8.0f,
+                        draw_text_truncated(ren, f_gsm, val[k], c_menu_beige, inf_x + (float)lw + 8.0f,
                                             ry + (25.0f - (float)sm_h) / 2.0f, vmax);
                     else
-                        draw_text(ren, f_sm, val[k], c_menu_beige, inf_r - (float)vw,
+                        draw_text(ren, f_gsm, val[k], c_menu_beige, inf_r - (float)vw,
                                   ry + (25.0f - (float)sm_h) / 2.0f);
                 }
 
@@ -6206,12 +6361,12 @@ int main(void)
                 float c3_h = 34.0f, c3_y = g_lbot - c3_h;
                 float c2_y = c1_y + c1_h + 8.0f, c2_h = c3_y - 8.0f - c2_y;
                 draw_rounded_rect_filled(ren, rx_g, c2_y, rw_g, c2_h, 10.0f, c_card);
-                TTF_Font *f_ttl = f_title ? f_title : f_med;
+                TTF_Font *f_ttl = f_title ? f_title : f_gmed;
                 draw_text_wrapped(ren, f_ttl, g->title, c_menu_beige, rx_g + 12.0f, c2_y + 10.0f,
                                   rw_g - 24.0f, (float)(TTF_GetFontHeight(f_ttl) + 2));
                 float fb_x = rx_g + 12.0f, fb_y = c2_y + c2_h - 28.0f;
                 if (!g->identified) {
-                    draw_text(ren, f_sm, tr("Sin identificar en los DAT", "Not found in the DATs"),
+                    draw_text(ren, f_gsm, tr("Sin identificar en los DAT", "Not found in the DATs"),
                               c_gray, fb_x, fb_y + 4.0f);
                 } else {
                     if (g->flags & GF_NTSC)
@@ -6222,7 +6377,7 @@ int main(void)
 
                 /* Tarjeta inferior: tiempo de juego */
                 if (games_pt_idx != games_selected) {
-                    unsigned long pt = playtime_get(g->path);
+                    unsigned long pt = playtime_get(g->path, g->crc);
                     snprintf(games_pt_str, sizeof(games_pt_str), "%02luH %02luM %02luS",
                              pt / 3600, (pt % 3600) / 60, pt % 60);
                     games_pt_idx = games_selected;
@@ -6239,7 +6394,7 @@ int main(void)
                           c3_y + (c3_h - (float)TTF_GetFontHeight(f_ttl)) / 2.0f);
             }
             draw_line(ren, mx, 438.0f, SCREEN_W - 20.0f, 438.0f, c_selbg);
-            draw_footer(ren, f_sm,
+            draw_footer(ren, f_ftr,
                 tr("[B] Lanzar  [DPAD] Navegar  [L1/R1] Pagina  [A] Volver",
                    "[B] Launch  [DPAD] Navigate  [L1/R1] Page  [A] Back"), s_version);
 
@@ -6247,15 +6402,15 @@ int main(void)
             SDL_Color c_bt_card    = c_selbg;
             SDL_Color c_bt_dim     = {90, 84, 66, 255};
             draw_statusbar(ren, f_status_bold, status_time, status_wifi_up, status_battery, status_bt_up, bg_update_available, wifi_icon_tex, battery_icon_tex, bt_icon_tex, ssh_icon_tex, update_badge_tex);
-            draw_active_dash_breadcrumbs(ren, f_sm, mx, 25.0f, 3, tr("Bluetooth", "Bluetooth"));
+            draw_active_dash_breadcrumbs(ren, f_gcr, mx, 25.0f, 3, tr("Bluetooth", "Bluetooth"));
             {
                 float toggle_y = 64.0f;
                 float toggle_h = 34.0f;
                 int lw = 0, lh = 0;
-                TTF_GetStringSize(f_med, "Bluetooth", 0, &lw, &lh);
+                TTF_GetStringSize(f_ftr, "Bluetooth", 0, &lw, &lh);
                 const char *bt_status = bt_enabled ? tr("ACTIVADO", "ENABLED") : tr("DESACTIVADO", "DISABLED");
                 int sw = 0, sh = 0;
-                TTF_GetStringSize(f_sm, bt_status, 0, &sw, &sh);
+                TTF_GetStringSize(f_ftr, bt_status, 0, &sw, &sh);
                 float badge_pad = 10.0f;
                 float badge_w = (float)sw + badge_pad * 2.0f;
                 float badge_h = (float)sh + 6.0f;
@@ -6263,32 +6418,32 @@ int main(void)
                 float badge_gap = 16.0f;
                 float toggle_w = label_pad + (float)lw + badge_gap + badge_w + 12.0f;
                 draw_rounded_rect_filled(ren, mx, toggle_y, toggle_w, toggle_h, toggle_h / 2.0f, c_bt_card);
-                draw_text(ren, f_med, "Bluetooth", c_menu_gold, mx + label_pad, toggle_y + 8.0f);
+                draw_text(ren, f_ftr, "Bluetooth", c_menu_gold, mx + label_pad, toggle_y + (toggle_h - (float)TTF_GetFontHeight(f_ftr)) / 2.0f);
                 float badge_x = mx + toggle_w - 12.0f - badge_w;
                 float badge_y = toggle_y + (toggle_h - badge_h) / 2.0f;
                 SDL_Color badge_bg = bt_enabled ? g_theme.bg : g_theme.row_bg;
                 draw_rounded_rect_filled(ren, badge_x, badge_y, badge_w, badge_h, badge_h / 2.0f, badge_bg);
                 SDL_Color bt_status_c = bt_enabled ? c_green : c_white;
-                draw_text(ren, f_sm, bt_status, bt_status_c, badge_x + badge_pad, badge_y + 3.0f);
+                draw_text(ren, f_ftr, bt_status, bt_status_c, badge_x + badge_pad, badge_y + 3.0f);
                 if (bt_connected_mac[0] && bt_connected_name[0]) {
                     char paired_buf[80];
                     snprintf(paired_buf, sizeof(paired_buf), "%s %s", tr("Conectado a", "Connected to"), bt_connected_name);
                     int pw = 0, ph = 0;
-                    TTF_GetStringSize(f_sm, paired_buf, 0, &pw, &ph);
+                    TTF_GetStringSize(f_ftr, paired_buf, 0, &pw, &ph);
                     float pbadge_pad = 12.0f;
                     float pbadge_max_w = SCREEN_W - mx - (mx + toggle_w + 16.0f);
                     float pbadge_w = (float)pw + pbadge_pad * 2.0f;
                     if (pbadge_w > pbadge_max_w) pbadge_w = pbadge_max_w;
                     float pbadge_h = toggle_h;
                     draw_rounded_rect_filled(ren, mx + toggle_w + 16.0f, toggle_y, pbadge_w, pbadge_h, pbadge_h / 2.0f, c_bt_card);
-                    draw_text_truncated(ren, f_sm, paired_buf, c_menu_gold, mx + toggle_w + 16.0f + pbadge_pad, toggle_y + (pbadge_h - (float)ph) / 2.0f,
+                    draw_text_truncated(ren, f_ftr, paired_buf, c_menu_gold, mx + toggle_w + 16.0f + pbadge_pad, toggle_y + (pbadge_h - (float)ph) / 2.0f,
                                          pbadge_w - pbadge_pad * 2.0f);
                 }
             }
             if (!bt_enabled) {
-                draw_text(ren, f_sm, tr("Bluetooth desactivado", "Bluetooth disabled"), c_menu_beige, mx, 116.0f);
+                draw_text(ren, f_ftr, tr("Bluetooth desactivado", "Bluetooth disabled"), c_menu_beige, mx, 116.0f);
             } else {
-                draw_text(ren, f_sm, tr("DISPOSITIVOS DISPONIBLES", "AVAILABLE DEVICES"), c_menu_selbg, mx, 112.0f);
+                draw_text(ren, f_ftr, tr("DISPOSITIVOS DISPONIBLES", "AVAILABLE DEVICES"), c_menu_selbg, mx, 112.0f);
                 float bt_y0 = 134.0f;
                 float bt_item_h = 30.0f;
                 int bt_visible = 9;
@@ -6306,7 +6461,7 @@ int main(void)
                 if (bt_scroll < 0) bt_scroll = 0;
                 bt_show_up_indicator = (bt_scroll > 0);
                 if (bt_show_up_indicator) {
-                    draw_text_right(ren, f_xs, tr("más arriba ↑", "more above ↑"), c_menu_selbg,
+                    draw_text_right(ren, f_gxs, tr("más arriba ↑", "more above ↑"), c_menu_selbg,
                                      SCREEN_W - mx - 6.0f, 112.0f);
                 }
                 {
@@ -6317,6 +6472,7 @@ int main(void)
                     int i = row + bt_scroll;
                     float iy = bt_y0 + row * bt_item_h;
                     float row_h = bt_item_h - 4.0f;
+                    float ty = iy - 4.0f + (row_h - (float)TTF_GetFontHeight(f_ftr)) / 2.0f;
                     const char *label = bt_devices[i].name[0] ? bt_devices[i].name : bt_devices[i].mac;
                     bool sel = (i == bt_selected);
                     bool connected = (bt_connected_mac[0] && !strcmp(bt_connected_mac, bt_devices[i].mac));
@@ -6327,37 +6483,37 @@ int main(void)
                          * basta como indicador, evita informacion duplicada. */
                     } else if (sel) {
                         int lbl_w = 0, lbl_h = 0;
-                        TTF_GetStringSize(f_sm, label, 0, &lbl_w, &lbl_h);
+                        TTF_GetStringSize(f_ftr, label, 0, &lbl_w, &lbl_h);
                         float pill_pad = 10.0f;
                         float pill_x = mx + 4.0f - pill_pad;
                         float pill_w = (float)lbl_w + pill_pad * 2.0f;
                         draw_rounded_rect_filled(ren, pill_x, bt_cursor_y - 4.0f, pill_w, row_h, row_h / 2.0f, c_menu_selbg);
                     }
                     SDL_Color labelc = connected ? c_menu_gold : (sel ? c_menu_gold : c_menu_beige);
-                    draw_text(ren, f_sm, label, labelc, mx + 4.0f, iy);
+                    draw_text(ren, f_ftr, label, labelc, mx + 4.0f, ty);
                     if (connected) {
                         /* Sin badge aqui: ya se muestra "Emparejado: <nombre>"
                          * en la pildora de arriba, este texto era redundante. */
                     } else if (bt_devices[i].has_rssi) {
                         char rbuf[16];
                         snprintf(rbuf, sizeof(rbuf), "%d dBm", bt_devices[i].rssi);
-                        draw_text_right(ren, f_sm, rbuf, c_menu_selbg, SCREEN_W - mx - 6.0f, iy);
+                        draw_text_right(ren, f_ftr, rbuf, c_menu_selbg, SCREEN_W - mx - 6.0f, ty);
                     }
                 }
                 if (bt_scroll + bt_list_rows < bt_device_count) {
                     char more_buf[32];
                     snprintf(more_buf, sizeof(more_buf), "+ %d %s", bt_device_count - (bt_scroll + bt_list_rows), tr("dispositivos mas", "more devices"));
-                    draw_text(ren, f_xs, more_buf, c_menu_selbg, mx + 4.0f, bt_y0 + bt_list_rows * bt_item_h + 4.0f);
+                    draw_text(ren, f_gxs, more_buf, c_menu_selbg, mx + 4.0f, bt_y0 + bt_list_rows * bt_item_h + 4.0f);
                 }
                 if (bt_device_count == 0 && !bt_scanning) {
-                    draw_text(ren, f_sm, tr("Ningun dispositivo encontrado", "No devices found"), c_menu_beige, mx, bt_y0);
+                    draw_text(ren, f_ftr, tr("Ningun dispositivo encontrado", "No devices found"), c_menu_beige, mx, bt_y0);
                 }
                 if (bt_connecting) {
                     char cbuf[96];
                     snprintf(cbuf, sizeof(cbuf), "%s %s...", tr("Conectando a", "Connecting to"), bt_devices[bt_selected].name[0] ? bt_devices[bt_selected].name : bt_devices[bt_selected].mac);
-                    draw_text(ren, f_sm, cbuf, c_menu_selbg, mx, 392.0f);
+                    draw_text(ren, f_ftr, cbuf, c_menu_selbg, mx, 392.0f);
                 } else if (bt_connect_status[0]) {
-                    draw_text(ren, f_sm, bt_connect_status, c_menu_selbg, mx, 392.0f);
+                    draw_text(ren, f_ftr, bt_connect_status, c_menu_selbg, mx, 392.0f);
                 }
                 if (bt_scanning) {
                     float sp_cx = mx + 6.0f;
@@ -6378,15 +6534,15 @@ int main(void)
                         };
                         draw_rect_filled(ren, dx - 1.5f, dy - 1.5f, 3.0f, 3.0f, dotc);
                     }
-                    draw_text(ren, f_sm, tr("Buscando dispositivos...", "Searching for devices..."), c_menu_beige, mx + 20.0f, 416.0f);
+                    draw_text(ren, f_ftr, tr("Buscando dispositivos...", "Searching for devices..."), c_menu_beige, mx + 20.0f, 416.0f);
                 }
             }
             draw_line(ren, mx, 438.0f, SCREEN_W - 20.0f, 438.0f, c_selbg);
-            draw_footer(ren, f_sm,
+            draw_footer(ren, f_ftr,
                 tr("[DPAD] Elegir  [B] Conectar  [SELECT] Activar  [A] Volver", "[DPAD] Choose  [B] Connect  [SELECT] Toggle  [A] Back"), s_version);
         } else if (state == STATE_TIMEZONE_CONFIG) {
             draw_statusbar(ren, f_status_bold, status_time, status_wifi_up, status_battery, status_bt_up, bg_update_available, wifi_icon_tex, battery_icon_tex, bt_icon_tex, ssh_icon_tex, update_badge_tex);
-            draw_active_dash_breadcrumbs(ren, f_sm, mx, 25.0f, 3, tr("Zona horaria", "Time Zone"));
+            draw_active_dash_breadcrumbs(ren, f_gcr, mx, 25.0f, 3, tr("Zona horaria", "Time Zone"));
 
             float tz_y0 = 60.0f;
             float tz_item_h = 20.0f;
@@ -6399,11 +6555,11 @@ int main(void)
             if (tz_scroll < 0) tz_scroll = 0;
 
             if (tz_scroll > 0) {
-                draw_text(ren, f_xs, tr("más arriba ↑", "more above ↑"), c_menu_selbg,
+                draw_text(ren, f_gxs, tr("más arriba ↑", "more above ↑"), c_menu_selbg,
                           mx + 8.0f, LIST_MORE_ABOVE_Y);
             }
             if (tz_scroll + tz_visible < TIMEZONE_LIST_COUNT) {
-                draw_text(ren, f_xs, tr("más abajo ↓", "more below ↓"), c_menu_selbg,
+                draw_text(ren, f_gxs, tr("más abajo ↓", "more below ↓"), c_menu_selbg,
                           mx + 8.0f, LIST_MORE_BELOW_Y);
             }
 
@@ -6418,7 +6574,8 @@ int main(void)
                 bool sel = (i == timezone_selected);
                 bool active = !strcmp(TIMEZONE_LIST[i].tz_name, timezone_current);
                 int text_w = 0, text_h = 0;
-                TTF_GetStringSize(f_sm, TIMEZONE_LIST[i].label[current_lang], 0, &text_w, &text_h);
+                TTF_GetStringSize(f_ftr, TIMEZONE_LIST[i].label[current_lang], 0, &text_w, &text_h);
+                float ty = iy - 3.0f + (tz_item_h + 2.0f - (float)TTF_GetFontHeight(f_ftr)) / 2.0f;
                 if (sel) {
                     float sel_w = (float)text_w + 42.0f;
                     float pill_h = tz_item_h + 2.0f;
@@ -6426,9 +6583,17 @@ int main(void)
                                      sel_w, pill_h, pill_h / 2.0f, c_menu_selbg);
                 }
                 SDL_Color labelc = sel ? c_menu_gold : c_menu_beige;
-                draw_text(ren, f_sm, TIMEZONE_LIST[i].label[current_lang], labelc, mx + 8.0f, iy);
+                draw_text(ren, f_ftr, TIMEZONE_LIST[i].label[current_lang], labelc, mx + 8.0f, ty);
                 if (active)
-                    draw_text(ren, f_sm, "✓", sel ? c_menu_gold : c_menu_selbg, mx + 8.0f + (float)text_w + 8.0f, iy);
+                    {
+                        SDL_Color ckc = sel ? c_menu_gold : c_menu_selbg;
+                        float ckx = mx + 8.0f + (float)text_w + 10.0f;
+                        float cky = iy + 8.0f;
+                        draw_line(ren, ckx, cky, ckx + 4.0f, cky + 4.0f, ckc);
+                        draw_line(ren, ckx, cky + 1.0f, ckx + 4.0f, cky + 5.0f, ckc);
+                        draw_line(ren, ckx + 4.0f, cky + 4.0f, ckx + 11.0f, cky - 4.0f, ckc);
+                        draw_line(ren, ckx + 4.0f, cky + 5.0f, ckx + 11.0f, cky - 3.0f, ckc);
+                    }
             }
 
             /* Panel derecho: hora en vivo de la zona resaltada por el cursor */
@@ -6439,18 +6604,18 @@ int main(void)
                     tz_preview_last_sel = timezone_selected;
                     tz_preview_last_time = now_ticks;
                 }
-                draw_text(ren, f_sm, tr("Hora actual", "Current time"), c_menu_beige, tzp_x, tz_y0);
-                draw_text(ren, f_lg, tz_preview_buf, c_menu_selbg, tzp_x, tz_y0 + 22.0f);
-                draw_text(ren, f_sm, TIMEZONE_LIST[timezone_selected].label[current_lang], c_menu_beige, tzp_x, tz_y0 + 66.0f);
+                draw_text(ren, f_ftr, tr("Hora actual", "Current time"), c_menu_beige, tzp_x, tz_y0);
+                draw_text(ren, f_glg, tz_preview_buf, c_menu_selbg, tzp_x, tz_y0 + 22.0f);
+                draw_text(ren, f_ftr, TIMEZONE_LIST[timezone_selected].label[current_lang], c_menu_beige, tzp_x, tz_y0 + 66.0f);
             }
 
             draw_line(ren, mx, 438.0f, SCREEN_W - 20.0f, 438.0f, c_selbg);
-            draw_footer(ren, f_sm,
+            draw_footer(ren, f_ftr,
                 tr("[B] Aplicar  [A] Volver  [L1/R1] Salto x5", "[B] Apply  [A] Back  [L1/R1] Jump x5"), s_version);
 
         } else if (state == STATE_SCREENDIM_CONFIG) {
             draw_statusbar(ren, f_status_bold, status_time, status_wifi_up, status_battery, status_bt_up, bg_update_available, wifi_icon_tex, battery_icon_tex, bt_icon_tex, ssh_icon_tex, update_badge_tex);
-            draw_active_dash_breadcrumbs(ren, f_sm, mx, 25.0f, 3, tr("Ahorro de pantalla", "Screen Dimming"));
+            draw_active_dash_breadcrumbs(ren, f_gcr, mx, 25.0f, 3, tr("Ahorro de pantalla", "Screen Dimming"));
 
             float dim_y0 = 70.0f;
             float dim_item_h = 46.0f;
@@ -6469,15 +6634,17 @@ int main(void)
                 const char *dim_val_disp = DIM_TIMEOUT_LABELS[dim_timeout_selected][current_lang];
                 if (sel) {
                     int lw = 0, lh = 0, vw = 0, vh = 0;
-                    TTF_GetStringSize(f_sm, tr("Atenuar tras", "Dim after"), 0, &lw, &lh);
-                    TTF_GetStringSize(f_med, dim_val_disp, 0, &vw, &vh);
+                    TTF_GetStringSize(f_ftr, tr("Atenuar tras", "Dim after"), 0, &lw, &lh);
+                    TTF_GetStringSize(f_ftr, dim_val_disp, 0, &vw, &vh);
                     float sel_w = (float)(lw > vw ? lw : vw) + 40.0f;
                     float pill_h = dim_item_h - 2.0f;
                     draw_rounded_rect_filled(ren, mx - 14.0f, dim_cursor_y - 4.0f,
                                      sel_w, pill_h, pill_h / 2.0f, c_menu_selbg);
                 }
-                draw_text(ren, f_sm, tr("Atenuar tras", "Dim after"), labelc, mx + 8.0f, iy);
-                draw_text(ren, f_med, dim_val_disp, labelc, mx + 8.0f, iy + 16.0f);
+                float hh0 = (float)TTF_GetFontHeight(f_ftr);
+                float ty0 = iy - 4.0f + (dim_item_h - 2.0f - (16.0f + hh0)) / 2.0f;
+                draw_text(ren, f_ftr, tr("Atenuar tras", "Dim after"), labelc, mx + 8.0f, ty0);
+                draw_text(ren, f_ftr, dim_val_disp, labelc, mx + 8.0f, ty0 + 16.0f);
             }
 
             {
@@ -6486,31 +6653,34 @@ int main(void)
                 SDL_Color labelc = sel ? c_menu_gold : c_menu_beige;
                 if (sel) {
                     int lw = 0, lh = 0;
-                    TTF_GetStringSize(f_sm, tr("Brillo al atenuar", "Brightness when dimmed"), 0, &lw, &lh);
+                    TTF_GetStringSize(f_ftr, tr("Brillo al atenuar", "Brightness when dimmed"), 0, &lw, &lh);
                     float bar_total_w = dim_bar_w + 10.0f + 40.0f; /* barra + gap + "100%" aprox */
                     float sel_w = ((float)lw > bar_total_w ? (float)lw : bar_total_w) + 40.0f;
                     float pill_h = dim_item_h + 2.0f;
                     draw_rounded_rect_filled(ren, mx - 14.0f, dim_cursor_y - 8.0f,
                                      sel_w, pill_h, pill_h / 2.0f, c_menu_selbg);
                 }
-                draw_text(ren, f_sm, tr("Brillo al atenuar", "Brightness when dimmed"),
-                          labelc, mx + 8.0f, iy);
+                float hh1 = (float)TTF_GetFontHeight(f_ftr);
+                float blk1 = (16.0f + hh1 > 30.0f) ? 16.0f + hh1 : 30.0f;
+                float ty1 = iy - 8.0f + (dim_item_h + 2.0f - blk1) / 2.0f;
+                draw_text(ren, f_ftr, tr("Brillo al atenuar", "Brightness when dimmed"),
+                          labelc, mx + 8.0f, ty1);
                 float bar_x = mx + 8.0f;
-                float bar_y = iy + 20.0f;
+                float bar_y = ty1 + 20.0f;
                 float frac = dim_percent / 100.0f;
                 draw_bar_rounded(ren, bar_x, bar_y, dim_bar_w, dim_bar_h, frac, c_selbg, labelc);
                 char valbuf[8];
                 snprintf(valbuf, sizeof(valbuf), "%d%%", dim_percent);
-                draw_text(ren, f_sm, valbuf, labelc, bar_x + dim_bar_w + 10.0f, iy + 16.0f);
+                draw_text(ren, f_ftr, valbuf, labelc, bar_x + dim_bar_w + 10.0f, ty1 + 16.0f);
             }
 
             draw_line(ren, mx, 438.0f, SCREEN_W - 20.0f, 438.0f, c_selbg);
-            draw_footer(ren, f_sm,
+            draw_footer(ren, f_ftr,
                 tr("[B] Guardar  [A] Volver", "[B] Save  [A] Back"), s_version);
 
         } else if (state == STATE_BACKUP_MENU) {
             draw_statusbar(ren, f_status_bold, status_time, status_wifi_up, status_battery, status_bt_up, bg_update_available, wifi_icon_tex, battery_icon_tex, bt_icon_tex, ssh_icon_tex, update_badge_tex);
-            draw_active_dash_breadcrumbs(ren, f_sm, mx, 25.0f, 3, tr("Copia de seguridad", "Backup"));
+            draw_active_dash_breadcrumbs(ren, f_gcr, mx, 25.0f, 3, tr("Copia de seguridad", "Backup"));
             float bkm_y0 = 64.0f;
             float bkm_item_h = 34.0f;
             {
@@ -6519,20 +6689,21 @@ int main(void)
             }
             for (int i = 0; i < BACKUP_MENU_COUNT; i++) {
                 float iy = bkm_y0 + i * bkm_item_h;
+                float ty = iy - 5.0f + (bkm_item_h - 4.0f - (float)TTF_GetFontHeight(f_ftr)) / 2.0f;
                 if (i == backup_selected) {
                     int text_w = 0, text_h = 0;
-                    TTF_GetStringSize(f_med, BACKUP_MENU_ITEMS[i][current_lang], 0, &text_w, &text_h);
+                    TTF_GetStringSize(f_ftr, BACKUP_MENU_ITEMS[i][current_lang], 0, &text_w, &text_h);
                     float sel_w = (float)text_w + 32.0f;
                     float pill_h = bkm_item_h - 4.0f;
                     draw_rounded_rect_filled(ren, mx - 10.0f, bkm_cursor_y - 5.0f,
                                      sel_w, pill_h, pill_h / 2.0f, c_menu_selbg);
-                    draw_text(ren, f_med, BACKUP_MENU_ITEMS[i][current_lang], c_menu_gold, mx + 8.0f, iy);
+                    draw_text(ren, f_ftr, BACKUP_MENU_ITEMS[i][current_lang], c_menu_gold, mx + 8.0f, ty);
                 } else {
-                    draw_text(ren, f_med, BACKUP_MENU_ITEMS[i][current_lang], c_menu_beige, mx + 8.0f, iy);
+                    draw_text(ren, f_ftr, BACKUP_MENU_ITEMS[i][current_lang], c_menu_beige, mx + 8.0f, ty);
                 }
             }
             if (backup_creating) {
-                draw_text_animdots(ren, f_sm, tr("Generando copia de seguridad", "Creating backup"),
+                draw_text_animdots(ren, f_ftr, tr("Generando copia de seguridad", "Creating backup"),
                           c_white, mx, bkm_y0 + BACKUP_MENU_COUNT * bkm_item_h + 20.0f, now_ticks);
             } else if (backup_msg_until > 0 && SDL_GetTicks() < backup_msg_until) {
                 char msgbuf[128];
@@ -6547,19 +6718,19 @@ int main(void)
                     safe_copy(msgbuf, tr("Error al crear la copia de seguridad", "Error creating backup"), sizeof(msgbuf));
                     msgc = c_red;
                 }
-                draw_text_truncated(ren, f_sm, msgbuf,
+                draw_text_truncated(ren, f_ftr, msgbuf,
                           msgc, mx, bkm_y0 + BACKUP_MENU_COUNT * bkm_item_h + 20.0f, SCREEN_W - 40.0f);
             }
             draw_line(ren, mx, 438.0f, SCREEN_W - 20.0f, 438.0f, c_selbg);
-            draw_footer(ren, f_sm, tr("[B] Seleccionar  [A] Volver", "[B] Select  [A] Back"), s_version);
+            draw_footer(ren, f_ftr, tr("[B] Seleccionar  [A] Volver", "[B] Select  [A] Back"), s_version);
 
         } else if (state == STATE_BACKUP_LIST || (state == STATE_CONFIRM && confirm_return_state == STATE_BACKUP_LIST)) {
             draw_statusbar(ren, f_status_bold, status_time, status_wifi_up, status_battery, status_bt_up, bg_update_available, wifi_icon_tex, battery_icon_tex, bt_icon_tex, ssh_icon_tex, update_badge_tex);
-            draw_active_dash_breadcrumbs(ren, f_sm, mx, 25.0f, 4, tr("Restaurar copia", "Restore Backup"));
+            draw_active_dash_breadcrumbs(ren, f_gcr, mx, 25.0f, 4, tr("Restaurar copia", "Restore Backup"));
             float bkl_y0 = 64.0f;
             float bkl_item_h = 26.0f;
             if (backup_count == 0) {
-                draw_text(ren, f_sm, tr("No hay copias disponibles", "No backups available"), c_gray, mx, bkl_y0);
+                draw_text(ren, f_ftr, tr("No hay copias disponibles", "No backups available"), c_gray, mx, bkl_y0);
             } else {
                 {
                     float target_y = bkl_y0 + backup_list_selected * bkl_item_h;
@@ -6569,21 +6740,21 @@ int main(void)
                     float iy = bkl_y0 + i * bkl_item_h;
                     if (i == backup_list_selected) {
                         int text_w = 0, text_h = 0;
-                        TTF_GetStringSize(f_sm, backup_list[i], 0, &text_w, &text_h);
+                        TTF_GetStringSize(f_ftr, backup_list[i], 0, &text_w, &text_h);
                         float sel_w = (float)text_w + 32.0f;
                         float pill_h = 32.0f;
                         float pill_y = bkl_cursor_y - (pill_h - bkl_item_h) / 2.0f - 5.0f;
                         float text_y = pill_y + (pill_h - (float)text_h) / 2.0f;
                         draw_rounded_rect_filled(ren, mx - 10.0f, pill_y,
                                          sel_w, pill_h, pill_h / 2.0f, c_menu_selbg);
-                        draw_text(ren, f_sm, backup_list[i], c_menu_gold, mx + 8.0f, text_y);
+                        draw_text(ren, f_ftr, backup_list[i], c_menu_gold, mx + 8.0f, text_y);
                     } else {
-                        draw_text(ren, f_sm, backup_list[i], c_gray, mx + 8.0f, iy);
+                        draw_text(ren, f_ftr, backup_list[i], c_gray, mx + 8.0f, iy);
                     }
                 }
             }
             draw_line(ren, mx, 438.0f, SCREEN_W - 20.0f, 438.0f, c_selbg);
-            draw_footer(ren, f_sm, tr("[B] Restaurar  [X] Eliminar  [A] Volver", "[B] Restore  [X] Delete  [A] Back"), s_version);
+            draw_footer(ren, f_ftr, tr("[B] Restaurar  [X] Eliminar  [A] Volver", "[B] Restore  [X] Delete  [A] Back"), s_version);
 
             /* Overlay de confirmacion (restaurar/eliminar backup) sobre la
              * lista de copias ya dibujada, mismo patron que el popup de
@@ -6607,19 +6778,19 @@ int main(void)
                 float box_x = (SCREEN_W - box_w) / 2.0f;
                 float box_y = (SCREEN_H - box_h) / 2.0f;
                 draw_rounded_rect_filled(ren, box_x, box_y, box_w, box_h, 16.0f, g_theme.row_bg);
-                draw_text_centered(ren, f_med, bkl_confirm_label, g_theme.text_light,
+                draw_text_centered(ren, f_ftr, bkl_confirm_label, g_theme.text_light,
                                    SCREEN_W / 2.0f, box_y + 30.0f);
-                draw_text_centered(ren, f_sm, tr("[B] Si        [A] No", "[B] Yes       [A] No"),
+                draw_text_centered(ren, f_ftr, tr("[B] Si        [A] No", "[B] Yes       [A] No"),
                                    g_theme.accent, SCREEN_W / 2.0f, box_y + 66.0f);
             }
 
         } else if (state == STATE_AREXX_LIST) {
             draw_statusbar(ren, f_status_bold, status_time, status_wifi_up, status_battery, status_bt_up, bg_update_available, wifi_icon_tex, battery_icon_tex, bt_icon_tex, ssh_icon_tex, update_badge_tex);
-            draw_active_dash_breadcrumbs(ren, f_sm, mx, 25.0f, 2, tr("ARexx Scripts", "ARexx Scripts"));
+            draw_active_dash_breadcrumbs(ren, f_gcr, mx, 25.0f, 2, tr("ARexx Scripts", "ARexx Scripts"));
             float arx_y0 = 64.0f;
             float arx_item_h = 34.0f;
             if (arexx_count == 0) {
-                draw_text(ren, f_sm, tr("No hay scripts disponibles", "No scripts available"), c_gray, mx, arx_y0);
+                draw_text(ren, f_ftr, tr("No hay scripts disponibles", "No scripts available"), c_gray, mx, arx_y0);
             } else {
                 SDL_Color c_white_icon = {255, 255, 255, 255};
                 float icon_size = 20.0f;
@@ -6634,7 +6805,7 @@ int main(void)
                         SDL_RenderTexture(ren, arexx_icon_tex, NULL, &icon_dst);
                     }
                     int text_w = 0, text_h = 0;
-                    TTF_GetStringSize(f_sm, arexx_scripts[i].filename, 0, &text_w, &text_h);
+                    TTF_GetStringSize(f_garx, arexx_scripts[i].filename, 0, &text_w, &text_h);
                     float row_h = 26.0f;
                     float text_y = iy + (row_h - (float)text_h) / 2.0f;
                     if (i == arexx_selected) {
@@ -6642,9 +6813,9 @@ int main(void)
                         float pill_x0 = text_x - 16.0f;
                         float text_draw_x = pill_x0 + (sel_w - (float)text_w) / 2.0f;
                         draw_rounded_rect_filled(ren, pill_x0, iy, sel_w, row_h, row_h / 2.0f, c_menu_selbg);
-                        draw_text(ren, f_sm, arexx_scripts[i].filename, c_menu_gold, text_draw_x, text_y);
+                        draw_text(ren, f_garx, arexx_scripts[i].filename, c_menu_gold, text_draw_x, text_y);
                     } else {
-                        draw_text(ren, f_sm, arexx_scripts[i].filename, c_gray, text_x, text_y);
+                        draw_text(ren, f_garx, arexx_scripts[i].filename, c_gray, text_x, text_y);
                     }
                 }
                 if (arexx_md5_cached_for != arexx_selected) {
@@ -6656,7 +6827,7 @@ int main(void)
                 const char *desc_line = arexx_scripts[arexx_selected].desc[current_lang];
                 float box_pad = 16.0f;
                 int md5_w = 0, md5_h = 0;
-                TTF_GetStringSize(f_sm, md5_line, 0, &md5_w, &md5_h);
+                TTF_GetStringSize(f_ftr, md5_line, 0, &md5_w, &md5_h);
                 float box_w = (float)md5_w + box_pad * 2.0f;
                 if (box_w < 240.0f) box_w = 240.0f;
                 if (box_w > SCREEN_W - mx * 2.0f) box_w = SCREEN_W - mx * 2.0f;
@@ -6664,7 +6835,7 @@ int main(void)
                 float desc_line_h = 16.0f;
                 float desc_max_line_w = 0.0f;
                 if (arexx_desc_cached_for != arexx_selected || arexx_desc_cached_lang != current_lang) {
-                    arexx_desc_lines_cached = measure_text_wrapped(f_sm, desc_line, desc_max_w, &arexx_desc_max_line_w_cached);
+                    arexx_desc_lines_cached = measure_text_wrapped(f_ftr, desc_line, desc_max_w, &arexx_desc_max_line_w_cached);
                     arexx_desc_cached_for = arexx_selected;
                     arexx_desc_cached_lang = current_lang;
                 }
@@ -6675,14 +6846,14 @@ int main(void)
                 float box_y = 438.0f - 12.0f - box_h;
                 SDL_Color c_bg_box = g_theme.bg;
                 draw_rounded_rect_outline(ren, box_x, box_y, box_w, box_h, 10.0f, 2.0f, c_menu_selbg, c_bg_box);
-                draw_text_wrapped(ren, f_sm, desc_line, c_gray, box_x + box_pad, box_y + box_pad, desc_max_w, desc_line_h);
-                draw_text(ren, f_sm, md5_line, c_gray, box_x + box_pad, box_y + box_pad + (float)desc_lines * desc_line_h + 6.0f);
+                draw_text_wrapped(ren, f_ftr, desc_line, c_gray, box_x + box_pad, box_y + box_pad, desc_max_w, desc_line_h);
+                draw_text(ren, f_ftr, md5_line, c_gray, box_x + box_pad, box_y + box_pad + (float)desc_lines * desc_line_h + 6.0f);
             }
             char arx_counter[24];
             snprintf(arx_counter, sizeof(arx_counter), "%d %s %d", arexx_count, tr("de", "of"), AREXX_MAX_SCRIPTS);
-            draw_text(ren, f_sm, arx_counter, c_gray, mx, 418.0f);
+            draw_text(ren, f_ftr, arx_counter, c_gray, mx, 418.0f);
             draw_line(ren, mx, 438.0f, SCREEN_W - 20.0f, 438.0f, c_selbg);
-            draw_footer(ren, f_sm, tr("[B] Ejecutar  [A] Volver", "[B] Run  [A] Back"), s_version);
+            draw_footer(ren, f_ftr, tr("[B] Ejecutar  [A] Volver", "[B] Run  [A] Back"), s_version);
 
         } else if (state == STATE_AREXX_RUN) {
             int arexx_still_running = (poll_arexx_script(&arexx_output, &arexx_output_len, &arexx_output_cap) == 0);
@@ -6709,12 +6880,12 @@ int main(void)
                 }
             }
             draw_statusbar(ren, f_status_bold, status_time, status_wifi_up, status_battery, status_bt_up, bg_update_available, wifi_icon_tex, battery_icon_tex, bt_icon_tex, ssh_icon_tex, update_badge_tex);
-            draw_active_dash_breadcrumbs(ren, f_sm, mx, 25.0f, 3, tr("Ejecutando Script", "Running Script"));
-            draw_text(ren, f_sm, arexx_scripts[arexx_selected].filename, c_menu_selbg, mx, 60.0f);
+            draw_active_dash_breadcrumbs(ren, f_gcr, mx, 25.0f, 3, tr("Ejecutando Script", "Running Script"));
+            draw_text(ren, f_ftr, arexx_scripts[arexx_selected].filename, c_menu_selbg, mx, 60.0f);
             if (arexx_still_running) {
                 int fname_w = 0, fname_h = 0;
-                TTF_GetStringSize(f_sm, arexx_scripts[arexx_selected].filename, 0, &fname_w, &fname_h);
-                draw_text_animdots(ren, f_xs, tr("Ejecutando", "Running"), c_gray, mx + (float)fname_w + 16.0f, 62.0f, SDL_GetTicks());
+                TTF_GetStringSize(f_ftr, arexx_scripts[arexx_selected].filename, 0, &fname_w, &fname_h);
+                draw_text_animdots(ren, f_gxs, tr("Ejecutando", "Running"), c_gray, mx + (float)fname_w + 16.0f, 62.0f, SDL_GetTicks());
             }
             float arxr_y0 = 90.0f;
             float arxr_line_h = 16.0f;
@@ -6759,7 +6930,7 @@ int main(void)
                             do {
                                 int fit_w = 0; size_t fit_len = 0;
                                 if (remaining_len > 0)
-                                    TTF_MeasureString(f_xsm, cursor, remaining_len, (int)arxr_avail_w, &fit_w, &fit_len);
+                                    TTF_MeasureString(f_gxsm, cursor, remaining_len, (int)arxr_avail_w, &fit_w, &fit_len);
                                 if (remaining_len > 0 && fit_len == 0) fit_len = 1; /* progreso garantizado */
                                 size_t break_len = fit_len;
                                 if (fit_len < remaining_len) {
@@ -6809,7 +6980,7 @@ int main(void)
                     if (strstr(src_line, "[CORRECTO]") || strstr(src_line, "[OK]")) line_c = c_arxr_lime;
                     else if (strstr(src_line, "[INCORRECTO]") || strstr(src_line, "[CRITICO]")) line_c = c_arxr_red;
                     else if (strstr(src_line, "[AVISO]")) line_c = g_theme.accent;
-                    draw_text(ren, f_xsm, arxr_wrap[i].text, line_c, mx, arxr_y0 + (i - arxr_start) * arxr_line_h);
+                    draw_text(ren, f_gxsm, arxr_wrap[i].text, line_c, mx, arxr_y0 + (i - arxr_start) * arxr_line_h);
                 }
             if (!arexx_still_running && arxr_nlines > arxr_max_visible) {
                 char scroll_info[32];
@@ -6817,17 +6988,17 @@ int main(void)
                          arxr_start + 1,
                          (arxr_start + arxr_max_visible < arxr_nlines) ? arxr_start + arxr_max_visible : arxr_nlines,
                          arxr_nlines);
-                draw_text_right(ren, f_xs, scroll_info, c_gray, SCREEN_W - 20.0f, 70.0f);
+                draw_text_right(ren, f_gxs, scroll_info, c_gray, SCREEN_W - 20.0f, 70.0f);
             }
             draw_line(ren, mx, 438.0f, SCREEN_W - 20.0f, 438.0f, c_selbg);
             if (!arexx_still_running && arxr_nlines > arxr_max_visible)
-                draw_footer(ren, f_sm, tr("[DPAD] Navegar  [A] Volver", "[DPAD] Scroll  [A] Back"), s_version);
+                draw_footer(ren, f_ftr, tr("[DPAD] Navegar  [A] Volver", "[DPAD] Scroll  [A] Back"), s_version);
             else
-                draw_footer(ren, f_sm, tr("[A] Volver", "[A] Back"), s_version);
+                draw_footer(ren, f_ftr, tr("[A] Volver", "[A] Back"), s_version);
 
         } else if (state == STATE_WIFI_CONFIG) {
             draw_statusbar(ren, f_status_bold, status_time, status_wifi_up, status_battery, status_bt_up, bg_update_available, wifi_icon_tex, battery_icon_tex, bt_icon_tex, ssh_icon_tex, update_badge_tex);
-            draw_active_dash_breadcrumbs(ren, f_sm, mx, 25.0f, 3, tr("Red inalámbrica", "Wireless Network"));
+            draw_active_dash_breadcrumbs(ren, f_gcr, mx, 25.0f, 3, tr("Red inalámbrica", "Wireless Network"));
 
             float wifi_y0 = 64.0f;
             float wifi_item_h = 44.0f;
@@ -6844,15 +7015,16 @@ int main(void)
                 const char *ssid_disp = wifi_ssid[0] ? wifi_ssid : "--";
                 if (sel) {
                     int lw = 0, lh = 0, vw = 0, vh = 0;
-                    TTF_GetStringSize(f_sm, "SSID", 0, &lw, &lh);
-                    TTF_GetStringSize(f_med, ssid_disp, 0, &vw, &vh);
+                    TTF_GetStringSize(f_ftr, "SSID", 0, &lw, &lh);
+                    TTF_GetStringSize(f_ftr, ssid_disp, 0, &vw, &vh);
                     float sel_w = (float)(lw > vw ? lw : vw) + 40.0f;
                     float pill_h = wifi_item_h + 4.0f;
                     draw_rounded_rect_filled(ren, mx - 14.0f, wifi_cursor_y - 8.0f,
                                      sel_w, pill_h, pill_h / 2.0f, c_menu_selbg);
                 }
-                draw_text(ren, f_sm, "SSID", labelc, mx + 8.0f, iy);
-                draw_text(ren, f_med, ssid_disp, labelc, mx + 8.0f, iy + 16.0f);
+                                float wty = iy - 8.0f + (wifi_item_h + 4.0f - (16.0f + (float)TTF_GetFontHeight(f_ftr))) / 2.0f;
+draw_text(ren, f_ftr, "SSID", labelc, mx + 8.0f, wty);
+                draw_text(ren, f_ftr, ssid_disp, labelc, mx + 8.0f, wty + 16.0f);
             }
 
             {
@@ -6871,15 +7043,16 @@ int main(void)
                 }
                 if (sel) {
                     int lw = 0, lh = 0, vw = 0, vh = 0;
-                    TTF_GetStringSize(f_sm, tr("CONTRASEÑA", "PASSWORD"), 0, &lw, &lh);
-                    TTF_GetStringSize(f_med, masked, 0, &vw, &vh);
+                    TTF_GetStringSize(f_ftr, tr("CONTRASEÑA", "PASSWORD"), 0, &lw, &lh);
+                    TTF_GetStringSize(f_ftr, masked, 0, &vw, &vh);
                     float sel_w = (float)(lw > vw ? lw : vw) + 40.0f;
                     float pill_h = wifi_item_h + 4.0f;
                     draw_rounded_rect_filled(ren, mx - 14.0f, wifi_cursor_y - 8.0f,
                                      sel_w, pill_h, pill_h / 2.0f, c_menu_selbg);
                 }
-                draw_text(ren, f_sm, tr("CONTRASEÑA", "PASSWORD"), labelc, mx + 8.0f, iy);
-                draw_text(ren, f_med, masked, labelc, mx + 8.0f, iy + 16.0f);
+                                float wty = iy - 8.0f + (wifi_item_h + 4.0f - (16.0f + (float)TTF_GetFontHeight(f_ftr))) / 2.0f;
+draw_text(ren, f_ftr, tr("CONTRASEÑA", "PASSWORD"), labelc, mx + 8.0f, wty);
+                draw_text(ren, f_ftr, masked, labelc, mx + 8.0f, wty + 16.0f);
             }
 
             {
@@ -6889,25 +7062,26 @@ int main(void)
                 const char *wifi_status_disp = wifi_enabled ? tr("ACTIVADO", "ENABLED") : tr("DESACTIVADO", "DISABLED");
                 if (sel) {
                     int lw = 0, lh = 0, vw = 0, vh = 0;
-                    TTF_GetStringSize(f_sm, "WIFI", 0, &lw, &lh);
-                    TTF_GetStringSize(f_med, wifi_status_disp, 0, &vw, &vh);
+                    TTF_GetStringSize(f_ftr, "WIFI", 0, &lw, &lh);
+                    TTF_GetStringSize(f_ftr, wifi_status_disp, 0, &vw, &vh);
                     float sel_w = (float)(lw > vw ? lw : vw) + 40.0f;
                     float pill_h = wifi_item_h + 4.0f;
                     draw_rounded_rect_filled(ren, mx - 14.0f, wifi_cursor_y - 8.0f,
                                      sel_w, pill_h, pill_h / 2.0f, c_menu_selbg);
                 }
-                draw_text(ren, f_sm, "WIFI", labelc, mx + 8.0f, iy);
-                draw_text(ren, f_med, wifi_status_disp, labelc, mx + 8.0f, iy + 16.0f);
+                                float wty = iy - 8.0f + (wifi_item_h + 4.0f - (16.0f + (float)TTF_GetFontHeight(f_ftr))) / 2.0f;
+draw_text(ren, f_ftr, "WIFI", labelc, mx + 8.0f, wty);
+                draw_text(ren, f_ftr, wifi_status_disp, labelc, mx + 8.0f, wty + 16.0f);
             }
 
             draw_line(ren, mx, 438.0f, SCREEN_W - 20.0f, 438.0f, c_selbg);
-            draw_footer(ren, f_sm,
+            draw_footer(ren, f_ftr,
                 tr("[B] Editar/Alternar  [SELECT] Ver/Ocultar  [A] Guardar", "[B] Edit/Toggle  [SELECT] Show/Hide  [A] Save"),
                 s_version);
 
         } else if (state == STATE_LED_CONFIG) {
             draw_statusbar(ren, f_status_bold, status_time, status_wifi_up, status_battery, status_bt_up, bg_update_available, wifi_icon_tex, battery_icon_tex, bt_icon_tex, ssh_icon_tex, update_badge_tex);
-            draw_active_dash_breadcrumbs(ren, f_sm, mx, 25.0f, 3, tr("LEDs RGB analógicos", "Analog Stick LEDs"));
+            draw_active_dash_breadcrumbs(ren, f_gcr, mx, 25.0f, 3, tr("LEDs RGB analógicos", "Analog Stick LEDs"));
 
             static const char *LED_SLIDER_LABELS[][2] = {
                 {"R (derecho)", "R (right)"},
@@ -6946,22 +7120,24 @@ int main(void)
                 char valbuf[8];
                 snprintf(valbuf, sizeof(valbuf), "%d", led_vals_r[i]);
                 int valw = 0, valh = 0;
-                TTF_GetStringSize(f_sm, valbuf, 0, &valw, &valh);
+                TTF_GetStringSize(f_ftr, valbuf, 0, &valw, &valh);
                 float bar_x = mx + 180.0f;
+                float row_pill_h = led_item_h - 6.0f;
+                float ty = iy - 5.0f + (row_pill_h - (float)TTF_GetFontHeight(f_ftr)) / 2.0f;
                 if (sel) {
                     float pill_h = led_item_h - 6.0f;
                     float pill_w = (bar_x - (mx - 10.0f)) + led_bar_w + 10.0f + (float)valw + 20.0f;
                     draw_rounded_rect_filled(ren, mx - 10.0f, led_cursor_y - 5.0f,
                                      pill_w, pill_h, pill_h / 2.0f, c_menu_selbg);
                 }
-                draw_text(ren, f_sm, LED_SLIDER_LABELS[i][current_lang], labelc, mx + 8.0f, iy);
+                draw_text(ren, f_ftr, LED_SLIDER_LABELS[i][current_lang], labelc, mx + 8.0f, ty);
 
-                float bar_y = iy + 3.0f;
+                float bar_y = iy - 5.0f + (row_pill_h - led_bar_h) / 2.0f;
                 SDL_Color c_bar_empty = {20, 18, 14, 255};
                 float frac = led_vals_r[i] / 255.0f;
                 draw_bar_rounded(ren, bar_x, bar_y, led_bar_w, led_bar_h, frac, c_bar_empty, led_bar_colors[i]);
 
-                draw_text(ren, f_sm, valbuf, labelc, bar_x + led_bar_w + 10.0f, iy);
+                draw_text(ren, f_ftr, valbuf, labelc, bar_x + led_bar_w + 10.0f, ty);
             }
 
             /* La preview debe reflejar el brillo global igual que el LED
@@ -6978,7 +7154,7 @@ int main(void)
             SDL_Color preview_right = {(Uint8)pr_r, (Uint8)pr_g, (Uint8)pr_b, 255};
             SDL_Color preview_left  = {(Uint8)pl_r, (Uint8)pl_g, (Uint8)pl_b, 255};
             float preview_y = led_y0 + LED_SLIDER_COUNT * led_item_h + 16.0f;
-            draw_text(ren, f_sm, tr("Vista previa", "Preview"), c_menu_beige, mx, preview_y);
+            draw_text(ren, f_ftr, tr("Vista previa", "Preview"), c_menu_beige, mx, preview_y);
             float sw_size = 60.0f;
             float sw_gap = 24.0f;
             float sw_y = preview_y + 22.0f;
@@ -6989,19 +7165,19 @@ int main(void)
             draw_rounded_rect_filled(ren, sw_right_x, sw_y, sw_size, 40.0f, 6.0f, preview_right);
             {
                 int lw = 0, lh = 0;
-                TTF_GetStringSize(f_sm, tr("Izquierdo", "Left"), 0, &lw, &lh);
-                draw_text(ren, f_sm, tr("Izquierdo", "Left"), c_menu_beige, sw_left_x + (sw_size - (float)lw) / 2.0f, sw_y + 46.0f);
-                TTF_GetStringSize(f_sm, tr("Derecho", "Right"), 0, &lw, &lh);
-                draw_text(ren, f_sm, tr("Derecho", "Right"), c_menu_beige, sw_right_x + (sw_size - (float)lw) / 2.0f, sw_y + 46.0f);
+                TTF_GetStringSize(f_ftr, tr("Izquierdo", "Left"), 0, &lw, &lh);
+                draw_text(ren, f_ftr, tr("Izquierdo", "Left"), c_menu_beige, sw_left_x + (sw_size - (float)lw) / 2.0f, sw_y + 46.0f);
+                TTF_GetStringSize(f_ftr, tr("Derecho", "Right"), 0, &lw, &lh);
+                draw_text(ren, f_ftr, tr("Derecho", "Right"), c_menu_beige, sw_right_x + (sw_size - (float)lw) / 2.0f, sw_y + 46.0f);
             }
 
             draw_line(ren, mx, 438.0f, SCREEN_W - 20.0f, 438.0f, c_selbg);
-            draw_footer(ren, f_sm,
+            draw_footer(ren, f_ftr,
                 tr("[<>] Ajustar  [L1/R1] +/-20  [A] Volver", "[<>] Adjust  [L1/R1] +/-20  [A] Back"),
                 s_version);
 
         } else if (state == STATE_KEYBOARD) {
-            draw_text(ren, f_sm,
+            draw_text(ren, f_ftr,
                 wifi_field_selected == 0 ? "SSID" : tr("CONTRASEÑA", "PASSWORD"),
                 c_green, mx, 20.0f);
             draw_statusbar(ren, f_status_bold, status_time, status_wifi_up, status_battery, status_bt_up, bg_update_available, wifi_icon_tex, battery_icon_tex, bt_icon_tex, ssh_icon_tex, update_badge_tex);
@@ -7018,13 +7194,14 @@ int main(void)
                 safe_copy(kb_display, kb_buffer, sizeof(kb_display));
             }
             float kb_box_max_w = (SCREEN_W - 40.0f) - 16.0f;
-            draw_text_truncated(ren, f_med, kb_display[0] ? kb_display : "", c_kb_val, mx + 8.0f, 62.0f, kb_box_max_w);
+            float kty = 56.0f + (30.0f - (float)TTF_GetFontHeight(f_ftr)) / 2.0f;
+            draw_text_truncated(ren, f_ftr, kb_display[0] ? kb_display : "", c_kb_val, mx + 8.0f, kty, kb_box_max_w);
             if ((SDL_GetTicks() / 500) % 2 == 0) {
                 int dw = 0, dh = 0;
-                TTF_GetStringSize(f_med, kb_display, 0, &dw, &dh);
+                TTF_GetStringSize(f_ftr, kb_display, 0, &dw, &dh);
                 float cursor_x = mx + 8.0f + (float)dw + 2.0f;
                 if (cursor_x < mx + 8.0f + kb_box_max_w) {
-                    draw_text(ren, f_med, "|", c_kb_val, cursor_x, 62.0f);
+                    draw_text(ren, f_ftr, "|", c_kb_val, cursor_x, kty);
                 }
             }
 
@@ -7052,23 +7229,23 @@ int main(void)
                     if (sel) {
                         SDL_Color c_kb_sel_text = c_menu_gold;
                         draw_rounded_rect_filled(ren, kx, ky, kw, key_h, 4.0f, c_selbg);
-                        draw_text_centered(ren, f_sm, label, c_kb_sel_text, kx + kw/2.0f, ky + key_h/2.0f - 6.0f);
+                        draw_text_centered(ren, f_ftr, label, c_kb_sel_text, kx + kw/2.0f, ky + (key_h - (float)TTF_GetFontHeight(f_ftr)) / 2.0f);
                     } else {
                         draw_rounded_rect_filled(ren, kx, ky, kw, key_h, 4.0f, c_keybg);
-                        draw_text_centered(ren, f_sm, label, c_gray, kx + kw/2.0f, ky + key_h/2.0f - 6.0f);
+                        draw_text_centered(ren, f_ftr, label, c_gray, kx + kw/2.0f, ky + (key_h - (float)TTF_GetFontHeight(f_ftr)) / 2.0f);
                     }
                 }
             }
 
             draw_line(ren, mx, 438.0f, SCREEN_W - 20.0f, 438.0f, c_selbg);
-            draw_footer(ren, f_sm,
+            draw_footer(ren, f_ftr,
                 tr("[B] Insertar [L1] Borrar [R1] Aceptar [A] Cancelar [SELECT] Mayus/Num", "[B] Insert [L1] Delete [R1] Accept [A] Cancel [SELECT] Caps/Num"),
                 s_version);
 
         } else if (state == STATE_DEVMODE || (state == STATE_CONFIRM && confirm_return_state == STATE_DEVMODE)) {
             /* Titulo pequeño arriba a la izquierda */
             draw_statusbar(ren, f_status_bold, status_time, status_wifi_up, status_battery, status_bt_up, bg_update_available, wifi_icon_tex, battery_icon_tex, bt_icon_tex, ssh_icon_tex, update_badge_tex);
-            draw_active_dash_breadcrumbs(ren, f_sm, mx, 25.0f, 2, tr("Modo Desarrollador", "Dev Mode"));
+            draw_active_dash_breadcrumbs(ren, f_gcr, mx, 25.0f, 2, tr("Modo Desarrollador", "Dev Mode"));
 
             /* Menú (columna izquierda), mismo estilo que el menu principal */
             float dev_y0 = 64.0f;
@@ -7083,16 +7260,17 @@ int main(void)
                              show_fps_counter ? "ON" : "OFF");
                     dev_label = dev_label_buf;
                 }
+                float ty = iy - 5.0f + (dev_item_h - 4.0f - (float)TTF_GetFontHeight(f_ftr)) / 2.0f;
                 if (i == dev_selected) {
                     int text_w = 0, text_h = 0;
-                    TTF_GetStringSize(f_sm, dev_label, 0, &text_w, &text_h);
+                    TTF_GetStringSize(f_ftr, dev_label, 0, &text_w, &text_h);
                     float sel_w = (float)text_w + 32.0f;
                     float pill_h = dev_item_h - 4.0f;
                     draw_rounded_rect_filled(ren, mx - 10.0f, iy - 5.0f,
                                      sel_w, pill_h, pill_h / 2.0f, c_menu_selbg);
-                    draw_text(ren, f_sm, dev_label, c_menu_gold, mx + 8.0f, iy);
+                    draw_text(ren, f_ftr, dev_label, c_menu_gold, mx + 8.0f, ty);
                 } else {
-                    draw_text(ren, f_sm, dev_label, c_menu_beige, mx + 8.0f, iy);
+                    draw_text(ren, f_ftr, dev_label, c_menu_beige, mx + 8.0f, ty);
                 }
             }
 
@@ -7121,10 +7299,10 @@ int main(void)
                 float col2_x = dm_rx + 150.0f;
                 for (int i = 0; i < 4; i++) {
                     float ry = ry0 + i * row_h;
-                    draw_text(ren, f_sm, left_col[i].label, c_menu_beige, dm_rx, ry);
-                    draw_text(ren, f_med, left_col[i].val, c_menu_selbg, dm_rx, ry + 16.0f);
-                    draw_text(ren, f_sm, right_col[i].label, c_menu_beige, col2_x, ry);
-                    draw_text(ren, f_med, right_col[i].val, c_menu_selbg, col2_x, ry + 16.0f);
+                    draw_text(ren, f_ftr, left_col[i].label, c_menu_beige, dm_rx, ry);
+                    draw_text(ren, f_ftr, left_col[i].val, c_menu_selbg, dm_rx, ry + 16.0f);
+                    draw_text(ren, f_ftr, right_col[i].label, c_menu_beige, col2_x, ry);
+                    draw_text(ren, f_ftr, right_col[i].val, c_menu_selbg, col2_x, ry + 16.0f);
                 }
                 float dm_rx2 = rx - 140.0f;
                 float g_x0 = dm_rx2;
@@ -7142,8 +7320,8 @@ int main(void)
                     ? tr("THROTTLING ACTIVO", "THROTTLING ACTIVE")
                     : tr("Normal", "Normal");
                 SDL_Color throttle_c = !throttle_applicable ? c_menu_beige : (throttling ? c_red : c_menu_selbg);
-                draw_text(ren, f_sm, tr("TEMPERATURA CPU", "CPU TEMPERATURE"), c_menu_beige, g_x0, g_y0 - 18.0f);
-                draw_text_right(ren, f_sm, throttle_label, throttle_c, g_x0 + g_w, g_y0 - 18.0f);
+                draw_text(ren, f_ftr, tr("TEMPERATURA CPU", "CPU TEMPERATURE"), c_menu_beige, g_x0, g_y0 - 18.0f);
+                draw_text_right(ren, f_ftr, throttle_label, throttle_c, g_x0 + g_w, g_y0 - 18.0f);
                 draw_rect_filled(ren, g_x0, g_y0, g_w, g_h, (SDL_Color){26, 24, 18, 255});
                 {
                     int tmin = 30, tmax = 90;
@@ -7164,13 +7342,13 @@ int main(void)
                     if (g_devmode_temp_history_count > 0) {
                         char tbuf[16];
                         snprintf(tbuf, sizeof(tbuf), "%d C", g_devmode_temp_history[g_devmode_temp_history_count - 1]);
-                        draw_text(ren, f_med, tbuf, c_menu_selbg, g_x0 + 4.0f, g_y0 + 4.0f);
+                        draw_text(ren, f_ftr, tbuf, c_menu_selbg, g_x0 + 4.0f, g_y0 + 4.0f);
                     }
                 }
             }
 
             /* Barra inferior */
-            draw_footer(ren, f_sm, tr("[B] Seleccionar  [A] Volver", "[B] Select  [A] Back"), s_version);
+            draw_footer(ren, f_ftr, tr("[B] Seleccionar  [A] Volver", "[B] Select  [A] Back"), s_version);
 
             /* Overlay de confirmacion (reboot/shutdown dev) sobre el
              * contenido de STATE_DEVMODE ya dibujado, mismo patron que el
@@ -7190,9 +7368,9 @@ int main(void)
                 float box_x = (SCREEN_W - box_w) / 2.0f;
                 float box_y = (SCREEN_H - box_h) / 2.0f;
                 draw_rounded_rect_filled(ren, box_x, box_y, box_w, box_h, 16.0f, g_theme.row_bg);
-                draw_text_centered(ren, f_med, dm_label, g_theme.text_light,
+                draw_text_centered(ren, f_ftr, dm_label, g_theme.text_light,
                                    SCREEN_W / 2.0f, box_y + 30.0f);
-                draw_text_centered(ren, f_sm, tr("[B] Si        [A] No", "[B] Yes       [A] No"),
+                draw_text_centered(ren, f_ftr, tr("[B] Si        [A] No", "[B] Yes       [A] No"),
                                    g_theme.accent, SCREEN_W / 2.0f, box_y + 66.0f);
             }
 
@@ -7221,18 +7399,18 @@ int main(void)
 
             /* Título y separador superior: siempre en el margen fijo, no en SI_MX centrado */
             draw_statusbar(ren, f_status_bold, status_time, status_wifi_up, status_battery, status_bt_up, bg_update_available, wifi_icon_tex, battery_icon_tex, bt_icon_tex, ssh_icon_tex, update_badge_tex);
-            draw_active_dash_breadcrumbs(ren, f_sm, 20.0f, 25.0f, 2, tr("Diagnóstico del sistema", "System Diagnostics"));
+            draw_active_dash_breadcrumbs(ren, f_gcr, 20.0f, 25.0f, 2, tr("Diagnóstico del sistema", "System Diagnostics"));
 
             /* Indicador de pagina: encima del footer, alineado a la derecha */
             {
                 char page_ind[16];
                 snprintf(page_ind, sizeof(page_ind), "%d/2", sysinfo_page + 1);
-                draw_text_right(ren, f_sm, page_ind, c_dkgreen, SCREEN_W - 20.0f, 418.0f);
+                draw_text_right(ren, f_ftr, page_ind, c_dkgreen, SCREEN_W - 20.0f, 418.0f);
             }
 
 /* Macro auxiliar: título de bloque */
 #define SI_BLOCK_TITLE(xpos, ypos, title) do { \
-    draw_text(ren, f_sm, title, c_si_title, (xpos), (ypos)); \
+    draw_text(ren, f_ftr, title, c_si_title, (xpos), (ypos)); \
 } while(0)
 
 /* Macro fila: fondo alterno (zebra) + etiqueta + valor alineado a col_right */
@@ -7241,10 +7419,10 @@ int main(void)
     if (si_row_idx % 2 == 0) \
         draw_rounded_rect_filled(ren, (xpos) - 10.0f, _row_top, (col_right) - (xpos) + 20.0f, SI_ROW_H, SI_ROW_H / 2.0f, c_row_bg); \
     si_row_idx++; \
-    { int _th = 0, _tw0 = 0; TTF_GetStringSize(f_sm, (lbl), 0, &_tw0, &_th); \
-      float _text_y = _row_top + (SI_ROW_H - (float)_th) / 2.0f; \
-      draw_text(ren, f_sm,  (lbl), c_gray,  (xpos),       _text_y); \
-      draw_text_right(ren, f_sm, (val), c_white, (col_right), _text_y); } \
+    { int _th = 0, _tw0 = 0; TTF_GetStringSize(f_ftr, (lbl), 0, &_tw0, &_th); \
+      float _text_y = _row_top + (SI_ROW_H - (float)_th) / 2.0f + 1.0f; \
+      draw_text(ren, f_ftr,  (lbl), c_gray,  (xpos),       _text_y); \
+      draw_text_right(ren, f_ftr, (val), c_white, (col_right), _text_y); } \
 } while(0)
 
 /* Macro fila con barra: etiqueta, barra, valor */
@@ -7254,10 +7432,10 @@ int main(void)
         draw_rounded_rect_filled(ren, (xpos) - 10.0f, _row_top, (col_right) - (xpos) + 20.0f, SI_ROW_H, SI_ROW_H / 2.0f, c_row_bg); \
     si_row_idx++; \
     { int _fw = 0, _fh = 0; \
-      TTF_GetStringSize(f_sm, (val), 0, &_fw, &_fh); \
-      float _text_y = _row_top + (SI_ROW_H - (float)_fh) / 2.0f; \
-      draw_text(ren, f_sm, (lbl), c_gray, (xpos), _text_y); \
-      draw_text(ren, f_sm, (val), c_white, (col_right) - (float)_fw, _text_y); \
+      TTF_GetStringSize(f_ftr, (val), 0, &_fw, &_fh); \
+      float _text_y = _row_top + (SI_ROW_H - (float)_fh) / 2.0f + 1.0f; \
+      draw_text(ren, f_ftr, (lbl), c_gray, (xpos), _text_y); \
+      draw_text(ren, f_ftr, (val), c_white, (col_right) - (float)_fw, _text_y); \
       float _bw = 60.0f; \
       float _bh = 6.0f; \
       float _bar_right = (col_right) - (float)_fw - 10.0f; \
@@ -7359,79 +7537,79 @@ int main(void)
 
             /* Barra inferior */
             draw_line(ren, mx, 438.0f, SCREEN_W - 20.0f, 438.0f, c_selbg);
-            draw_footer(ren, f_sm, tr("[A] Volver  [L1/R1] Pagina", "[A] Back  [L1/R1] Page"), s_version);
+            draw_footer(ren, f_ftr, tr("[A] Volver  [L1/R1] Pagina", "[A] Back  [L1/R1] Page"), s_version);
         } else if (state == STATE_UPDATE) {
             const float UX = 20.0f;
             draw_statusbar(ren, f_status_bold, status_time, status_wifi_up, status_battery, status_bt_up, bg_update_available, wifi_icon_tex, battery_icon_tex, bt_icon_tex, ssh_icon_tex, update_badge_tex);
-            draw_active_dash_breadcrumbs(ren, f_sm, UX, 25.0f, 2, tr("Actualización de sistema", "System Update"));
+            draw_active_dash_breadcrumbs(ren, f_gcr, UX, 25.0f, 2, tr("Actualización de sistema", "System Update"));
 
             /* Versión actual */
             {
                 char buf[64];
                 snprintf(buf, sizeof(buf), tr("Versión instalada:   %s", "Installed version:   %s"), s_version);
-                draw_text(ren, f_sm, buf, c_gray, UX, 64.0f);
+                draw_text(ren, f_ftr, buf, c_gray, UX, 64.0f);
             }
 
             if (update_phase == UPD_CHECKING) {
-                draw_text_animdots(ren, f_sm, tr("Comprobando actualizaciones", "Checking for updates"), c_white, UX, 100.0f, now_ticks);
+                draw_text_animdots(ren, f_ftr, tr("Comprobando actualizaciones", "Checking for updates"), c_white, UX, 100.0f, now_ticks);
 
             } else if (update_phase == UPD_NO_UPDATE) {
-                draw_text(ren, f_sm, tr("El sistema está actualizado.", "System is up to date."), c_green, UX, 100.0f);
+                draw_text(ren, f_ftr, tr("El sistema está actualizado.", "System is up to date."), c_green, UX, 100.0f);
 
             } else if (update_phase == UPD_CONFIRM) {
                 char buf[64];
                 snprintf(buf, sizeof(buf), tr("Nueva versión disponible:   %s", "New version available:   %s"), upd_new_ver);
-                draw_text(ren, f_sm, buf, c_green, UX, 100.0f);
-                draw_text(ren, f_sm, tr("La descarga se realizará en segundo plano.", "The download will run in the background."), c_gray, UX, 122.0f);
-                draw_text(ren, f_sm, tr("El dispositivo se reiniciará al completar.", "The device will restart when finished."), c_gray, UX, 140.0f);
-                draw_text(ren, f_med, tr("[B] Descargar e instalar", "[B] Download and install"), c_green,  UX,          188.0f);
-                draw_text(ren, f_med, tr("[A] Cancelar", "[A] Cancel"),             c_gray,   UX + 260.0f, 188.0f);
+                draw_text(ren, f_ftr, buf, c_green, UX, 100.0f);
+                draw_text(ren, f_ftr, tr("La descarga se realizará en segundo plano.", "The download will run in the background."), c_gray, UX, 122.0f);
+                draw_text(ren, f_ftr, tr("El dispositivo se reiniciará al completar.", "The device will restart when finished."), c_gray, UX, 140.0f);
+                draw_text(ren, f_ftr, tr("[B] Descargar e instalar", "[B] Download and install"), c_green,  UX,          188.0f);
+                draw_text(ren, f_ftr, tr("[A] Cancelar", "[A] Cancel"),             c_gray,   UX + 260.0f, 188.0f);
 
             } else if (update_phase == UPD_DOWNLOADING) {
-                draw_text_animdots(ren, f_sm, tr("Descargando actualización", "Downloading update"), c_white, UX, 100.0f, now_ticks);
+                draw_text_animdots(ren, f_ftr, tr("Descargando actualización", "Downloading update"), c_white, UX, 100.0f, now_ticks);
                 /* Barra de progreso */
                 int pct = (int)(upd_progress * 100.0f);
                 char pct_buf[8]; snprintf(pct_buf, sizeof(pct_buf), "%d%%", pct);
                 { SDL_Color _c_upd_bg = g_theme.row_bg;
                   SDL_Color _c_upd_fill = c_selbg;
                   draw_bar_rounded(ren, UX, 122.0f, 260.0f, 12.0f, upd_progress, _c_upd_bg, _c_upd_fill); }
-                draw_text(ren, f_sm, pct_buf, c_white, UX + 270.0f, 118.0f);
-                draw_text(ren, f_sm, tr("No apagues el dispositivo durante la descarga.", "Do not turn off the device during download."), c_gray, UX, 144.0f);
+                draw_text(ren, f_ftr, pct_buf, c_white, UX + 270.0f, 118.0f);
+                draw_text(ren, f_ftr, tr("No apagues el dispositivo durante la descarga.", "Do not turn off the device during download."), c_gray, UX, 144.0f);
 
             } else if (update_phase == UPD_VERIFYING) {
-                draw_text_animdots(ren, f_sm, tr("Verificando integridad", "Verifying integrity"), c_white, UX, 100.0f, now_ticks);
+                draw_text_animdots(ren, f_ftr, tr("Verificando integridad", "Verifying integrity"), c_white, UX, 100.0f, now_ticks);
 
             } else if (update_phase == UPD_READY) {
-                draw_text(ren, f_sm, tr("Actualización lista. Reiniciando...", "Update ready. Restarting..."), c_green, UX, 100.0f);
+                draw_text(ren, f_ftr, tr("Actualización lista. Reiniciando...", "Update ready. Restarting..."), c_green, UX, 100.0f);
                 /* Reiniciar automáticamente */
                 SDL_Delay(2000);
                 exec_req = EXEC_REBOOT;
                 running  = false;
 
             } else if (update_phase == UPD_ERROR) {
-                { SDL_Color _c_red = g_theme.alert; draw_text(ren, f_sm, "Error:", _c_red, UX, 100.0f); }
-                draw_text(ren, f_sm, upd_msg,  c_gray, UX, 118.0f);
+                { SDL_Color _c_red = g_theme.alert; draw_text(ren, f_ftr, "Error:", _c_red, UX, 100.0f); }
+                draw_text(ren, f_ftr, upd_msg,  c_gray, UX, 118.0f);
             }
 
             draw_line(ren, UX, 438.0f, SCREEN_W - 20.0f, 438.0f, c_selbg);
             if (update_phase != UPD_DOWNLOADING)
-                draw_footer(ren, f_sm, tr("[A] Volver", "[A] Back"), s_version);
+                draw_footer(ren, f_ftr, tr("[A] Volver", "[A] Back"), s_version);
             else
-                draw_footer(ren, f_sm, "", s_version);
+                draw_footer(ren, f_ftr, "", s_version);
 
         } /* end STATE_UPDATE */
         else if (state == STATE_CONTROLLER_TEST) {
             const float CX = 20.0f;
             draw_statusbar(ren, f_status_bold, status_time, status_wifi_up, status_battery, status_bt_up, bg_update_available, wifi_icon_tex, battery_icon_tex, bt_icon_tex, ssh_icon_tex, update_badge_tex);
-            draw_active_dash_breadcrumbs(ren, f_sm, CX, 25.0f, 3, tr("Test de mando", "Controller Test"));
+            draw_active_dash_breadcrumbs(ren, f_gcr, CX, 25.0f, 3, tr("Test de mando", "Controller Test"));
 
             if (!joy) {
-                draw_text(ren, f_sm, tr("No se detecta ningún mando.", "No controller detected."), c_gray, CX, 100.0f);
+                draw_text(ren, f_ftr, tr("No se detecta ningún mando.", "No controller detected."), c_gray, CX, 100.0f);
             } else {
                 /* ── D-PAD (hat) ────────────────────────────────────────── */
                 float dpad_cx = 140.0f, dpad_cy = 160.0f, dpad_sz = 26.0f, dpad_gap = 4.0f;
                 Uint8 hat = SDL_GetJoystickHat(joy, 0);
-                draw_text_centered(ren, f_sm, "D-Pad", c_gray, dpad_cx, dpad_cy - 70.0f);
+                draw_text_centered(ren, f_ftr, "D-Pad", c_gray, dpad_cx, dpad_cy - 70.0f);
                 bool dpad_up_p    = hat & SDL_HAT_UP;
                 bool dpad_down_p  = hat & SDL_HAT_DOWN;
                 bool dpad_left_p  = hat & SDL_HAT_LEFT;
@@ -7453,7 +7631,7 @@ int main(void)
 
                 /* ── STICK IZQUIERDO (ejes 0,1) ─────────────────────────── */
                 float stickL_cx = 320.0f, stickL_cy = 160.0f, stick_r = 45.0f, dot_r = 8.0f;
-                draw_text_centered(ren, f_sm, tr("Stick Izq.", "Left Stick"), c_gray, stickL_cx, stickL_cy - 70.0f);
+                draw_text_centered(ren, f_ftr, tr("Stick Izq.", "Left Stick"), c_gray, stickL_cx, stickL_cy - 70.0f);
                 { SDL_Color ring_c = g_theme.accent; SDL_Color bg_c = g_theme.bg;
                   draw_rounded_rect_outline(ren, stickL_cx - stick_r, stickL_cy - stick_r, stick_r*2, stick_r*2, stick_r, 2.0f, ring_c, bg_c); }
                 { SDL_Color deadzone_c = COL_DEADZONE;
@@ -7470,11 +7648,11 @@ int main(void)
                   SDL_Color dot_c = l3_pressed ? g_theme.alert : g_theme.accent;
                   draw_circle_filled(ren, dotL_x, dotL_y, dot_r, dot_c); }
                 { char buf[24]; snprintf(buf, sizeof(buf), "X:%d Y:%d", axL_x, axL_y);
-                  draw_text_centered(ren, f_xsm, buf, c_gray, stickL_cx, stickL_cy + stick_r + 10.0f); }
+                  draw_text_centered(ren, f_gxsm, buf, c_gray, stickL_cx, stickL_cy + stick_r + 10.0f); }
 
                 /* ── STICK DERECHO (ejes 2,3) ───────────────────────────── */
                 float stickR_cx = 500.0f, stickR_cy = 160.0f;
-                draw_text_centered(ren, f_sm, tr("Stick Dcho.", "Right Stick"), c_gray, stickR_cx, stickR_cy - 70.0f);
+                draw_text_centered(ren, f_ftr, tr("Stick Dcho.", "Right Stick"), c_gray, stickR_cx, stickR_cy - 70.0f);
                 { SDL_Color ring_c = g_theme.accent; SDL_Color bg_c = g_theme.bg;
                   draw_rounded_rect_outline(ren, stickR_cx - stick_r, stickR_cy - stick_r, stick_r*2, stick_r*2, stick_r, 2.0f, ring_c, bg_c); }
                 { SDL_Color deadzone_c = COL_DEADZONE;
@@ -7491,7 +7669,7 @@ int main(void)
                   SDL_Color dot_c = r3_pressed ? g_theme.alert : g_theme.accent;
                   draw_circle_filled(ren, dotR_x, dotR_y, dot_r, dot_c); }
                 { char buf[24]; snprintf(buf, sizeof(buf), "X:%d Y:%d", axR_x, axR_y);
-                  draw_text_centered(ren, f_xsm, buf, c_gray, stickR_cx, stickR_cy + stick_r + 10.0f); }
+                  draw_text_centered(ren, f_gxsm, buf, c_gray, stickR_cx, stickR_cy + stick_r + 10.0f); }
 
                 /* ── BOTONES (indice SDL crudo, sin asumir nombres no verificados) ── */
                 /* El D-pad se expone via HID tambien como BTN_DPAD_*
@@ -7502,7 +7680,7 @@ int main(void)
                  * reales) para no mostrar recuadros que nunca se iluminan. */
                 int n_btn_raw = SDL_GetNumJoystickButtons(joy);
                 int n_btn = (n_btn_raw > 13) ? 13 : n_btn_raw;
-                draw_text_centered(ren, f_sm, tr("Botones", "Buttons"), c_gray, SCREEN_W / 2.0f, 260.0f);
+                draw_text_centered(ren, f_ftr, tr("Botones", "Buttons"), c_gray, SCREEN_W / 2.0f, 260.0f);
                 float btn_y0 = 285.0f, btn_w = 36.0f, btn_h = 36.0f, btn_gap = 8.0f;
                 static const int btn_row_sizes[2] = {7, 6}; /* 13 botones reales: 7 arriba, 6 abajo */
                 for (int b = 0; b < n_btn; b++) {
@@ -7523,9 +7701,9 @@ int main(void)
                     }
                     char bl[4]; snprintf(bl, sizeof(bl), "%d", b);
                     int tw = 0, th = 0;
-                    TTF_GetStringSize(f_med, bl, 0, &tw, &th);
+                    TTF_GetStringSize(f_ftr, bl, 0, &tw, &th);
                     SDL_Color txt_c = pressed ? (SDL_Color){0,0,0,255} : g_theme.accent;
-                    draw_text(ren, f_med, bl, txt_c, bx + btn_w/2.0f - (float)tw/2.0f, by + btn_h/2.0f - (float)th/2.0f);
+                    draw_text(ren, f_ftr, bl, txt_c, bx + btn_w/2.0f - (float)tw/2.0f, by + btn_h/2.0f - (float)th/2.0f);
                 }
 
                 /* Nombre del boton pulsado, segun orden estandar evdev/SDL
@@ -7574,13 +7752,13 @@ int main(void)
                     }
                     if (any_pressed) {
                         SDL_Color name_c = g_theme.accent;
-                        draw_text_centered(ren, f_sm, active_btns_str, name_c, SCREEN_W / 2.0f, 385.0f);
+                        draw_text_centered(ren, f_ftr, active_btns_str, name_c, SCREEN_W / 2.0f, 385.0f);
                     }
                 }
             }
 
             { SDL_Color joytest_c = g_theme.accent;
-              draw_text_right(ren, f_sm, "armiga-joytest v1.1", joytest_c, SCREEN_W - 20.0f, 414.0f); }
+              draw_text_right(ren, f_ftr, "armiga-joytest v1.1", joytest_c, SCREEN_W - 20.0f, 414.0f); }
             /* Test de vibracion: mantener L2 (indice 6, confirmado en
              * hardware) dispara un pulso corto de rumble, repetido
              * mientras se mantenga pulsado (50ms por pulso, sin overlap
@@ -7590,7 +7768,7 @@ int main(void)
                 SDL_RumbleJoystick(joy, 0x4000, 0x8000, 50);
             }
             draw_line(ren, CX, 438.0f, SCREEN_W - 20.0f, 438.0f, c_selbg);
-            draw_footer(ren, f_sm, tr("[SELECT+START] Volver  [L2] Test vibración", "[SELECT+START] Back  [L2] Vibration Test"), s_version);
+            draw_footer(ren, f_ftr, tr("[SELECT+START] Volver  [L2] Test vibración", "[SELECT+START] Back  [L2] Vibration Test"), s_version);
         } /* end STATE_CONTROLLER_TEST */
 
         if (screenshot_capture_pending) {
@@ -7729,6 +7907,17 @@ int main(void)
     TTF_CloseFont(f_xsm);
     TTF_CloseFont(f_status_bold);
     TTF_CloseFont(f_title);
+    TTF_CloseFont(f_gmed);
+    TTF_CloseFont(f_gsm);
+    TTF_CloseFont(f_mnu);
+    TTF_CloseFont(f_ftr);
+    TTF_CloseFont(f_gset);
+    TTF_CloseFont(f_garx);
+    TTF_CloseFont(f_gcr);
+    TTF_CloseFont(f_gpw);
+    TTF_CloseFont(f_gxs);
+    TTF_CloseFont(f_gxsm);
+    TTF_CloseFont(f_glg);
     TTF_CloseFont(f_badge);
     SDL_DestroyRenderer(ren);
     SDL_DestroyWindow(win);
@@ -7824,7 +8013,7 @@ int main(void)
                             char pn[256], pr[400], pc[256];
                             if (get_last_played_game(pn, sizeof(pn), pr, sizeof(pr),
                                                      pc, sizeof(pc)))
-                                playtime_add(pr, (unsigned long)(pt1.tv_sec - pt0.tv_sec));
+                                playtime_add(pr, 0, (unsigned long)(pt1.tv_sec - pt0.tv_sec));
                         }
                     }
                     direct_launch_rom = false;
