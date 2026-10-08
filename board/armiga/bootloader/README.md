@@ -7,7 +7,7 @@ This directory contains precompiled binaries used to boot the device:
 - `dtb-rg35xx-h.img` — Device Tree Blob for Anbernic RG35XX H (Allwinner H700). Users swap this manually for `dtb.img` if running on that hardware — see USER-GUIDE.md.
 - `dtb-rg35xx-h-rev6.img` — Device Tree Blob for Anbernic RG35XX H units with the "rev6" display panel revision. Only needed if the standard `dtb-rg35xx-h.img` produces a garbled/blank screen — see USER-GUIDE.md.
 - `dtb-rg40xx-h-v2.img` — Legacy Device Tree Blob for the RG40XX H "v2" (DDR3) variant. Not supported (support was discontinued); kept in the repo as-is and not updated when the kernel is rebuilt.
-- `u-boot.bin`  — U-Boot SPL + proper (`u-boot-sunxi-with-spl.bin`), written at raw offset 8K (sector 16) of the image by `board/armiga/post-image.sh`. Currently U-Boot 2026.01, precompiled by ROCKNIX, DDR4 variant, with AXP717 charge-only boot support.
+- `u-boot.bin`  — U-Boot SPL + proper (`u-boot-sunxi-with-spl.bin`), written at raw offset 8K (sector 16) of the image by `board/armiga/post-image.sh`. Currently U-Boot 2026.01, precompiled by the upstream H700 distribution, DDR4 variant, with AXP717 charge-only boot support.
 
 ## How the kernel reaches the image
 
@@ -42,13 +42,13 @@ For local kernel development/iteration, `board/armiga/linux/build_kernel.sh` per
 
 ## Updating u-boot.bin
 
-ROCKNIX does not publish U-Boot binaries in its repository (only sources and patches); the compiled ones ship inside its images, under `/usr/share/bootloader/` of the `SYSTEM` squashfs.
+The upstream H700 distribution does not publish U-Boot binaries in its repository (only sources and patches); the compiled ones ship inside its images, under `/usr/share/bootloader/` of the `SYSTEM` squashfs.
 
-1. Download a recent ROCKNIX H700 nightly (`ROCKNIX-H700.aarch64-<date>-DDR4.img.gz`), check that its changelog includes the change you want, and decompress it.
+1. Download a recent upstream H700 nightly (`<name>-H700.aarch64-<date>-DDR4.img.gz`), check that its changelog includes the change you want, and decompress it.
 2. Extract the binary:
 
 ```bash
-   IMG=ROCKNIX-H700.aarch64-<date>-DDR4.img
+   IMG=<name>-H700.aarch64-<date>-DDR4.img
    L=$(sudo losetup -fP --show $IMG)
    sudo mkdir -p /mnt/rx && sudo mount -o ro ${L}p1 /mnt/rx
    unsquashfs -q -d /tmp/sq /mnt/rx/SYSTEM usr/share/bootloader
@@ -56,7 +56,7 @@ ROCKNIX does not publish U-Boot binaries in its repository (only sources and pat
    cp /tmp/sq/usr/share/bootloader/H700_DDR4_u-boot-sunxi-with-spl.bin board/armiga/bootloader/u-boot.bin
 ```
 
-3. Choose the variant by the DRAM voltage of the target console, as ROCKNIX's `update.sh` does: `vdd-dram` at 1.2 V → `H700_DDR3_…`, at 1.1 V → `H700_DDR4_…`.
+3. Choose the variant by the DRAM voltage of the target console, as the upstream `update.sh` does: `vdd-dram` at 1.2 V → `H700_DDR3_…`, at 1.1 V → `H700_DDR4_…`.
 
 ```bash
    for r in /sys/class/regulator/regulator.*/; do [ "$(cat $r/name)" = "vdd-dram" ] && echo "$r $(cat $r/microvolts)"; done

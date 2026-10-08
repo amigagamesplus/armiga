@@ -249,7 +249,7 @@ patch --dry-run -p1 < board/armiga/linux/patches/NNNN-nombre.patch
 
 Si el fallo es menor (números de línea desplazados), `patch` normalmente lo resuelve solo con `-p1`. Si el fallo es real, hay que adaptar el parche manualmente al código nuevo.
 
-Para referencia, ROCKNIX mantiene parches equivalentes para el H700 en su árbol — útil para ver cómo han resuelto el mismo cambio en versiones más recientes.
+Para referencia, el proyecto upstream mantiene parches equivalentes para el H700 en su árbol — útil para ver cómo han resuelto el mismo cambio en versiones más recientes.
 
 ### El driver joypad no compila
 
