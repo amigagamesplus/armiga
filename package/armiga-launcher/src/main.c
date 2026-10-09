@@ -1817,6 +1817,7 @@ static void covers_sync_with_index(const unsigned char *b, size_t sz)
     crc ^= 0xFFFFFFFFu;
 
     mkdir(COVER_DIR, 0755);
+    mkdir(COVER_DIR "/custom", 0755);
     unsigned old = 0;
     bool have = false;
     FILE *sf = fopen(COVER_STAMP, "r");
@@ -3543,6 +3544,7 @@ static int s_cover_state = COVER_IDLE;
 static int s_cover_sel = -1;
 static Uint64 s_cover_sel_at = 0;
 static char s_cover_png[96], s_cover_none[96];
+static char s_cover_custom[192];
 static pid_t s_dl_pid = -1;
 static unsigned s_dl_crc = 0, s_dl_snap_off = COVER_NOIMG;
 static int s_dl_stage = 0;
@@ -3674,6 +3676,13 @@ static void cover_tick(SDL_Renderer *ren, const CatGame *g, int sel)
         if (g) {
             snprintf(s_cover_png, sizeof(s_cover_png), COVER_DIR "/%08x.png", g->crc);
             snprintf(s_cover_none, sizeof(s_cover_none), COVER_DIR "/%08x.none", g->crc);
+            const char *cbn = strrchr(g->path, '/');
+            cbn = cbn ? cbn + 1 : g->path;
+            char cstem[112];
+            safe_copy(cstem, cbn, sizeof(cstem));
+            char *cdot = strrchr(cstem, '.');
+            if (cdot) *cdot = '\0';
+            snprintf(s_cover_custom, sizeof(s_cover_custom), COVER_DIR "/custom/%s.png", cstem);
         }
     }
     if (s_dl_pid > 0) {
@@ -3717,7 +3726,11 @@ static void cover_tick(SDL_Renderer *ren, const CatGame *g, int sel)
         }
     }
     if (s_cover_state == COVER_IDLE) {
-        if (!g || (g->box_off == COVER_NOIMG && g->snap_off == COVER_NOIMG)) {
+        if (g && access(s_cover_custom, F_OK) == 0 &&
+            (s_cover_tex = IMG_LoadTexture(ren, s_cover_custom)) != NULL) {
+            SDL_SetTextureScaleMode(s_cover_tex, SDL_SCALEMODE_LINEAR);
+            s_cover_state = COVER_READY;
+        } else if (!g || (g->box_off == COVER_NOIMG && g->snap_off == COVER_NOIMG)) {
             s_cover_state = COVER_NONE;
         } else if (access(s_cover_png, F_OK) == 0) {
             s_cover_tex = IMG_LoadTexture(ren, s_cover_png);
