@@ -112,7 +112,7 @@ static void safe_copy(char *dst, const char *src, size_t sz) {
 #define COL_KEY_BG   { 22,  22,  22, 255}
 #define COL_ROW_BG   {28, 52, 40, 255}
 #define COL_DEADZONE {40, 65, 50, 255}
-#define THEME_COUNT 10
+#define THEME_COUNT 11
 /* Estructura de tema: acento/texto + fondo general + rojo de alerta,
  * segun lo acordado (no cubre colores de datos como RGB de LEDs). */
 typedef struct {
@@ -134,6 +134,7 @@ static const char *THEME_NAMES[THEME_COUNT][2] = {
     {"Workbench 1.3",     "Workbench 1.3"},
     {"Workbench 3.1",     "Workbench 3.1"},
     {"Kickstart Purpura", "Kickstart Purple"},
+    {"Marino Pastel",     "Pastel Navy"},
 };
 static const Theme THEMES[THEME_COUNT] = {
     /* 1. Lima (original) */
@@ -156,6 +157,8 @@ static const Theme THEMES[THEME_COUNT] = {
     { {160, 160, 160, 255}, {0, 85, 170, 255}, {255, 255, 255, 255}, {0, 0, 0, 255}, {200, 200, 200, 255}, {200, 40, 40, 255} },
     /* 10. Kickstart Purple (pantalla de insercion de disquete) */
     { {42, 22, 53, 255}, {255, 255, 238, 255}, {26, 12, 32, 255}, {229, 168, 35, 255}, {60, 34, 74, 255}, {225, 70, 90, 255} },
+    /* 11. Marino Pastel (azul marino oscuro, texto azul pastel, acento naranja) */
+    { {18, 28, 56, 255}, {255, 166, 100, 255}, {20, 28, 52, 255}, {208, 222, 246, 255}, {32, 46, 84, 255}, {232, 90, 110, 255} },
 };
 static Theme g_theme; /* tema activo, fijado en main() tras leer config */
 
@@ -6236,7 +6239,7 @@ int main(void)
             const float g_lbot = g_y0 + (float)(g_visible - 1) * g_item_h + (g_item_h - 6.0f) - 3.0f;
             const float g_th = g_lbot - g_ltop;
             const float g_sb_x = g_lx + g_list_w + 8.0f;
-            SDL_Color c_card = cat_mix(c_bg, c_menu_selbg, 0.12f);
+            SDL_Color c_card = g_theme.row_bg;
             SDL_Color c_track = cat_mix(c_bg, c_menu_selbg, 0.30f);
             if (g_games_n == 0) {
                 draw_text(ren, f_gsm,
