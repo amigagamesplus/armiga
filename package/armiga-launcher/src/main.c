@@ -6296,7 +6296,7 @@ int main(void)
                 /* Tarjeta superior: caratula + ficha */
                 float c1_y = g_ltop, c1_h = 148.0f;
                 draw_rounded_rect_filled(ren, rx_g, c1_y, rw_g, c1_h, 10.0f, c_card);
-                float cb_x = rx_g + 10.0f, cb_y = c1_y + 10.0f, cb_w = 108.0f, cb_h = 128.0f;
+                float cb_x = rx_g + 10.0f, cb_y = c1_y + 2.0f, cb_w = 120.0f, cb_h = c1_h - 4.0f;
                 cover_tick(ren, g, games_selected);
                 float tw = 0.0f, th2 = 0.0f;
                 if (s_cover_tex) SDL_GetTextureSize(s_cover_tex, &tw, &th2);
