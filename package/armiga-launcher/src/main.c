@@ -2726,8 +2726,9 @@ static void draw_footer(SDL_Renderer *ren, TTF_Font *f,
     SDL_Color c_dkgreen = g_theme.text_light;
     SDL_Color c_gold    = g_theme.text_on_accent;
     SDL_Color c_lime    = g_theme.accent;
-    draw_text(ren, f, legend, c_gray, 20.0f, 448.0f);
-    draw_text_right(ren, f, version, c_lime, SCREEN_W - 20.0f, 448.0f);
+    const float f_ty = 454.0f; /* centrado entre la linea (438) y el borde inferior, por altura de mayuscula */
+    draw_text(ren, f, legend, c_gray, 20.0f, f_ty);
+    draw_text_right(ren, f, version, c_lime, SCREEN_W - 20.0f, f_ty);
 
     int active_profile = g_cfg.perf_profile;
     SDL_Texture *active_icon = (active_profile >= 0 && active_profile < 3) ? g_perf_icons[active_profile] : NULL;
@@ -2736,7 +2737,7 @@ static void draw_footer(SDL_Renderer *ren, TTF_Font *f,
         TTF_GetStringSize(f, version, 0, &ver_w, &ver_h);
         float icon_size = 24.0f;
         float icon_x = SCREEN_W - 20.0f - (float)ver_w - 10.0f - icon_size;
-        float icon_y = 448.0f + ((float)ver_h - icon_size) / 2.0f + 2.0f;
+        float icon_y = f_ty + ((float)ver_h - icon_size) / 2.0f - 1.0f;
         SDL_SetTextureColorMod(active_icon, c_dkgreen.r, c_dkgreen.g, c_dkgreen.b);
         SDL_FRect icon_dst = {icon_x, icon_y, icon_size, icon_size};
         SDL_RenderTexture(ren, active_icon, NULL, &icon_dst);
