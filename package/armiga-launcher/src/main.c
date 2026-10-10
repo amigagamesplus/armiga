@@ -2603,6 +2603,35 @@ static int draw_text_wrapped(SDL_Renderer *r, TTF_Font *f, const char *text,
     }
     return line_count;
 }
+/* Cuenta las lineas que ocuparia draw_text_wrapped sin dibujar nada. */
+static int count_text_wrapped(TTF_Font *f, const char *text, float max_w)
+{
+    char buf[256];
+    strncpy(buf, text, sizeof(buf) - 1);
+    buf[sizeof(buf) - 1] = 0;
+    int line_count = 0;
+    char *saveptr = NULL;
+    char *word = strtok_r(buf, " ", &saveptr);
+    char line[256] = {0};
+    while (word) {
+        char candidate[256];
+        if (line[0])
+            snprintf(candidate, sizeof(candidate), "%s %s", line, word);
+        else
+            snprintf(candidate, sizeof(candidate), "%s", word);
+        int w = 0, h = 0;
+        TTF_GetStringSize(f, candidate, 0, &w, &h);
+        if ((float)w > max_w && line[0]) {
+            line_count++;
+            snprintf(line, sizeof(line), "%s", word);
+        } else {
+            snprintf(line, sizeof(line), "%s", candidate);
+        }
+        word = strtok_r(NULL, " ", &saveptr);
+    }
+    if (line[0]) line_count++;
+    return line_count;
+}
 /* Dibuja label + puntos animados ciclicos (.  ..  ...) segun ticks. */
 static void draw_text_animdots(SDL_Renderer *r, TTF_Font *f, const char *label,
                                 SDL_Color c, float x, float y, Uint64 ticks)
@@ -5844,14 +5873,21 @@ int main(void)
 
         /* Panel derecho: contexto de la opcion seleccionada */
         {
-            draw_text_truncated(ren, f_ftr, MENU_ITEMS[selected][current_lang], c_green, rx, menu_y0, rx_max_w);
             /* Descripcion: reemplaza el separador de linea original por espacio,
              * y envuelve el texto completo sin truncar nunca. */
             char desc_flat[128];
             snprintf(desc_flat, sizeof(desc_flat), "%s", MENU_DESC[selected][current_lang]);
             for (char *p = desc_flat; *p; p++) if (*p == '\n') *p = ' ';
-            int n_lines = draw_text_wrapped(ren, f_ftr, desc_flat, c_gray,
-                                             rx, menu_y0 + 18.0f, rx_max_w, 16.0f);
+            /* Loseta de la opcion seleccionada: altura adaptada al texto */
+            float d_tile_x = rx - 10.0f;
+            float d_tile_y = menu_y0 - 8.0f;
+            float d_tile_w = (SCREEN_W - 15.0f) - d_tile_x;
+            float d_txt_w = d_tile_w - 20.0f;
+            int n_lines = count_text_wrapped(f_ftr, desc_flat, d_txt_w);
+            float d_tile_h = 34.0f + (float)n_lines * 16.0f;
+            draw_rounded_rect_filled(ren, d_tile_x, d_tile_y, d_tile_w, d_tile_h, 12.0f, g_theme.row_bg);
+            draw_text_truncated(ren, f_ftr, MENU_ITEMS[selected][current_lang], g_theme.accent, rx, menu_y0, d_txt_w);
+            draw_text_wrapped(ren, f_ftr, desc_flat, c_gray, rx, menu_y0 + 18.0f, d_txt_w, 16.0f);
             /* Fichas de estado del sistema (2x2): etiqueta, cifra grande y unidad */
             {
                 const char *t_lbl[4] = { tr("Temp. CPU", "CPU temp"), tr("Carga CPU", "CPU load"),
@@ -5861,7 +5897,7 @@ int main(void)
                 float t_x0 = rx - 10.0f;
                 float t_w = ((SCREEN_W - 15.0f) - t_x0 - t_gap) / 2.0f;
                 float t_h = 54.0f;
-                float t_y0 = menu_y0 + 18.0f + (float)n_lines * 16.0f + 10.0f;
+                float t_y0 = d_tile_y + d_tile_h + t_gap;
                 SDL_Color t_lblc = cat_mix(g_theme.row_bg, g_theme.text_light, 0.60f);
                 int t_uh = TTF_GetFontHeight(f_gsm);
                 for (int ti = 0; ti < 4; ti++) {
