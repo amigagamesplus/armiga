@@ -7007,7 +7007,8 @@ int main(void)
                     const char *src_line = arxr_cached_lines[arxr_wrap[i].src];
                     SDL_Color line_c = c_gray;
                     if (strstr(src_line, "[CORRECTO]") || strstr(src_line, "[OK]")) line_c = c_arxr_lime;
-                    else if (strstr(src_line, "[INCORRECTO]") || strstr(src_line, "[CRITICO]")) line_c = c_arxr_red;
+                    else if (strstr(src_line, "[INCORRECTO]") || strstr(src_line, "[CRITICO]") ||
+                             strstr(src_line, "[NO EXISTE]")) line_c = c_arxr_red;
                     else if (strstr(src_line, "[AVISO]")) line_c = g_theme.accent;
                     draw_text(ren, f_gxsm, arxr_wrap[i].text, line_c, mx, arxr_y0 + (i - arxr_start) * arxr_line_h);
                 }
