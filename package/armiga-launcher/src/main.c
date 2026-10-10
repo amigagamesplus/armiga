@@ -5851,38 +5851,50 @@ int main(void)
             for (char *p = desc_flat; *p; p++) if (*p == '\n') *p = ' ';
             int n_lines = draw_text_wrapped(ren, f_ftr, desc_flat, c_gray,
                                              rx, menu_y0 + 18.0f, rx_max_w, 16.0f);
-            /* Info adicional del sistema, extensible: anadir mas lineas aqui */
-            char ctx_lines[4][64];
-            int ctx_n = 0;
-            snprintf(ctx_lines[ctx_n], sizeof(ctx_lines[ctx_n]), "%s: %s",
-                     tr("Espacio libre", "Free space"), menu_disk_free);
-            ctx_n++;
-            snprintf(ctx_lines[ctx_n], sizeof(ctx_lines[ctx_n]), "%s: %s",
-                     tr("Temp. CPU", "CPU temp"), dash_cpu_temp);
-            ctx_n++;
-            snprintf(ctx_lines[ctx_n], sizeof(ctx_lines[ctx_n]), "%s: %s",
-                     tr("Carga CPU", "CPU load"), dash_cpu_load);
-            ctx_n++;
-            snprintf(ctx_lines[ctx_n], sizeof(ctx_lines[ctx_n]), "%s: %s",
-                     tr("RAM", "RAM"), dash_ram);
-            ctx_n++;
-            float ctx_y = menu_y0 + 18.0f + (float)n_lines * 16.0f + 20.0f;
-            float ctx_box_pad = 10.0f;
-            float ctx_max_line_w = 0.0f;
-            for (int ci = 0; ci < ctx_n; ci++) {
-                int clw = 0, clh = 0;
-                TTF_GetStringSize(f_ftr, ctx_lines[ci], 0, &clw, &clh);
-                if ((float)clw > ctx_max_line_w) ctx_max_line_w = (float)clw;
+            /* Fichas de estado del sistema (2x2): etiqueta, cifra grande y unidad */
+            {
+                const char *t_lbl[4] = { tr("Temp. CPU", "CPU temp"), tr("Carga CPU", "CPU load"),
+                                         tr("RAM", "RAM"), tr("Espacio libre", "Free space") };
+                const char *t_src[4] = { dash_cpu_temp, dash_cpu_load, dash_ram, menu_disk_free };
+                const float t_gap = 8.0f, t_pad = 10.0f;
+                float t_x0 = rx - 10.0f;
+                float t_w = ((SCREEN_W - 15.0f) - t_x0 - t_gap) / 2.0f;
+                float t_h = 54.0f;
+                float t_y0 = menu_y0 + 18.0f + (float)n_lines * 16.0f + 10.0f;
+                SDL_Color t_lblc = cat_mix(g_theme.row_bg, g_theme.text_light, 0.60f);
+                int t_uh = TTF_GetFontHeight(f_gsm);
+                for (int ti = 0; ti < 4; ti++) {
+                    float tx = t_x0 + (float)(ti % 2) * (t_w + t_gap);
+                    float tyy = t_y0 + (float)(ti / 2) * (t_h + t_gap);
+                    draw_rounded_rect_filled(ren, tx, tyy, t_w, t_h, 12.0f, g_theme.row_bg);
+                    draw_text(ren, f_gsm, t_lbl[ti], t_lblc, tx + t_pad, tyy + 7.0f);
+                    char t_num[24], t_unit[24];
+                    const char *ts = t_src[ti];
+                    size_t tk = 0;
+                    while (ts[tk] && (isdigit((unsigned char)ts[tk]) || ts[tk] == '.') && tk < sizeof(t_num) - 1) {
+                        t_num[tk] = ts[tk];
+                        tk++;
+                    }
+                    t_num[tk] = '\0';
+                    if (tk == 0) {
+                        safe_copy(t_num, ts, sizeof(t_num));
+                        t_unit[0] = '\0';
+                    } else {
+                        const char *tu = ts + tk;
+                        while (*tu == ' ') tu++;
+                        safe_copy(t_unit, tu, sizeof(t_unit));
+                    }
+                    int t_nw = 0, t_nh = 0;
+                    TTF_GetStringSize(f_title, t_num, 0, &t_nw, &t_nh);
+                    float t_ny = tyy + 23.0f;
+                    draw_text(ren, f_title, t_num, g_theme.accent, tx + t_pad, t_ny);
+                    if (t_unit[0]) {
+                        float t_ux = tx + t_pad + (float)t_nw + 3.0f;
+                        draw_text_truncated(ren, f_gsm, t_unit, g_theme.text_light, t_ux,
+                                            t_ny + (float)(t_nh - t_uh) - 1.0f, tx + t_w - t_pad - t_ux);
+                    }
+                }
             }
-            float ctx_box_x = rx - ctx_box_pad;
-            float ctx_box_y = ctx_y - ctx_box_pad;
-            float ctx_box_w = ctx_max_line_w + ctx_box_pad * 2.0f;
-            float ctx_box_h = (float)ctx_n * 16.0f + ctx_box_pad * 2.0f;
-            SDL_Color c_ctx_box_bg = g_theme.bg;
-            SDL_Color c_ctx_box_border = c_selbg;
-            draw_rounded_rect_outline(ren, ctx_box_x, ctx_box_y, ctx_box_w, ctx_box_h,
-                                       10.0f, 2.0f, c_ctx_box_border, c_ctx_box_bg);
-            draw_context_panel(ren, f_ftr, rx, ctx_y, ctx_lines, ctx_n, c_dkgreen);
         }
         /* Pildora "Ultima partida", centrada, ancho ajustado al contenido.
          * Solo visible con Catalogo Amiga seleccionado (selected==0). */
