@@ -1,14 +1,13 @@
-# Placeholder — Kernel config y parches
+# Kernel propio de ARMIGA
 #
-# Ficheros que se añadirán cuando compilemos el kernel propio:
+# El kernel se compila a partir del código fuente de kernel.org (vanilla)
+# con los parches y los DTS de este directorio, no se usa un kernel de terceros.
 #
-#   linux.aarch64.conf  — Config del kernel (base Rocknix H700)
-#   patches/            — Parches Rocknix para el kernel
+#   linux.aarch64.conf  — Config del kernel (base: config de la distribución de referencia H700)
+#   patches/            — Parches aplicados al código fuente antes de compilar
+#   dts/                — DTS propios de cada dispositivo
+#   rocknix-joypad/     — Driver del joypad (se compila como módulo)
+#   build_kernel.sh     — Compilación local (mismos pasos que el workflow)
 #
-# Fuente:
-#   git clone --depth=1 https://github.com/ROCKNIX/distribution.git rocknix-src
-#   Config: rocknix-src/projects/ROCKNIX/devices/H700/linux/linux.aarch64.conf
-#   Parches: rocknix-src/projects/ROCKNIX/devices/H700/patches/linux/
-#
-# En Fase 1 usamos el kernel binario precompilado de Rocknix,
-# por lo que estos ficheros no son necesarios todavía.
+# En CI lo compila el workflow build-kernel.yml. Pasos para actualizar la versión
+# y copiar los artifacts al repo: KERNEL-UPDATE.md y ../bootloader/README.md.

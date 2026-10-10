@@ -1,10 +1,10 @@
 # Parches del kernel
 #
-# Si compilas tu propio kernel, aquí debes colocar los parches (.patch) que 
-# se aplicarán al código fuente de Linux antes de compilar.
+# Los .patch de este directorio se aplican, por orden, sobre el código fuente de
+# Linux (kernel.org) antes de compilar, tanto en build_kernel.sh como en el workflow
+# build-kernel.yml. Son específicos del Allwinner H700 y de las pantallas de las
+# RG40XX / RG35XX.
 #
-# Rocknix utiliza una serie de parches específicos para el Allwinner H700 y
-# la pantalla del RG40XX H. Deberían copiarse aquí.
-#
-# Fuente original:
-# https://github.com/ROCKNIX/distribution/tree/main/projects/ROCKNIX/devices/H700/patches/linux
+# Parten de los parches de la distribución de referencia para H700 y están adaptados
+# a las versiones de kernel que usamos. Al saltar de versión algunos hunks pueden
+# fallar o estar ya integrados en mainline: ver ../KERNEL-UPDATE.md.

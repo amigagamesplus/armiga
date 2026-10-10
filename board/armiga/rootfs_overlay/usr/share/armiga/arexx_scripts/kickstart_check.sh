@@ -4,9 +4,8 @@
 
 KICK_DIR="/media/amiga_data/kickstarts"
 
-echo "========================================================"
-echo "  Verificacion de Kickstarts (MD5)"
-echo "========================================================"
+echo "Verificacion de Kickstarts (MD5)"
+echo ""
 
 if [ ! -d "$KICK_DIR" ]; then
     echo "[ERROR] No existe el directorio:"
@@ -29,20 +28,36 @@ kick40068.A1200|646773759326fbac3b2311fd8c8793ee
 kick40068.A4000|9bdedde6a4f33555b4a270c8ca53297d
 "
 
-echo "$KICK_DB" | while IFS='|' read -r NOMBRE MD5_OK; do
+TOTAL=0
+OK=0
+while IFS='|' read -r NOMBRE MD5_OK; do
     [ -z "$NOMBRE" ] && continue
+    TOTAL=$((TOTAL + 1))
+    VER="${NOMBRE#kick}"
+    NUM="${VER%%.*}"
+    MODELO="${VER#*.}"
+    ETIQ="${NUM%???}.${NUM#??} $MODELO"
     FILE="$KICK_DIR/$NOMBRE"
     if [ ! -f "$FILE" ]; then
-        echo "$NOMBRE - $MD5_OK | N/A - [NO EXISTE]"
+        echo "[NO EXISTE]  $ETIQ"
         continue
     fi
     MD5_REAL=$(md5sum "$FILE" | awk '{print $1}')
     if [ "$MD5_REAL" = "$MD5_OK" ]; then
-        echo "$NOMBRE - $MD5_OK | $MD5_REAL - [CORRECTO]"
+        OK=$((OK + 1))
+        echo "[OK]  $ETIQ"
     else
-        echo "$NOMBRE - $MD5_OK | $MD5_REAL - [INCORRECTO]"
+        echo "[INCORRECTO]  $ETIQ"
+        echo "      esperado $(echo "$MD5_OK" | cut -c1-8)"
+        echo "      obtenido $(echo "$MD5_REAL" | cut -c1-8)"
     fi
-done
+done <<EOF
+$KICK_DB
+EOF
 
-echo "--------------------------------------------------------"
-echo ">> Verificacion completada."
+echo ""
+if [ "$OK" -eq "$TOTAL" ]; then
+    echo "RESULTADO: [OK] $OK de $TOTAL correctos"
+else
+    echo "RESULTADO: [INCORRECTO] $OK de $TOTAL correctos"
+fi

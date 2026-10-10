@@ -193,10 +193,32 @@ jobs:
           if [ -z "$CHANGELOG" ]; then
             CHANGELOG="- Sin cambios de commits registrados"
           fi
+          NOTES_FILE=""
+          for c in "release-notes/${GITHUB_REF_NAME}.md" "release-notes/${ARMIGA_VER}.md" "release-notes/${ARMIGA_VER%-beta}.md"; do
+            if [ -f "$c" ]; then NOTES_FILE="$c"; break; fi
+          done
           {
-            echo "CHANGELOG<<CHANGELOG_EOF"
-            echo "$CHANGELOG"
-            echo "CHANGELOG_EOF"
+            if [ -n "$NOTES_FILE" ]; then
+              echo "## What's new"
+              echo ""
+              cat "$NOTES_FILE"
+              echo ""
+              echo "<details>"
+              echo "<summary>All commits since the last release</summary>"
+              echo ""
+              echo "$CHANGELOG"
+              echo ""
+              echo "</details>"
+            else
+              echo "## Changes since the last release"
+              echo ""
+              echo "$CHANGELOG"
+            fi
+          } > /tmp/changes.md
+          {
+            echo "CHANGES<<CHANGES_EOF"
+            cat /tmp/changes.md
+            echo "CHANGES_EOF"
           } >> "$GITHUB_ENV"
 
       - name: Create Release
@@ -215,9 +237,7 @@ jobs:
             - Kernel ${{ env.KERNEL_VER }}
             - Mesa ${{ env.MESA_VER }}
 
-            ## Changes since the last release
-
-            ${{ env.CHANGELOG }}
+            ${{ env.CHANGES }}
 
             ## Installation
 
