@@ -768,7 +768,127 @@ static int finish_check_update(const char *json_path, const char *current_ver,
     safe_copy(new_ver, ver, new_ver_sz);
     safe_copy(dl_url,  asset_url,     dl_url_sz);
     safe_copy(sha_url, sha_asset_url, sha_url_sz);
+#ifdef ARMIGA_NOTES_TEST
+    return 1;
+#endif
     return semver_cmp(ver, current_ver) > 0 ? 1 : 0;
+}
+
+/* ===== Notas de la version (release-notes/<ver>.md) en la pantalla OTA ===== */
+#define NOTES_TMP "/tmp/armiga_notes.md"
+#define NOTES_MAX_LINES 96
+typedef struct { char text[200]; unsigned char kind; } NoteLine; /* 0 texto, 1 titulo, 2 vineta, 3 continuacion de vineta */
+static NoteLine s_note_lines[NOTES_MAX_LINES];
+static int s_note_n = 0;
+static int s_notes_state = 0; /* 0 sin pedir, 1 descargando, 2 descargadas, 3 listas, 4 no disponibles */
+static pid_t s_notes_pid = -1;
+static int s_notes_scroll = 0;
+static Uint64 s_notes_next_tick = 0;
+
+static void notes_start(const char *ver)
+{
+    char base[32];
+    safe_copy(base, ver, sizeof(base));
+    char *dash = strchr(base, '-');
+    if (dash) *dash = '\0';
+    char url[256];
+    snprintf(url, sizeof(url),
+             "https://raw.githubusercontent.com/amigagamesplus/armiga/v%s/release-notes/v%s.md", ver, base);
+#ifdef ARMIGA_NOTES_TEST
+    snprintf(url, sizeof(url),
+             "https://raw.githubusercontent.com/amigagamesplus/armiga/v1.0.19-beta/release-notes/v1.0.19.md");
+#endif
+    unlink(NOTES_TMP);
+    s_note_n = 0;
+    s_notes_scroll = 0;
+    pid_t pid = fork();
+    if (pid < 0) { s_notes_state = 4; return; }
+    if (pid == 0) {
+        int fd = open("/dev/null", O_WRONLY);
+        if (fd >= 0) { dup2(fd, STDOUT_FILENO); dup2(fd, STDERR_FILENO); close(fd); }
+        execlp("curl", "curl", "-s", "-f", "--max-time", "10", "-L", "-o", NOTES_TMP, url, (char *)NULL);
+        _exit(127);
+    }
+    s_notes_pid = pid;
+    s_notes_state = 1;
+}
+
+static void notes_poll(void)
+{
+    if (s_notes_state != 1) return;
+    int r = poll_curl_pid(&s_notes_pid, NOTES_TMP, 1);
+    if (r == 0) return;
+    s_notes_state = (r > 0) ? 2 : 4;
+}
+
+/* Convierte el Markdown simple de las notas en lineas ya envueltas al ancho dado. */
+static void notes_build(TTF_Font *f, float max_w)
+{
+    s_note_n = 0;
+    FILE *fp = fopen(NOTES_TMP, "r");
+    if (!fp) { s_notes_state = 4; return; }
+    char raw[1024];
+    bool last_blank = true;
+    while (fgets(raw, sizeof(raw), fp) && s_note_n < NOTES_MAX_LINES) {
+        size_t l = strlen(raw);
+        while (l && (raw[l - 1] == '\n' || raw[l - 1] == '\r' || raw[l - 1] == ' ')) raw[--l] = '\0';
+        char *p = raw;
+        unsigned char kind = 0;
+        float w_avail = max_w;
+        if (*p == '#') {
+            while (*p == '#') p++;
+            while (*p == ' ') p++;
+            kind = 1;
+        } else if (p[0] == '-' && p[1] == ' ') {
+            p += 2;
+            kind = 2;
+            w_avail = max_w - 14.0f;
+        }
+        char clean[1024];
+        size_t k = 0;
+        for (; *p && k < sizeof(clean) - 1; p++)
+            if (*p != '`' && *p != '*') clean[k++] = *p;
+        clean[k] = '\0';
+        if (!clean[0]) {
+            if (!last_blank && s_note_n < NOTES_MAX_LINES) {
+                s_note_lines[s_note_n].text[0] = '\0';
+                s_note_lines[s_note_n].kind = 0;
+                s_note_n++;
+            }
+            last_blank = true;
+            continue;
+        }
+        last_blank = false;
+        char line[200] = "";
+        char *save = NULL;
+        char *word = strtok_r(clean, " ", &save);
+        bool first = true;
+        while (word && s_note_n < NOTES_MAX_LINES) {
+            char cand[512];
+            if (line[0]) snprintf(cand, sizeof(cand), "%s %s", line, word);
+            else snprintf(cand, sizeof(cand), "%s", word);
+            int tw = 0, th = 0;
+            TTF_GetStringSize(f, cand, 0, &tw, &th);
+            if ((float)tw > w_avail && line[0]) {
+                safe_copy(s_note_lines[s_note_n].text, line, sizeof(s_note_lines[0].text));
+                s_note_lines[s_note_n].kind = (kind == 2 && !first) ? 3 : kind;
+                s_note_n++;
+                first = false;
+                snprintf(line, sizeof(line), "%s", word);
+            } else {
+                snprintf(line, sizeof(line), "%s", cand);
+            }
+            word = strtok_r(NULL, " ", &save);
+        }
+        if (line[0] && s_note_n < NOTES_MAX_LINES) {
+            safe_copy(s_note_lines[s_note_n].text, line, sizeof(s_note_lines[0].text));
+            s_note_lines[s_note_n].kind = (kind == 2 && !first) ? 3 : kind;
+            s_note_n++;
+        }
+    }
+    fclose(fp);
+    while (s_note_n > 0 && s_note_lines[s_note_n - 1].text[0] == '\0') s_note_n--;
+    s_notes_state = (s_note_n > 0) ? 3 : 4;
 }
 
 /* Descarga el .img.gz con progreso. Ejecuta curl en background y
@@ -5397,6 +5517,9 @@ int main(void)
             } else if (action == ACTION_UPDATE) {
                 state = STATE_UPDATE;
                 update_phase = UPD_CHECKING;
+                if (s_notes_pid > 0) { kill(s_notes_pid, SIGKILL); waitpid(s_notes_pid, NULL, 0); s_notes_pid = -1; }
+                s_notes_state = 0;
+                s_notes_scroll = 0;
                 update_checked = false;
                 upd_check_frame_shown = false;
                 upd_verify_dl_started = false;
@@ -5603,7 +5726,7 @@ int main(void)
                                                upd_new_ver, sizeof(upd_new_ver),
                                                upd_dl_url,  sizeof(upd_dl_url),
                                                upd_sha_url, sizeof(upd_sha_url));
-                        if (res == 1)       update_phase = UPD_CONFIRM;
+                        if (res == 1)     { update_phase = UPD_CONFIRM; notes_start(upd_new_ver); }
                         else if (res == 0)  update_phase = UPD_NO_UPDATE;
                         else { update_phase = UPD_ERROR;
                                safe_copy(upd_msg, tr("Error al conectar con el servidor.", "Error connecting to server."), sizeof(upd_msg)); }
@@ -7628,8 +7751,58 @@ draw_text(ren, f_ftr, "WIFI", labelc, mx + 8.0f, wty);
                 draw_text(ren, f_ftr, buf, c_green, UX, 100.0f);
                 draw_text(ren, f_ftr, tr("La descarga se realizará en segundo plano.", "The download will run in the background."), c_gray, UX, 122.0f);
                 draw_text(ren, f_ftr, tr("El dispositivo se reiniciará al completar.", "The device will restart when finished."), c_gray, UX, 140.0f);
-                draw_text(ren, f_ftr, tr("[B] Descargar e instalar", "[B] Download and install"), c_green,  UX,          188.0f);
-                draw_text(ren, f_ftr, tr("[A] Cancelar", "[A] Cancel"),             c_gray,   UX + 260.0f, 188.0f);
+                {
+                    const float n_x = 25.0f, n_y = 164.0f, n_w = SCREEN_W - 50.0f, n_h = 264.0f;
+                    const float n_tx = n_x + 10.0f, n_tw = n_w - 20.0f, n_lh = 16.0f;
+                    const int n_vis = (int)((n_h - 16.0f) / n_lh);
+                    draw_rounded_rect_filled(ren, n_x, n_y, n_w, n_h, 12.0f, g_theme.row_bg);
+                    notes_poll();
+                    if (s_notes_state == 2) notes_build(f_ftr, n_tw);
+                    if (s_notes_state == 3) {
+                        int n_max = (s_note_n > n_vis) ? (s_note_n - n_vis) : 0;
+                        if (joy) {
+                            Uint8 nh = SDL_GetJoystickHat(joy, 0);
+                            Sint16 nay = SDL_GetJoystickAxis(joy, 1);
+                            int nd = 0;
+                            if ((nh & SDL_HAT_UP) || nay < -16000) nd = -1;
+                            else if ((nh & SDL_HAT_DOWN) || nay > 16000) nd = 1;
+                            if (nd != 0) {
+                                if (now_ticks >= s_notes_next_tick) {
+                                    s_notes_scroll += nd;
+                                    s_notes_next_tick = now_ticks + ARXR_SCROLL_REPEAT_MS;
+                                }
+                            } else {
+                                s_notes_next_tick = 0;
+                            }
+                        }
+                        if (s_notes_scroll < 0) s_notes_scroll = 0;
+                        if (s_notes_scroll > n_max) s_notes_scroll = n_max;
+                        for (int li = 0; li < n_vis && s_notes_scroll + li < s_note_n; li++) {
+                            const NoteLine *nl = &s_note_lines[s_notes_scroll + li];
+                            float ly = n_y + 8.0f + (float)li * n_lh;
+                            if (nl->kind == 1) {
+                                draw_text(ren, f_ftr, nl->text, g_theme.accent, n_tx, ly);
+                            } else if (nl->kind == 2) {
+                                draw_rounded_rect_filled(ren, n_tx + 2.0f, ly + 6.0f, 4.0f, 4.0f, 2.0f, g_theme.accent);
+                                draw_text(ren, f_ftr, nl->text, c_gray, n_tx + 14.0f, ly);
+                            } else if (nl->kind == 3) {
+                                draw_text(ren, f_ftr, nl->text, c_gray, n_tx + 14.0f, ly);
+                            } else if (nl->text[0]) {
+                                draw_text(ren, f_ftr, nl->text, c_gray, n_tx, ly);
+                            }
+                        }
+                        if (s_note_n > n_vis) {
+                            char n_cnt[32];
+                            snprintf(n_cnt, sizeof(n_cnt), "%d-%d/%d", s_notes_scroll + 1,
+                                     (s_notes_scroll + n_vis < s_note_n) ? s_notes_scroll + n_vis : s_note_n, s_note_n);
+                            draw_text_right(ren, f_gxs, n_cnt, c_gray, SCREEN_W - 25.0f, n_y - 14.0f);
+                        }
+                    } else if (s_notes_state == 4) {
+                        draw_text(ren, f_ftr, tr("No hay notas de esta versión.", "No release notes for this version."), c_gray, n_tx, n_y + 8.0f);
+                    } else {
+                        draw_text_animdots(ren, f_ftr, tr("Cargando novedades", "Loading release notes"), c_gray, n_tx, n_y + 8.0f, now_ticks);
+                    }
+                }
 
             } else if (update_phase == UPD_DOWNLOADING) {
                 draw_text_animdots(ren, f_ftr, tr("Descargando actualización", "Downloading update"), c_white, UX, 100.0f, now_ticks);
@@ -7658,7 +7831,9 @@ draw_text(ren, f_ftr, "WIFI", labelc, mx + 8.0f, wty);
             }
 
             draw_line(ren, UX, 438.0f, SCREEN_W - 20.0f, 438.0f, c_selbg);
-            if (update_phase != UPD_DOWNLOADING)
+            if (update_phase == UPD_CONFIRM)
+                draw_footer(ren, f_ftr, tr("[B] Descargar e instalar  [A] Cancelar", "[B] Download and install  [A] Cancel"), s_version);
+            else if (update_phase != UPD_DOWNLOADING)
                 draw_footer(ren, f_ftr, tr("[A] Volver", "[A] Back"), s_version);
             else
                 draw_footer(ren, f_ftr, "", s_version);
