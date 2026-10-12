@@ -10,7 +10,7 @@ on:
       joypad_ref:
         description: 'Branch, tag or SHA of amigagamesplus/armiga-joypad to build'
         required: true
-        default: '7e6ca3439de95848e08f04b7a13af05b2623bf5a'
+        default: 'main'
 
 jobs:
   build:
