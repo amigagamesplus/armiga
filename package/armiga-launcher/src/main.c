@@ -386,7 +386,7 @@ static const char *DEV_MENU_ITEMS[] = {
 #define BTN_SDL_R2     7 /* verificado empiricamente en hardware (evtest + Controller Test) */
 #define BTN_SDL_SELECT 8
 #define BTN_SDL_START  9
-#define BTN_SDL_X      3
+#define BTN_SDL_X      2
 #define BTN_SDL_MODE   10
 
 #define DEVMODE_HOLD_MS 3000

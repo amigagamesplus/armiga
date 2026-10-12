@@ -50,6 +50,17 @@
 		rocknix,dpad-hat = <4>;
 		gpio-active-low;
 	};
+
+	/*
+	 * En la RG40XX H los pines de X e Y estan cruzados respecto al DT heredado:
+	 * el boton de arriba (X) esta en PA2 y el de la izquierda (Y) en PA3.
+	 */
+	sw7 {
+		gpios = <&pio 0 2 GPIO_ACTIVE_LOW>;
+	};
+	sw8 {
+		gpios = <&pio 0 3 GPIO_ACTIVE_LOW>;
+	};
 };
 &uart5 {
 	pinctrl-names = "default";
