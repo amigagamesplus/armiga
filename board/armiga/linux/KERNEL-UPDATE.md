@@ -10,7 +10,7 @@
 1. Descargar tarball oficial de kernel.org
 2. Verificar checksum SHA256
 3. Compilar con build_kernel.sh (cambiando KERNEL_VERSION)
-4. Recompilar el driver joypad con DEVICE=H700
+4. Compilar el driver joypad (armiga-joypad, lo hace build-kernel.yml)
 5. Regenerar modules.dep
 6. Probar en hardware real
 7. Commitear
@@ -83,21 +83,13 @@ El script hace automáticamente:
 
 ---
 
-## Paso 4 — Recompilar el driver joypad
+## Paso 4 — Driver joypad (armiga-joypad)
 
-**Siempre** hay que recompilar el `.ko` contra las fuentes nuevas. Un `.ko` compilado contra una versión distinta no carga.
+El driver ya no está vendorizado en este repo: vive en `amigagamesplus/armiga-joypad`. `build-kernel.yml` lo clona (input `joypad_ref`, por defecto `main`; acepta rama, tag o SHA) y lo compila contra las fuentes del kernel nuevo, así que no hay que compilar nada a mano. El `armiga-joypad.ko` queda dentro de `modules-X.Y.tar.gz` y el SHA real usado queda en `BUILD_INFO.txt` (`joypad_ref=`).
 
-```bash
-cd /run/media/vince/samsung/armiga/board/armiga/linux/rocknix-joypad
+⚠️ El módulo necesita el símbolo `joypad_input_g`, que exporta el `adc-keys` parcheado (parche `0004`). Si ese parche deja de aplicarse, el módulo no resuelve el símbolo y no carga. Los cambios de API del kernel (PWM, `MODULE_IMPORT_NS`) pueden hacer que el driver no compile: el fallo sale en el paso `Build armiga-joypad module` del workflow y se corrige en `amigagamesplus/armiga-joypad`.
 
-make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- \
-     DEVICE=H700 \
-     KERNEL_SRC=/run/media/vince/samsung/armiga/board/armiga/linux/linux-X.Y.Z \
-     -C /run/media/vince/samsung/armiga/board/armiga/linux/linux-X.Y.Z \
-     M=$(pwd) modules
-```
-
-⚠️ El `DEVICE=H700` es obligatorio. Sin él, el Makefile compila también `rocknix-joypad.c` que usa `input-polldev.h` (eliminado en kernels recientes) y falla.
+La carpeta `board/armiga/linux/rocknix-joypad/` (driver original) ya no se compila ni se usa.
 
 ---
 
@@ -113,9 +105,7 @@ MODULES_OUT=/run/media/vince/samsung/armiga/board/armiga/linux/modules_out
 rm -f ${MODULES_OUT}/lib/modules/${NEW_VERSION}-armiga/build
 rm -f ${MODULES_OUT}/lib/modules/${NEW_VERSION}-armiga/source
 
-# Copiar el .ko del joypad a los módulos nuevos
-cp /run/media/vince/samsung/armiga/board/armiga/linux/rocknix-joypad/rocknix-singleadc-joypad.ko \
-   ${MODULES_OUT}/lib/modules/${NEW_VERSION}-armiga/
+# El armiga-joypad.ko ya viene en modules-X.Y.tar.gz (lo compila build-kernel.yml): no se copia aparte
 
 # Eliminar módulos de la versión anterior del overlay
 rm -rf ${OVERLAY}/lib/modules/${OLD_VERSION}-armiga
@@ -195,9 +185,9 @@ ssh root@10.212.82.130 "uname -r"
 ssh root@10.212.82.130 "lsmod | grep rtw"
 # Debe mostrar: rtw88_core, rtw88_8821c, rtw88_sdio, rtw88_8821cs
 
-# Driver joypad
-ssh root@10.212.82.130 "modprobe rocknix-singleadc-joypad && lsmod | grep joypad"
-# Debe mostrar: rocknix_singleadc_joypad
+# Driver joypad (lo carga S15modules en el arranque)
+ssh root@10.212.82.130 "lsmod | grep joypad"
+# Debe mostrar: armiga_joypad
 
 # Verificar DPAD como hat (crítico)
 ssh root@10.212.82.130 "evtest /dev/input/event3"
@@ -221,15 +211,14 @@ git add board/armiga/bootloader/Image \
         board/armiga/bootloader/KERNEL \
         board/armiga/bootloader/dtb.img \
         board/armiga/rootfs_overlay/lib/modules/ \
-        board/armiga/linux/build_kernel.sh \
-        board/armiga/linux/rocknix-joypad/
+        board/armiga/linux/build_kernel.sh
 
 git commit -m "kernel: actualizar de X.Y.OLD a X.Y.NEW
 
 - Compilado con aarch64-linux-gnu-gcc $(aarch64-linux-gnu-gcc --version | head -1 | awk '{print $4}')
 - Todos los parches aplican limpiamente
 - RTW88 verificado en hardware
-- Driver joypad recompilado contra X.Y.NEW con DEVICE=H700
+- armiga-joypad compilado contra X.Y.NEW (joypad_ref de BUILD_INFO.txt)
 - depmod regenerado
 - uname -r: X.Y.NEW-armiga"
 
@@ -253,7 +242,7 @@ Para referencia, el proyecto upstream mantiene parches equivalentes para el H700
 
 ### El driver joypad no compila
 
-Verificar que se pasa `DEVICE=H700`. Sin esa variable, el Makefile compila ambos drivers y `rocknix-joypad.c` usa APIs eliminadas en kernels recientes.
+Mirar el paso `Build armiga-joypad module` del workflow `build-kernel.yml`. Causas habituales: cambio de API del kernel (PWM, `MODULE_IMPORT_NS`) o `joypad_input_g` sin resolver porque el parche `0004` no se aplica. El driver se corrige en `amigagamesplus/armiga-joypad`, no en este repo.
 
 ### modprobe: module not found in modules.dep
 
@@ -308,6 +297,6 @@ Añadirlos dentro del bloque `&joypad { }` del DTS, recompilar el DTB y verifica
 
 Verificar que el `.ko` está compilado contra la versión correcta del kernel:
 ```bash
-ssh root@10.212.82.130 "modinfo /lib/modules/$(uname -r)/rocknix-singleadc-joypad.ko | grep vermagic"
+ssh root@10.212.82.130 "modinfo /lib/modules/$(uname -r)/armiga-joypad.ko | grep vermagic"
 ```
 El `vermagic` debe coincidir con `uname -r`.
