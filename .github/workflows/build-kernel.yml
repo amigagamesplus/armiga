@@ -6,7 +6,11 @@ on:
       kernel_version:
         description: 'Kernel version to build against (e.g. 7.1.8, or a release-candidate like 7.3-rc1)'
         required: true
-        default: '7.1.8'
+        default: '7.3-rc6'
+      joypad_ref:
+        description: 'Branch, tag or SHA of amigagamesplus/armiga-joypad to build'
+        required: true
+        default: 'main'
 
 jobs:
   build:
@@ -16,6 +20,13 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Checkout armiga-joypad
+        uses: actions/checkout@v4
+        with:
+          repository: amigagamesplus/armiga-joypad
+          ref: ${{ github.event.inputs.joypad_ref }}
+          path: armiga-joypad
 
       - name: Install dependencies
         run: |
@@ -110,15 +121,13 @@ jobs:
           echo "=== Installed modules ==="
           find "${GITHUB_WORKSPACE}/modules_out/lib/modules" -name "*.ko" | wc -l
 
-      - name: Build vendored joypad module (rocknix-singleadc-joypad.c, DEVICE=H700)
+      - name: Build armiga-joypad module
         run: |
           KERNEL_SRC="${GITHUB_WORKSPACE}/${KDIR}"
-          cd "${GITHUB_WORKSPACE}/board/armiga/linux/rocknix-joypad"
-          make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- \
-               DEVICE=H700 \
-               KERNEL_SRC="${KERNEL_SRC}" \
-               -C "${KERNEL_SRC}" \
-               M="$(pwd)" modules
+          cd "${GITHUB_WORKSPACE}/armiga-joypad"
+          git log --oneline -1
+          make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- KDIR="${KERNEL_SRC}"
+          ls -la armiga-joypad.ko
 
       - name: Collect artifacts
         run: |
@@ -141,14 +150,14 @@ jobs:
           if [ -f "$DTB_RG40XX_H_V2" ]; then
             cp "$DTB_RG40XX_H_V2" kernel-artifacts/dtb-rg40xx-h-v2.img
           fi
-          KO="${GITHUB_WORKSPACE}/board/armiga/linux/rocknix-joypad/rocknix-singleadc-joypad.ko"
+          KO="${GITHUB_WORKSPACE}/armiga-joypad/armiga-joypad.ko"
           cp "$KO" kernel-artifacts/
           MODULES_LIB="${GITHUB_WORKSPACE}/modules_out/lib/modules"
           echo "=== Real modules dir(s) ==="
           ls "${MODULES_LIB}"
           REAL_KVER="$(ls "${MODULES_LIB}" | head -1)"
           echo "REAL_KVER=${REAL_KVER}"
-          cp "$KO" "${MODULES_LIB}/${REAL_KVER}/rocknix-singleadc-joypad.ko"
+          cp "$KO" "${MODULES_LIB}/${REAL_KVER}/armiga-joypad.ko"
           depmod -a -b "${GITHUB_WORKSPACE}/modules_out" "${REAL_KVER}"
           echo "=== modules.dep entries for joypad ==="
           grep -i joypad "${MODULES_LIB}/${REAL_KVER}/modules.dep" || echo "WARNING: joypad not found in modules.dep"
@@ -156,6 +165,7 @@ jobs:
           echo "=== In-tree modules packaged ==="
           find "$MODULES_LIB" -name "*.ko" | wc -l
           echo "kernel_version=${KV}" > kernel-artifacts/BUILD_INFO.txt
+          echo "joypad_ref=$(git -C armiga-joypad rev-parse HEAD)" >> kernel-artifacts/BUILD_INFO.txt
           ls -la kernel-artifacts/
 
       - name: Upload artifacts

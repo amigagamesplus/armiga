@@ -391,6 +391,10 @@ alias dsa_tag:ocelot-8021q tag_ocelot_8021q
 alias rtnl-link-bridge bridge
 alias net-pf-31 bluetooth
 alias bt-proto-6 hidp
-alias platform:rocknix-singleadc-joypad rocknix_singleadc_joypad
-alias of:N*T*Crocknix-singleadc-joypadC* rocknix_singleadc_joypad
-alias of:N*T*Crocknix-singleadc-joypad rocknix_singleadc_joypad
+alias platform:armiga-joypad armiga_joypad
+alias of:N*T*Crocknix-singleadc-joypadC* armiga_joypad
+alias of:N*T*Crocknix-singleadc-joypad armiga_joypad
+alias of:N*T*Carmiga,singleadc-joypadC* armiga_joypad
+alias of:N*T*Carmiga,singleadc-joypad armiga_joypad
+alias of:N*T*Carmiga,joypadC* armiga_joypad
+alias of:N*T*Carmiga,joypad armiga_joypad
