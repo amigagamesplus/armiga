@@ -1601,7 +1601,8 @@ static void factory_reset(void)
            "/media/amiga_data/wifi.conf "
            "/media/amiga_data/test_wifi.conf "
            "/media/amiga_data/wifi_debug.log "
-           "/media/amiga_data/retroarch/retroarch.cfg");
+           "/media/amiga_data/retroarch/retroarch.cfg "
+           "/media/amiga_data/led.conf");
     system("rm -rf /media/amiga_data/retroarch/config "
            "/media/amiga_data/.cache "
            "/media/amiga_data/.config "
@@ -6251,14 +6252,16 @@ int main(void)
                 SDL_RenderFillRect(ren, &dim_rect);
                 SDL_SetRenderDrawBlendMode(ren, SDL_BLENDMODE_NONE);
 
-                float box_w = 320.0f, box_h = 100.0f;
+                float box_w = 380.0f, box_h = 130.0f;
                 float box_x = (SCREEN_W - box_w) / 2.0f;
                 float box_y = (SCREEN_H - box_h) / 2.0f;
                 draw_rounded_rect_filled(ren, box_x, box_y, box_w, box_h, 16.0f, g_theme.row_bg);
-                draw_text_centered(ren, f_ftr, tr("¿Restablecer valores de fábrica?", "Factory reset?"),
-                                   g_theme.text_light, SCREEN_W / 2.0f, box_y + 30.0f);
-                draw_text_centered(ren, f_ftr, tr("[B] Si        [A] No", "[B] Yes       [A] No"),
-                                   g_theme.accent, SCREEN_W / 2.0f, box_y + 66.0f);
+                draw_text_centered(ren, f_gpw, tr("¿Restablecer valores de fábrica?", "Factory reset?"),
+                                   g_theme.text_light, SCREEN_W / 2.0f, box_y + 22.0f);
+                draw_text_centered(ren, f_gpw, tr("Se reiniciará. Juegos y partidas no se borran.", "It will reboot. Games and saves are kept."),
+                                   g_theme.text_light, SCREEN_W / 2.0f, box_y + 52.0f);
+                draw_text_centered(ren, f_gpw, tr("[B] Si        [A] No", "[B] Yes       [A] No"),
+                                   g_theme.accent, SCREEN_W / 2.0f, box_y + 98.0f);
             }
 
         } else if (state == STATE_BRIGHTNESS_CONFIG) {
