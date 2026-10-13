@@ -7948,12 +7948,12 @@ draw_text(ren, f_ftr, "WIFI", labelc, mx + 8.0f, wty);
                 }
 
                 /* Nombre del boton pulsado, segun orden estandar evdev/SDL
-                 * (indices 0,1,3,4,5,8,9 confirmados via constantes
+                 * (indices 0,1,2,4,5,8,9 confirmados via constantes
                  * BTN_SDL_* ya existentes; el resto inferido por orden de
                  * aparicion en evtest, autoverificable en esta pantalla). */
                 {
                     static const char *CTRL_BTN_NAMES[] = {
-                        "B (SOUTH)", "A (EAST)", "Y (WEST)", "X (NORTH)",
+                        "B (SOUTH)", "A (EAST)", "X (NORTH)", "Y (WEST)",
                         "L1", "R1", "L2", "R2",
                         "SELECT", "START", "MODE",
                         "L3", "R3",
