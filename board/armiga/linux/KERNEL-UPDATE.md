@@ -1,99 +1,99 @@
-# ARMIGA — Proceso de actualización del kernel
+# ARMIGA — Kernel update process
 
-> Filosofía: usar siempre la versión estable más reciente del kernel vanilla oficial (kernel.org), contrastada en hardware real antes de commitear.
-
----
-
-## Resumen del flujo
-
-```
-1. Descargar tarball oficial de kernel.org
-2. Verificar checksum SHA256
-3. Compilar con build_kernel.sh (cambiando KERNEL_VERSION)
-4. Compilar el driver joypad (armiga-joypad, lo hace build-kernel.yml)
-5. Regenerar modules.dep
-6. Probar en hardware real
-7. Commitear
-```
+> Philosophy: always use the latest stable release of the official vanilla kernel (kernel.org), verified on real hardware before committing.
 
 ---
 
-## Requisitos previos
+## Flow summary
 
-- Cross-compiler instalado en local: `aarch64-linux-gnu-gcc`
-- `depmod` disponible en local (paquete `kmod`)
-- Acceso SSH al dispositivo: `ssh root@10.212.82.130`
-- SD en `/dev/sdX` para prueba antes de commitear
+```
+1. Download the official tarball from kernel.org
+2. Verify the SHA256 checksum
+3. Build with build_kernel.sh (changing KERNEL_VERSION)
+4. Build the joypad driver (armiga-joypad, done by build-kernel.yml)
+5. Regenerate modules.dep
+6. Test on real hardware
+7. Commit
+```
 
-Verificar el toolchain:
+---
+
+## Prerequisites
+
+- Cross-compiler installed locally: `aarch64-linux-gnu-gcc`
+- `depmod` available locally (`kmod` package)
+- SSH access to the device: `ssh root@10.212.82.130`
+- SD card at `/dev/sdX` for testing before committing
+
+Check the toolchain:
 ```bash
 aarch64-linux-gnu-gcc --version
 ```
 
 ---
 
-## Paso 1 — Descargar y verificar el tarball
+## Step 1 — Download and verify the tarball
 
 ```bash
 cd /run/media/vince/samsung/armiga/board/armiga/linux
 
-# Descargar (el -c permite reanudar si se corta)
+# Download (-c allows resuming if the transfer is interrupted)
 wget -c https://cdn.kernel.org/pub/linux/kernel/v7.x/linux-X.Y.Z.tar.xz
 
-# Verificar checksum contra el oficial
+# Verify the checksum against the official one
 sha256sum linux-X.Y.Z.tar.xz
 wget -qO- https://cdn.kernel.org/pub/linux/kernel/v7.x/sha256sums.asc | grep linux-X.Y.Z.tar.xz
 ```
 
-Los dos hashes deben coincidir exactamente. No continuar si no coinciden.
+Both hashes must match exactly. Do not continue if they differ.
 
 ---
 
-## Paso 2 — Actualizar la versión en build_kernel.sh
+## Step 2 — Update the version in build_kernel.sh
 
 ```bash
 sed -i 's/KERNEL_VERSION="X.Y.OLD"/KERNEL_VERSION="X.Y.NEW"/' \
     /run/media/vince/samsung/armiga/board/armiga/linux/build_kernel.sh
 ```
 
-Verificar:
+Verify:
 ```bash
 grep KERNEL_VERSION /run/media/vince/samsung/armiga/board/armiga/linux/build_kernel.sh
 ```
 
 ---
 
-## Paso 3 — Compilar el kernel
+## Step 3 — Build the kernel
 
 ```bash
 cd /run/media/vince/samsung/armiga/board/armiga/linux
 bash build_kernel.sh 2>&1 | tee build_kernel_X.Y.Z.log
 ```
 
-El script hace automáticamente:
-- Extraer las fuentes si no existe el directorio
-- Aplicar todos los parches de `patches/`
-- Copiar el DTS personalizado y añadirlo al Makefile de allwinner
-- Adaptar el `.config` con `adapt_config.sh`
-- Compilar `Image`, DTBs y módulos
-- Copiar `Image` y `dtb.img` a `board/armiga/bootloader/`
-- Instalar módulos en `modules_out/`
+The script automatically:
+- Extracts the sources if the directory does not exist
+- Applies all the patches in `patches/`
+- Copies the custom DTS files and adds them to the allwinner Makefile
+- Adapts the `.config` with `adapt_config.sh`
+- Builds `Image`, the DTBs and the modules
+- Copies `Image` and `dtb.img` to `board/armiga/bootloader/`
+- Installs the modules into `modules_out/`
 
-⚠️ Si algún parche falla, el script aborta. Ver sección "Resolución de problemas" al final.
-
----
-
-## Paso 4 — Driver joypad (armiga-joypad)
-
-El driver ya no está vendorizado en este repo: vive en `amigagamesplus/armiga-joypad`. `build-kernel.yml` lo clona (input `joypad_ref`, por defecto `main`; acepta rama, tag o SHA) y lo compila contra las fuentes del kernel nuevo, así que no hay que compilar nada a mano. El `armiga-joypad.ko` queda dentro de `modules-X.Y.tar.gz` y el SHA real usado queda en `BUILD_INFO.txt` (`joypad_ref=`).
-
-⚠️ El módulo necesita el símbolo `joypad_input_g`, que exporta el `adc-keys` parcheado (parche `0004`). Si ese parche deja de aplicarse, el módulo no resuelve el símbolo y no carga. Los cambios de API del kernel (PWM, `MODULE_IMPORT_NS`) pueden hacer que el driver no compile: el fallo sale en el paso `Build armiga-joypad module` del workflow y se corrige en `amigagamesplus/armiga-joypad`.
-
-El driver original (carpeta `board/armiga/linux/rocknix-joypad`) se eliminó en v1.0.20; sigue disponible en el historial de git.
+⚠️ If a patch fails, the script aborts. See the "Troubleshooting" section at the end.
 
 ---
 
-## Paso 5 — Preparar el rootfs_overlay
+## Step 4 — Joypad driver (armiga-joypad)
+
+The driver is no longer vendored in this repo: it lives in `amigagamesplus/armiga-joypad`. `build-kernel.yml` clones it (input `joypad_ref`, default `main`; accepts a branch, tag or SHA) and builds it against the new kernel sources, so nothing has to be built by hand. `armiga-joypad.ko` ends up inside `modules-X.Y.tar.gz`, and the exact SHA used is recorded in `BUILD_INFO.txt` (`joypad_ref=`).
+
+⚠️ The module needs the `joypad_input_g` symbol, exported by the patched `adc-keys` driver (patch `0004`). If that patch stops applying, the module cannot resolve the symbol and will not load. Kernel API changes (PWM, `MODULE_IMPORT_NS`) can make the driver fail to build: the failure shows up in the `Build armiga-joypad module` step of the workflow and is fixed in `amigagamesplus/armiga-joypad`.
+
+The original driver (folder `board/armiga/linux/rocknix-joypad`) was removed in v1.0.20; it is still available in the git history.
+
+---
+
+## Step 5 — Prepare the rootfs_overlay
 
 ```bash
 NEW_VERSION="X.Y.Z"
@@ -101,59 +101,59 @@ OLD_VERSION="X.Y.OLD"
 OVERLAY=/run/media/vince/samsung/armiga/board/armiga/rootfs_overlay
 MODULES_OUT=/run/media/vince/samsung/armiga/board/armiga/linux/modules_out
 
-# Eliminar symlinks que apuntan a rutas locales (no existen en el dispositivo)
+# Remove symlinks that point to local paths (they do not exist on the device)
 rm -f ${MODULES_OUT}/lib/modules/${NEW_VERSION}-armiga/build
 rm -f ${MODULES_OUT}/lib/modules/${NEW_VERSION}-armiga/source
 
-# El armiga-joypad.ko ya viene en modules-X.Y.tar.gz (lo compila build-kernel.yml): no se copia aparte
+# armiga-joypad.ko already comes in modules-X.Y.tar.gz (built by build-kernel.yml): it is not copied separately
 
-# Eliminar módulos de la versión anterior del overlay
+# Remove the modules of the previous version from the overlay
 rm -rf ${OVERLAY}/lib/modules/${OLD_VERSION}-armiga
 
-# Copiar módulos nuevos al overlay
+# Copy the new modules to the overlay
 cp -r ${MODULES_OUT}/lib/modules/${NEW_VERSION}-armiga \
       ${OVERLAY}/lib/modules/
 
-# Regenerar modules.dep (necesario para que modprobe funcione)
+# Regenerate modules.dep (required for modprobe to work)
 sudo depmod -a -b ${OVERLAY} ${NEW_VERSION}-armiga
 
-# Actualizar KERNEL en bootloader (U-Boot lo busca como KERNEL, no como Image)
+# Update KERNEL in the bootloader directory (U-Boot looks for KERNEL, not Image)
 cp /run/media/vince/samsung/armiga/board/armiga/bootloader/Image \
    /run/media/vince/samsung/armiga/board/armiga/bootloader/KERNEL
 ```
 
 ---
 
-## Paso 6 — Probar en hardware real ANTES de commitear
+## Step 6 — Test on real hardware BEFORE committing
 
-Montar la SD y copiar los binarios nuevos:
+Mount the SD card and copy the new binaries:
 
 ```bash
 sudo mkdir -p /mnt/armiga_boot /mnt/armiga_root
 
-# Partición boot (p1)
+# Boot partition (p1)
 sudo mount /dev/sdX1 /mnt/armiga_boot
 sudo cp /run/media/vince/samsung/armiga/board/armiga/bootloader/KERNEL /mnt/armiga_boot/KERNEL
 sudo cp /run/media/vince/samsung/armiga/board/armiga/bootloader/dtb.img /mnt/armiga_boot/dtb.img
 sudo sync
 sudo umount /mnt/armiga_boot
 
-# Partición rootfs (p2)
+# Rootfs partition (p2)
 sudo mount /dev/sdX2 /mnt/armiga_root
 
-# Eliminar módulos viejos y copiar nuevos
+# Remove the old modules and copy the new ones
 sudo rm -rf /mnt/armiga_root/lib/modules/${OLD_VERSION}-armiga
 sudo cp -r /run/media/vince/samsung/armiga/board/armiga/linux/modules_out/lib/modules/${NEW_VERSION}-armiga \
            /mnt/armiga_root/lib/modules/
 
-# Regenerar modules.dep en la SD
+# Regenerate modules.dep on the SD card
 sudo depmod -a -b /mnt/armiga_root ${NEW_VERSION}-armiga
 
 sudo sync
 sudo umount /mnt/armiga_root
 ```
 
-**Verificación crítica del DTB ANTES de flashear:**
+**Critical DTB check BEFORE flashing:**
 
 ```bash
 dtc -I dtb -O dts \
@@ -161,7 +161,7 @@ dtc -I dtb -O dts \
     2>/dev/null | grep -E "dpad-hat|adc-scale|adc-deadzone"
 ```
 
-La salida debe contener exactamente estas 6 líneas — ni una más, ni una menos:
+The output must contain exactly these 6 lines — no more, no fewer:
 
 ```
 button-adc-scale = <0x02>;
@@ -172,37 +172,37 @@ button-adc-deadzone = <0x80>;
         rocknix,dpad-hat = <0x04>;
 ```
 
-Si falta cualquiera de ellas, el DPAD no funcionará como hat. No continuar hasta que la verificación sea correcta.
+If any of them is missing, the D-pad will not work as a hat. Do not continue until the check passes.
 
-Arrancar el dispositivo y verificar:
+Boot the device and verify:
 
 ```bash
-# Versión del kernel
+# Kernel version
 ssh root@10.212.82.130 "uname -r"
-# Debe devolver: X.Y.Z-armiga
+# Must return: X.Y.Z-armiga
 
-# WiFi (crítico)
+# WiFi (critical)
 ssh root@10.212.82.130 "lsmod | grep rtw"
-# Debe mostrar: rtw88_core, rtw88_8821c, rtw88_sdio, rtw88_8821cs
+# Must show: rtw88_core, rtw88_8821c, rtw88_sdio, rtw88_8821cs
 
-# Driver joypad (lo carga S15modules en el arranque)
+# Joypad driver (loaded by S15modules at boot)
 ssh root@10.212.82.130 "lsmod | grep joypad"
-# Debe mostrar: armiga_joypad
+# Must show: armiga_joypad
 
-# Verificar DPAD como hat (crítico)
+# Check the D-pad as a hat (critical)
 ssh root@10.212.82.130 "evtest /dev/input/event3"
-# En la sección "Supported events" debe aparecer:
+# The "Supported events" section must list:
 #   Event code 16 (ABS_HAT0X)
 #   Event code 17 (ABS_HAT0Y)
-# Si aparece BTN_DPAD_UP/DOWN/LEFT/RIGHT en lugar de ABS_HAT0X/Y,
-# el DTB no tiene los subnodos sw1-sw4 correctos.
+# If BTN_DPAD_UP/DOWN/LEFT/RIGHT appear instead of ABS_HAT0X/Y,
+# the DTB does not have the correct sw1-sw4 subnodes.
 ```
 
-No commitear hasta que todas las verificaciones sean correctas.
+Do not commit until all the checks pass.
 
 ---
 
-## Paso 7 — Commit
+## Step 7 — Commit
 
 ```bash
 cd /run/media/vince/samsung/armiga
@@ -213,13 +213,13 @@ git add board/armiga/bootloader/Image \
         board/armiga/rootfs_overlay/lib/modules/ \
         board/armiga/linux/build_kernel.sh
 
-git commit -m "kernel: actualizar de X.Y.OLD a X.Y.NEW
+git commit -m "kernel: update from X.Y.OLD to X.Y.NEW
 
-- Compilado con aarch64-linux-gnu-gcc $(aarch64-linux-gnu-gcc --version | head -1 | awk '{print $4}')
-- Todos los parches aplican limpiamente
-- RTW88 verificado en hardware
-- armiga-joypad compilado contra X.Y.NEW (joypad_ref de BUILD_INFO.txt)
-- depmod regenerado
+- Built with aarch64-linux-gnu-gcc $(aarch64-linux-gnu-gcc --version | head -1 | awk '{print $4}')
+- All patches apply cleanly
+- RTW88 verified on hardware
+- armiga-joypad built against X.Y.NEW (joypad_ref from BUILD_INFO.txt)
+- depmod regenerated
 - uname -r: X.Y.NEW-armiga"
 
 git push
@@ -227,37 +227,37 @@ git push
 
 ---
 
-## Resolución de problemas
+## Troubleshooting
 
-### Un parche no aplica limpiamente
+### A patch does not apply cleanly
 
-Comparar el contexto del parche con el código de la nueva versión:
+Compare the patch context with the code of the new version:
 ```bash
-patch --dry-run -p1 < board/armiga/linux/patches/NNNN-nombre.patch
+patch --dry-run -p1 < board/armiga/linux/patches/NNNN-name.patch
 ```
 
-Si el fallo es menor (números de línea desplazados), `patch` normalmente lo resuelve solo con `-p1`. Si el fallo es real, hay que adaptar el parche manualmente al código nuevo.
+If the failure is minor (shifted line numbers), `patch` usually resolves it on its own with `-p1`. If the failure is real, the patch has to be adapted manually to the new code.
 
-Para referencia, el proyecto upstream mantiene parches equivalentes para el H700 en su árbol — útil para ver cómo han resuelto el mismo cambio en versiones más recientes.
+For reference, the upstream project maintains equivalent patches for the H700 in its tree — useful to see how the same change was solved in more recent versions.
 
-### El driver joypad no compila
+### The joypad driver does not build
 
-Mirar el paso `Build armiga-joypad module` del workflow `build-kernel.yml`. Causas habituales: cambio de API del kernel (PWM, `MODULE_IMPORT_NS`) o `joypad_input_g` sin resolver porque el parche `0004` no se aplica. El driver se corrige en `amigagamesplus/armiga-joypad`, no en este repo.
+Look at the `Build armiga-joypad module` step of the `build-kernel.yml` workflow. Common causes: a kernel API change (PWM, `MODULE_IMPORT_NS`) or an unresolved `joypad_input_g` because patch `0004` does not apply. The driver is fixed in `amigagamesplus/armiga-joypad`, not in this repo.
 
 ### modprobe: module not found in modules.dep
 
-Falta ejecutar `depmod`. Ver Paso 5. Buildroot lo ejecuta automáticamente en el build de CI, pero en pruebas manuales hay que hacerlo explícitamente.
+`depmod` has not been run. See Step 5. Buildroot runs it automatically in the CI build, but in manual tests it has to be run explicitly.
 
-### El DPAD sale como BTN_DPAD_UP/DOWN/LEFT/RIGHT en lugar de ABS_HAT0X/Y
+### The D-pad shows as BTN_DPAD_UP/DOWN/LEFT/RIGHT instead of ABS_HAT0X/Y
 
-El DTB compilado no tiene los subnodos `sw1-sw4` con `rocknix,dpad-hat`. Causa más probable: el DTS fuente del repo (`board/armiga/linux/dts/`) no tiene esos subnodos, y `build_kernel.sh` lo copió al árbol del kernel sobreescribiendo el que funcionaba.
+The compiled DTB does not have the `sw1-sw4` subnodes with `rocknix,dpad-hat`. Most likely cause: the source DTS in the repo (`board/armiga/linux/dts/`) does not have those subnodes, and `build_kernel.sh` copied it into the kernel tree, overwriting the one that worked.
 
-Verificar el DTB:
+Check the DTB:
 ```bash
 dtc -I dtb -O dts board/armiga/bootloader/dtb.img 2>/dev/null | grep "dpad-hat"
 ```
 
-Si no devuelve nada, el DTS fuente del repo está incompleto. Los subnodos correctos son:
+If it returns nothing, the source DTS in the repo is incomplete. The correct subnodes are:
 ```dts
 sw1 {
     gpios = <&pio 0 6 GPIO_ACTIVE_LOW>;
@@ -289,14 +289,14 @@ sw4 {
 };
 ```
 
-Añadirlos dentro del bloque `&joypad { }` del DTS, recompilar el DTB y verificar de nuevo.
+Add them inside the `&joypad { }` block of the DTS, rebuild the DTB and check again.
 
-⚠️ **Lección aprendida:** cualquier cambio en el DTS debe hacerse siempre en `board/armiga/linux/dts/` primero. Nunca editar directamente en el árbol del kernel (`linux-X.Y.Z/arch/arm64/boot/dts/allwinner/`) sin sincronizar el fuente del repo.
+⚠️ **Lesson learned:** any change to the DTS must always be made in `board/armiga/linux/dts/` first. Never edit directly in the kernel tree (`linux-X.Y.Z/arch/arm64/boot/dts/allwinner/`) without syncing the repo source.
 
-### El gamepad no aparece en evtest
+### The gamepad does not show up in evtest
 
-Verificar que el `.ko` está compilado contra la versión correcta del kernel:
+Check that the `.ko` was built against the right kernel version:
 ```bash
 ssh root@10.212.82.130 "modinfo /lib/modules/$(uname -r)/armiga-joypad.ko | grep vermagic"
 ```
-El `vermagic` debe coincidir con `uname -r`.
+The `vermagic` must match `uname -r`.
