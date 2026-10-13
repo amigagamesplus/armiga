@@ -89,7 +89,7 @@ El driver ya no está vendorizado en este repo: vive en `amigagamesplus/armiga-j
 
 ⚠️ El módulo necesita el símbolo `joypad_input_g`, que exporta el `adc-keys` parcheado (parche `0004`). Si ese parche deja de aplicarse, el módulo no resuelve el símbolo y no carga. Los cambios de API del kernel (PWM, `MODULE_IMPORT_NS`) pueden hacer que el driver no compile: el fallo sale en el paso `Build armiga-joypad module` del workflow y se corrige en `amigagamesplus/armiga-joypad`.
 
-La carpeta `board/armiga/linux/rocknix-joypad/` (driver original) ya no se compila ni se usa.
+El driver original (carpeta `board/armiga/linux/rocknix-joypad`) se eliminó en v1.0.20; sigue disponible en el historial de git.
 
 ---
 

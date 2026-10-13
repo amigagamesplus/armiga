@@ -6,7 +6,7 @@
 #   linux.aarch64.conf  — Config del kernel (base: config de la distribución de referencia H700)
 #   patches/            — Parches aplicados al código fuente antes de compilar
 #   dts/                — DTS propios de cada dispositivo
-#   rocknix-joypad/     — Driver del joypad (se compila como módulo)
+#   (armiga-joypad)     — Driver del joypad: repo aparte, lo clona y compila build-kernel.yml
 #   build_kernel.sh     — Compilación local (mismos pasos que el workflow)
 #
 # En CI lo compila el workflow build-kernel.yml. Pasos para actualizar la versión
