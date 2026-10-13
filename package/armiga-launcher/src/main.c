@@ -6571,7 +6571,10 @@ int main(void)
                     games_pt_idx = games_selected;
                 }
                 draw_rounded_rect_filled(ren, rx_g, c3_y, rw_g, c3_h, 10.0f, c_card);
-                float ck = 18.0f, ckx = rx_g + 12.0f, cky = c3_y + (c3_h - ck) / 2.0f;
+                int pt_tw_g = 0, pt_th_g = 0;
+                TTF_GetStringSize(f_ttl, games_pt_str, 0, &pt_tw_g, &pt_th_g);
+                float ck = 18.0f, cky = c3_y + (c3_h - ck) / 2.0f;
+                float ckx = rx_g + (rw_g - (ck + 10.0f + (float)pt_tw_g)) / 2.0f;
                 draw_rounded_rect_filled(ren, ckx, cky, ck, ck, ck / 2.0f, c_menu_selbg);
                 float cxm = ckx + ck / 2.0f, cym = cky + ck / 2.0f;
                 draw_line(ren, cxm, cym, cxm, cym - 5.0f, c_card);
