@@ -1,6 +1,6 @@
 # ARMIGA kernel
 
-ARMIGA ships its own kernel. It is built from the vanilla source tree on kernel.org (currently 7.3-rc6, reported as `7.3.0-rc6-armiga`) with the patches and device trees in this directory. No third-party kernel is used.
+ARMIGA ships its own kernel. It is built from the vanilla source tree on kernel.org (currently 7.3-rc7, reported as `7.3.0-rc7-armiga`) with the patches and device trees in this directory. No third-party kernel is used.
 
 ## Contents
 

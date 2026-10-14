@@ -6,7 +6,7 @@ on:
       kernel_version:
         description: 'Kernel version to build against (e.g. 7.1.8, or a release-candidate like 7.3-rc1)'
         required: true
-        default: '7.3-rc6'
+        default: '7.3-rc7'
       joypad_ref:
         description: 'Branch, tag or SHA of amigagamesplus/armiga-joypad to build'
         required: true
