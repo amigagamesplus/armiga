@@ -34,6 +34,7 @@ ESC=$(printf '\033')
 C_G="${ESC}[32m"; C_Y="${ESC}[33m"; C_R="${ESC}[31m"; C_W="${ESC}[37m"; C_N="${ESC}[0m"
 EL="${ESC}[K"
 S1=0; S2=0; S3=0; S4=0; CUR=0
+S1_INFO=""
 MSG_C="$C_W"; MSG1=""; MSG2=""; MSG3=""
 START_UP=$(cut -d' ' -f1 /proc/uptime | cut -d. -f1)
 
@@ -62,8 +63,8 @@ render() {
         pl "${C_W}  $(t "Slot activo : " "Active slot : ")${ACTIVE_LABEL}${C_N}"
         pl "${C_W}  $(t "Slot destino: " "Target slot : ")${TARGET_LABEL}${C_N}"
         pl ""
-        pl "  $(mark $S1) 1/4  $(t "Descomprimiendo imagen" "Decompressing image")"
-        pl "  $(mark $S2) 2/4  $(t "Flasheando $TARGET_LABEL (~3 min)" "Flashing $TARGET_LABEL (~3 min)")"
+        pl "  $(mark $S1) 1/4  $(t "Descomprimiendo imagen" "Decompressing image")${S1_INFO}"
+        pl "  $(mark $S2) 2/4  $(t "Flasheando $TARGET_LABEL" "Flashing $TARGET_LABEL")"
         pl "  $(mark $S3) 3/4  $(t "Configuracion de arranque" "Boot configuration")"
         pl "  $(mark $S4) 4/4  $(t "Finalizando" "Finishing")"
         pl ""
@@ -116,8 +117,17 @@ log "slot: $ACTIVE_LABEL -> $TARGET_LABEL"
 
 # --- Descomprimir imagen -----------------------------------------------------
 CUR=1; S1=1; render; log "[1/4] decompressing image"
-gunzip -c "$UPDATE_IMG_GZ" > "$UPDATE_IMG" 2>> "$LOG"
-if [ $? -ne 0 ]; then
+gunzip -c "$UPDATE_IMG_GZ" > "$UPDATE_IMG" 2>> "$LOG" &
+GZ_PID=$!
+while kill -0 "$GZ_PID" 2>/dev/null; do
+    S1_INFO="  $(( $(wc -c < "$UPDATE_IMG" 2>/dev/null || echo 0) / 1048576 )) MB"
+    render
+    sleep 1
+done
+wait "$GZ_PID"
+GZ_RESULT=$?
+S1_INFO=""
+if [ "$GZ_RESULT" -ne 0 ]; then
     cleanup_fail "$(t "ERROR al descomprimir. Abortando." "ERROR while decompressing. Aborting.")"
 fi
 S1=2; CUR=2; S2=1; render
