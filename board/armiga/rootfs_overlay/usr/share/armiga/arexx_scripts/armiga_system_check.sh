@@ -38,7 +38,7 @@ DISK_ROOT="$(df -h / 2>/dev/null | awk 'NR==2{printf "%s usados / %s totales (%s
 UPTIME_INFO="$(uptime 2>/dev/null)"
 
 MOD_WIFI="$(lsmod 2>/dev/null | grep -c rtw88)"; MOD_WIFI="${MOD_WIFI:-0}"
-MOD_JOYPAD="$(lsmod 2>/dev/null | grep -c rocknix_singleadc_joypad)"; MOD_JOYPAD="${MOD_JOYPAD:-0}"
+MOD_JOYPAD="$(lsmod 2>/dev/null | grep -c armiga_joypad)"; MOD_JOYPAD="${MOD_JOYPAD:-0}"
 
 OVERLAY_USR="$(mount 2>/dev/null | grep -c 'on /usr type overlay')"; OVERLAY_USR="${OVERLAY_USR:-0}"
 
@@ -109,7 +109,7 @@ echo ""
 echo "| Modulo | Cargado |"
 echo "|---|---|"
 echo "| WiFi (rtw88) | $([ "$MOD_WIFI" -gt 0 ] && echo "Si" || echo "NO - POSIBLE FALLO") |"
-echo "| Joypad (rocknix_singleadc) | $([ "$MOD_JOYPAD" -gt 0 ] && echo "Si" || echo "NO - POSIBLE FALLO") |"
+echo "| Joypad (armiga_joypad) | $([ "$MOD_JOYPAD" -gt 0 ] && echo "Si" || echo "NO - POSIBLE FALLO") |"
 echo ""
 echo "## Configuracion"
 echo ""

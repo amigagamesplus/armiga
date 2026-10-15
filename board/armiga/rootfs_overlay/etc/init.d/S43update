@@ -24,26 +24,77 @@ DEV="/dev/mmcblk0"
 [ -f "$UPDATE_FLAG" ]   || exit 0
 [ -f "$UPDATE_IMG_GZ" ] || { rm -f "$UPDATE_FLAG"; exit 0; }
 
-fb() { echo "$1" > /dev/tty0; echo "$(date): $1" >> "$LOG"; }
+log() { echo "$(date): $1" >> "$LOG"; }
 t() { [ "$IS_EN" = "1" ] && echo "$2" || echo "$1"; }
-
-cleanup_fail() {
-    fb "  $1"
-    umount "$BOOT_MNT" 2>/dev/null
-    [ -n "$LOOP_DEV" ] && losetup -d "$LOOP_DEV" 2>/dev/null
-    rm -f "$UPDATE_FLAG" "$UPDATE_IMG"
-    exit 1
-}
 
 UI_LANG=$(grep '^LANG=' /media/amiga_data/armiga.cfg 2>/dev/null | cut -d= -f2)
 [ "$UI_LANG" = "EN" ] && IS_EN=1 || IS_EN=0
 
-printf "\033[2J\033[H\033[32m" > /dev/tty0
-fb "  ARMIGA"
-if [ "$IS_EN" = "1" ]; then fb "  System update (A/B)"; else fb "  Actualizacion del sistema (A/B)"; fi
-fb ""
-if [ "$IS_EN" = "1" ]; then fb "  Do not power off the device during this process."; else fb "  No apagues el dispositivo durante este proceso."; fi
-fb ""
+ESC=$(printf '\033')
+C_G="${ESC}[32m"; C_Y="${ESC}[33m"; C_R="${ESC}[31m"; C_W="${ESC}[37m"; C_N="${ESC}[0m"
+EL="${ESC}[K"
+S1=0; S2=0; S3=0; S4=0; CUR=0
+S1_INFO=""
+MSG_C="$C_W"; MSG1=""; MSG2=""; MSG3=""
+START_UP=$(cut -d' ' -f1 /proc/uptime | cut -d. -f1)
+
+pl() { printf '%s%s\n' "$1" "$EL"; }
+
+mark() {
+    case "$1" in
+        1) printf '%s[ .. ]%s' "$C_Y" "$C_N" ;;
+        2) printf '%s[ OK ]%s' "$C_G" "$C_N" ;;
+        3) printf '%s[FAIL]%s' "$C_R" "$C_N" ;;
+        *) printf '[    ]' ;;
+    esac
+}
+
+render() {
+    NOW_UP=$(cut -d' ' -f1 /proc/uptime | cut -d. -f1)
+    ES=$(( NOW_UP - START_UP ))
+    ET=$(printf '%02d:%02d' $(( ES / 60 )) $(( ES % 60 )))
+    {
+        printf '%s[H' "$ESC"
+        pl "${C_G}  armiga${C_N}"
+        pl "${C_W}  $(t "Actualizacion del sistema" "System update")${C_N}"
+        pl ""
+        pl "${C_W}  $(t "No apagues el dispositivo." "Do not power off the device.")${C_N}"
+        pl ""
+        pl "${C_W}  $(t "Slot activo : " "Active slot : ")${ACTIVE_LABEL}${C_N}"
+        pl "${C_W}  $(t "Slot destino: " "Target slot : ")${TARGET_LABEL}${C_N}"
+        pl ""
+        pl "  $(mark $S1) 1/4  $(t "Descomprimiendo imagen" "Decompressing image")${S1_INFO}"
+        pl "  $(mark $S2) 2/4  $(t "Flasheando $TARGET_LABEL" "Flashing $TARGET_LABEL")"
+        pl "  $(mark $S3) 3/4  $(t "Configuracion de arranque" "Boot configuration")"
+        pl "  $(mark $S4) 4/4  $(t "Finalizando" "Finishing")"
+        pl ""
+        pl "${C_W}  $(t "Tiempo transcurrido" "Elapsed time"): ${ET}${C_N}"
+        pl ""
+        pl "${MSG_C}  ${MSG1}${C_N}"
+        pl "${MSG_C}  ${MSG2}${C_N}"
+        pl "${MSG_C}  ${MSG3}${C_N}"
+        printf '%s[J' "$ESC"
+    } > /dev/tty0
+}
+
+cleanup_fail() {
+    log "$1"
+    umount "$BOOT_MNT" 2>/dev/null
+    [ -n "$LOOP_DEV" ] && losetup -d "$LOOP_DEV" 2>/dev/null
+    rm -f "$UPDATE_FLAG" "$UPDATE_IMG"
+    case "$CUR" in 1) S1=3 ;; 2) S2=3 ;; 3) S3=3 ;; 4) S4=3 ;; esac
+    MSG_C="$C_R"
+    MSG1="$1"
+    MSG2="$(t "El sistema actual no se ha modificado." "The current system has not been modified.")"
+    MSG3="$(t "Continuando el arranque en 10 s..." "Continuing boot in 10 s...")"
+    render
+    sleep 10
+    printf '%s[?25h' "$ESC" > /dev/tty0
+    exit 1
+}
+
+printf '%s[2J%s[?25l' "$ESC" "$ESC" > /dev/tty0
+render
 
 # --- Determinar slot activo actual vía /proc/cmdline ------------------------
 CURRENT_ROOT=$(grep -o 'root=/dev/mmcblk0p[0-9]*' /proc/cmdline | cut -d= -f2)
@@ -62,14 +113,25 @@ case "$CURRENT_ROOT" in
         cleanup_fail "$(t "ERROR: no se pudo determinar el slot activo ($CURRENT_ROOT)." "ERROR: could not determine active slot ($CURRENT_ROOT).")"
         ;;
 esac
-fb "  $(t "Slot activo" "Active slot"): $ACTIVE_LABEL  ->  $(t "Flasheando" "Flashing"): $TARGET_LABEL"
+log "slot: $ACTIVE_LABEL -> $TARGET_LABEL"
 
 # --- Descomprimir imagen -----------------------------------------------------
-fb "  [1/4] $(t "Descomprimiendo imagen..." "Decompressing image...")"
-gunzip -c "$UPDATE_IMG_GZ" > "$UPDATE_IMG" 2>> "$LOG"
-if [ $? -ne 0 ]; then
+CUR=1; S1=1; render; log "[1/4] decompressing image"
+gunzip -c "$UPDATE_IMG_GZ" > "$UPDATE_IMG" 2>> "$LOG" &
+GZ_PID=$!
+while kill -0 "$GZ_PID" 2>/dev/null; do
+    SZ=$(ls -l "$UPDATE_IMG" 2>/dev/null | awk '{print $5}')
+    S1_INFO="  $(( ${SZ:-0} / 1048576 )) MB"
+    render
+    sleep 1
+done
+wait "$GZ_PID"
+GZ_RESULT=$?
+S1_INFO=""
+if [ "$GZ_RESULT" -ne 0 ]; then
     cleanup_fail "$(t "ERROR al descomprimir. Abortando." "ERROR while decompressing. Aborting.")"
 fi
+S1=2; CUR=2; S2=1; render
 
 if [ ! -b "$DEV" ]; then
     cleanup_fail "$(t "ERROR: dispositivo no encontrado." "ERROR: device not found.")"
@@ -120,11 +182,17 @@ DEV_SEEK_BYTES=$(( DEV_START * 512 ))
 # IMPORTANTE: $TARGET_PART nunca esta montada en este momento (es el
 # slot inactivo), por lo que este dd es seguro sin necesidad de
 # desmontar nada ni salir del rootfs activo.
-fb "  [2/4] $(t "Flasheando slot inactivo ($TARGET_LABEL, ~3 min)..." "Flashing inactive slot ($TARGET_LABEL, ~3 min)...")"
+log "[2/4] flashing $TARGET_LABEL"
 dd if="$UPDATE_IMG" of="$DEV" bs=4M \
    iflag=skip_bytes,count_bytes oflag=seek_bytes \
    skip=$IMG_P2_SKIP_BYTES count=$IMG_P2_COUNT_BYTES seek=$DEV_SEEK_BYTES \
-   conv=fsync 2>> "$LOG"
+   conv=fsync 2>> "$LOG" &
+DD_PID=$!
+while kill -0 "$DD_PID" 2>/dev/null; do
+    render
+    sleep 1
+done
+wait "$DD_PID"
 DD_RESULT=$?
 losetup -d "$LOOP_DEV" 2>/dev/null
 if [ "$DD_RESULT" -ne 0 ]; then
@@ -132,7 +200,7 @@ if [ "$DD_RESULT" -ne 0 ]; then
 fi
 
 # --- Actualizar DEFAULT en extlinux.conf (p1) --------------------------------
-fb "  [3/4] $(t "Actualizando configuracion de arranque..." "Updating boot configuration...")"
+S2=2; CUR=3; S3=1; render; log "[3/4] updating boot configuration"
 mkdir -p "$BOOT_MNT"
 mount "$BOOT_DEV" "$BOOT_MNT" 2>> "$LOG"
 if [ $? -ne 0 ]; then
@@ -149,7 +217,14 @@ sync
 umount "$BOOT_MNT"
 
 # --- Limpieza y reinicio ------------------------------------------------------
-fb "  [4/4] $(t "Actualizacion completada. Reiniciando a $TARGET_LABEL..." "Update complete. Rebooting to $TARGET_LABEL...")"
+S3=2; CUR=4; S4=1; render; log "[4/4] update complete"
 rm -f "$UPDATE_FLAG" "$UPDATE_IMG_GZ" "$UPDATE_IMG" "/media/amiga_data/update/armiga.img.gz.sha256"
 sync
+S4=2
+MSG_C="$C_G"
+MSG1="$(t "Actualizacion completada." "Update complete.")"
+MSG2="$(t "Reiniciando a $TARGET_LABEL en 5 s..." "Rebooting to $TARGET_LABEL in 5 s...")"
+render
+sleep 5
+printf '%s[?25h' "$ESC" > /dev/tty0
 reboot

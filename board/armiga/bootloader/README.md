@@ -21,14 +21,14 @@ This directory contains precompiled binaries used to boot the device:
 
 ## Regenerating KERNEL / DTBs / modules
 
-Built via the `build-kernel.yml` GitHub Actions workflow (`workflow_dispatch`, input `kernel_version`; check that "Use workflow from" points to the right branch), which:
+Built via the `build-kernel.yml` GitHub Actions workflow (`workflow_dispatch`, inputs `kernel_version` and `joypad_ref`; check that "Use workflow from" points to the right branch), which:
 
 1. Downloads the specified kernel version from kernel.org
 2. Applies all patches in `board/armiga/linux/patches/`
 3. Copies the custom DTS files and registers them in the DTS Makefile
 4. Compiles `Image dtbs modules`
-5. Compiles the vendored joypad driver (`board/armiga/linux/rocknix-joypad/`)
-6. Packages everything as a single artifact: `KERNEL`, the `dtb*.img` files, the in-tree modules tarball (`modules-X.Y.tar.gz`, which already includes the joypad `.ko`), a standalone copy of `rocknix-singleadc-joypad.ko` and `BUILD_INFO.txt`
+5. Clones `amigagamesplus/armiga-joypad` (input `joypad_ref`, default `main`) and compiles the `armiga-joypad` driver against the new kernel
+6. Packages everything as a single artifact: `KERNEL`, the `dtb*.img` files, the in-tree modules tarball (`modules-X.Y.tar.gz`, which already includes the joypad `.ko`), a standalone copy of `armiga-joypad.ko` and `BUILD_INFO.txt` (which records the exact `joypad_ref` SHA)
 
 After a successful run, download the artifact and copy by hand:
 

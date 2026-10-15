@@ -4,9 +4,9 @@ on:
   workflow_dispatch:
     inputs:
       mesa_version:
-        description: "Version de Mesa a compilar (ej. 26.2.4)"
+        description: "Version de Mesa a compilar (ej. 26.2.5)"
         required: true
-        default: "26.2.4"
+        default: "26.2.5"
 
 env:
   MESA_VERSION: ${{ github.event.inputs.mesa_version }}

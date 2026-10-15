@@ -386,7 +386,7 @@ static const char *DEV_MENU_ITEMS[] = {
 #define BTN_SDL_R2     7 /* verificado empiricamente en hardware (evtest + Controller Test) */
 #define BTN_SDL_SELECT 8
 #define BTN_SDL_START  9
-#define BTN_SDL_X      3
+#define BTN_SDL_X      2
 #define BTN_SDL_MODE   10
 
 #define DEVMODE_HOLD_MS 3000
@@ -1601,7 +1601,8 @@ static void factory_reset(void)
            "/media/amiga_data/wifi.conf "
            "/media/amiga_data/test_wifi.conf "
            "/media/amiga_data/wifi_debug.log "
-           "/media/amiga_data/retroarch/retroarch.cfg");
+           "/media/amiga_data/retroarch/retroarch.cfg "
+           "/media/amiga_data/led.conf");
     system("rm -rf /media/amiga_data/retroarch/config "
            "/media/amiga_data/.cache "
            "/media/amiga_data/.config "
@@ -6118,7 +6119,7 @@ int main(void)
             if (frac > 1.0f) frac = 1.0f;
             float bar_w = 200.0f;
             float bar_x = (SCREEN_W - bar_w) / 2.0f;
-            float bar_y = SCREEN_H - 94.0f; /* +30px arriba en total, se solapaba con otro texto */
+            float bar_y = SCREEN_H - 104.0f; /* +40px arriba en total (antes +30), se solapaba con otro texto */
             SDL_Color c_devbar_lime = c_selbg;
             draw_bar_rounded(ren, bar_x, bar_y, bar_w, 4.0f, frac, c_devbar_lime, c_white);
         }
@@ -6251,14 +6252,16 @@ int main(void)
                 SDL_RenderFillRect(ren, &dim_rect);
                 SDL_SetRenderDrawBlendMode(ren, SDL_BLENDMODE_NONE);
 
-                float box_w = 320.0f, box_h = 100.0f;
+                float box_w = 380.0f, box_h = 130.0f;
                 float box_x = (SCREEN_W - box_w) / 2.0f;
                 float box_y = (SCREEN_H - box_h) / 2.0f;
                 draw_rounded_rect_filled(ren, box_x, box_y, box_w, box_h, 16.0f, g_theme.row_bg);
-                draw_text_centered(ren, f_ftr, tr("¿Restablecer valores de fábrica?", "Factory reset?"),
-                                   g_theme.text_light, SCREEN_W / 2.0f, box_y + 30.0f);
-                draw_text_centered(ren, f_ftr, tr("[B] Si        [A] No", "[B] Yes       [A] No"),
-                                   g_theme.accent, SCREEN_W / 2.0f, box_y + 66.0f);
+                draw_text_centered(ren, f_gpw, tr("¿Restablecer valores de fábrica?", "Factory reset?"),
+                                   g_theme.text_light, SCREEN_W / 2.0f, box_y + 22.0f);
+                draw_text_centered(ren, f_gpw, tr("Se reiniciará. Juegos y partidas no se borran.", "It will reboot. Games and saves are kept."),
+                                   g_theme.text_light, SCREEN_W / 2.0f, box_y + 52.0f);
+                draw_text_centered(ren, f_gpw, tr("[B] Si        [A] No", "[B] Yes       [A] No"),
+                                   g_theme.accent, SCREEN_W / 2.0f, box_y + 98.0f);
             }
 
         } else if (state == STATE_BRIGHTNESS_CONFIG) {
@@ -6571,7 +6574,10 @@ int main(void)
                     games_pt_idx = games_selected;
                 }
                 draw_rounded_rect_filled(ren, rx_g, c3_y, rw_g, c3_h, 10.0f, c_card);
-                float ck = 18.0f, ckx = rx_g + 12.0f, cky = c3_y + (c3_h - ck) / 2.0f;
+                int pt_tw_g = 0, pt_th_g = 0;
+                TTF_GetStringSize(f_ttl, games_pt_str, 0, &pt_tw_g, &pt_th_g);
+                float ck = 18.0f, cky = c3_y + (c3_h - ck) / 2.0f;
+                float ckx = rx_g + (rw_g - (ck + 10.0f + (float)pt_tw_g)) / 2.0f;
                 draw_rounded_rect_filled(ren, ckx, cky, ck, ck, ck / 2.0f, c_menu_selbg);
                 float cxm = ckx + ck / 2.0f, cym = cky + ck / 2.0f;
                 draw_line(ren, cxm, cym, cxm, cym - 5.0f, c_card);
@@ -7948,12 +7954,12 @@ draw_text(ren, f_ftr, "WIFI", labelc, mx + 8.0f, wty);
                 }
 
                 /* Nombre del boton pulsado, segun orden estandar evdev/SDL
-                 * (indices 0,1,3,4,5,8,9 confirmados via constantes
+                 * (indices 0,1,2,4,5,8,9 confirmados via constantes
                  * BTN_SDL_* ya existentes; el resto inferido por orden de
                  * aparicion en evtest, autoverificable en esta pantalla). */
                 {
                     static const char *CTRL_BTN_NAMES[] = {
-                        "B (SOUTH)", "A (EAST)", "Y (WEST)", "X (NORTH)",
+                        "B (SOUTH)", "A (EAST)", "X (NORTH)", "Y (WEST)",
                         "L1", "R1", "L2", "R2",
                         "SELECT", "START", "MODE",
                         "L3", "R3",

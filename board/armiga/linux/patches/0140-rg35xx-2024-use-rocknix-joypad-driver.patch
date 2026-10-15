@@ -18,8 +18,8 @@ index a8f36c4f1..1c2637d21 100644
  
 -	gpio_keys_gamepad: gpio-keys-gamepad {
 -		compatible = "gpio-keys";
-+	joypad: rocknix-singleadc-joypad {
-+		compatible = "rocknix-singleadc-joypad";
++	joypad: armiga-singleadc-joypad {
++		compatible = "armiga,singleadc-joypad";
 +		hw_info = <0x01>;
  
 -		button-a {

@@ -174,8 +174,8 @@ do_expand_if_needed() {
             echo "$PUAE_TEMPLATE_VER" > "$PUAE_VERSION_FILE"
         fi
     fi
-    # Copiar autoconfig de mando si no existe
-    if [ ! -f "$AMIGA_DATA_MNT/retroarch/config/autoconfig/H700 Gamepad.cfg" ]; then
+    # Copiar autoconfig de mando si no existe o difiere de la de la imagen
+    if ! cmp -s "/etc/retroarch/autoconfig/H700 Gamepad.cfg" "$AMIGA_DATA_MNT/retroarch/config/autoconfig/H700 Gamepad.cfg"; then
         mkdir -p "$AMIGA_DATA_MNT/retroarch/config/autoconfig"
         cp "/etc/retroarch/autoconfig/H700 Gamepad.cfg" "$AMIGA_DATA_MNT/retroarch/config/autoconfig/H700 Gamepad.cfg"
     fi
@@ -246,7 +246,7 @@ case "$1" in
                     echo "$PUAE_TEMPLATE_VER" > "$PUAE_VERSION_FILE"
                 fi
             fi
-            if [ ! -f "$AMIGA_DATA_MNT/retroarch/config/autoconfig/H700 Gamepad.cfg" ]; then
+            if ! cmp -s "/etc/retroarch/autoconfig/H700 Gamepad.cfg" "$AMIGA_DATA_MNT/retroarch/config/autoconfig/H700 Gamepad.cfg"; then
                 mkdir -p "$AMIGA_DATA_MNT/retroarch/config/autoconfig"
                 cp "/etc/retroarch/autoconfig/H700 Gamepad.cfg" "$AMIGA_DATA_MNT/retroarch/config/autoconfig/H700 Gamepad.cfg"
             fi
