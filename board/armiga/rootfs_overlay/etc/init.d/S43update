@@ -33,8 +33,6 @@ UI_LANG=$(grep '^LANG=' /media/amiga_data/armiga.cfg 2>/dev/null | cut -d= -f2)
 ESC=$(printf '\033')
 C_G="${ESC}[32m"; C_Y="${ESC}[33m"; C_R="${ESC}[31m"; C_W="${ESC}[37m"; C_N="${ESC}[0m"
 EL="${ESC}[K"
-BAR="============================================"
-SEP="--------------------------------------------"
 S1=0; S2=0; S3=0; S4=0; CUR=0
 MSG_C="$C_W"; MSG1=""; MSG2=""; MSG3=""
 START_UP=$(cut -d' ' -f1 /proc/uptime | cut -d. -f1)
@@ -56,26 +54,24 @@ render() {
     ET=$(printf '%02d:%02d' $(( ES / 60 )) $(( ES % 60 )))
     {
         printf '%s[H' "$ESC"
-        pl "${C_G} ${BAR}${C_N}"
-        pl "${C_G}   ARMIGA                   $(t "Actualizacion" "Update")${C_N}"
-        pl "${C_G} ${BAR}${C_N}"
+        pl "${C_G}  armiga${C_N}"
+        pl "${C_W}  $(t "Actualizacion del sistema" "System update")${C_N}"
         pl ""
-        pl "${C_W}   $(t "No apagues el dispositivo." "Do not power off the device.")${C_N}"
+        pl "${C_W}  $(t "No apagues el dispositivo." "Do not power off the device.")${C_N}"
         pl ""
-        pl "${C_W}   $(t "Slot activo : " "Active slot : ")${ACTIVE_LABEL}${C_N}"
-        pl "${C_W}   $(t "Slot destino: " "Target slot : ")${TARGET_LABEL}${C_N}"
+        pl "${C_W}  $(t "Slot activo : " "Active slot : ")${ACTIVE_LABEL}${C_N}"
+        pl "${C_W}  $(t "Slot destino: " "Target slot : ")${TARGET_LABEL}${C_N}"
         pl ""
-        pl "   $(mark $S1) 1/4  $(t "Descomprimiendo imagen" "Decompressing image")"
-        pl "   $(mark $S2) 2/4  $(t "Flasheando $TARGET_LABEL (~3 min)" "Flashing $TARGET_LABEL (~3 min)")"
-        pl "   $(mark $S3) 3/4  $(t "Configuracion de arranque" "Boot configuration")"
-        pl "   $(mark $S4) 4/4  $(t "Finalizando" "Finishing")"
+        pl "  $(mark $S1) 1/4  $(t "Descomprimiendo imagen" "Decompressing image")"
+        pl "  $(mark $S2) 2/4  $(t "Flasheando $TARGET_LABEL (~3 min)" "Flashing $TARGET_LABEL (~3 min)")"
+        pl "  $(mark $S3) 3/4  $(t "Configuracion de arranque" "Boot configuration")"
+        pl "  $(mark $S4) 4/4  $(t "Finalizando" "Finishing")"
         pl ""
-        pl "${C_W} ${SEP}${C_N}"
-        pl "${C_W}   $(t "Tiempo transcurrido" "Elapsed time"): ${ET}${C_N}"
+        pl "${C_W}  $(t "Tiempo transcurrido" "Elapsed time"): ${ET}${C_N}"
         pl ""
-        pl "${MSG_C}   ${MSG1}${C_N}"
-        pl "${MSG_C}   ${MSG2}${C_N}"
-        pl "${MSG_C}   ${MSG3}${C_N}"
+        pl "${MSG_C}  ${MSG1}${C_N}"
+        pl "${MSG_C}  ${MSG2}${C_N}"
+        pl "${MSG_C}  ${MSG3}${C_N}"
         printf '%s[J' "$ESC"
     } > /dev/tty0
 }
