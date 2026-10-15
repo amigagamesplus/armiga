@@ -120,7 +120,8 @@ CUR=1; S1=1; render; log "[1/4] decompressing image"
 gunzip -c "$UPDATE_IMG_GZ" > "$UPDATE_IMG" 2>> "$LOG" &
 GZ_PID=$!
 while kill -0 "$GZ_PID" 2>/dev/null; do
-    S1_INFO="  $(( $(wc -c < "$UPDATE_IMG" 2>/dev/null || echo 0) / 1048576 )) MB"
+    SZ=$(ls -l "$UPDATE_IMG" 2>/dev/null | awk '{print $5}')
+    S1_INFO="  $(( ${SZ:-0} / 1048576 )) MB"
     render
     sleep 1
 done
