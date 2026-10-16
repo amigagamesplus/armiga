@@ -497,7 +497,7 @@ static bool redirect_stdio_to_local_console(void)
     /* SDL/DRM deja la consola en KD_GRAPHICS; sin esto el shell corre
      * pero no se ve nada en pantalla (cursor parpadeando, sin texto). */
     ioctl(fd, KDSETMODE, KD_TEXT);
-    /* Limpiar residuos graficos previos (p.ej. armiga-splash-text) que
+    /* Limpiar residuos graficos previos (p.ej. armiga-splash) que
      * pudieran seguir en el framebuffer bajo el modo texto. */
     write(fd, "\033[2J\033[H", 7);
     /* El kernel arranca con vt.global_cursor_default=0 (cursor oculto

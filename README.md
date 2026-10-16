@@ -110,7 +110,7 @@ armiga/
 ├── configs/armiga_defconfig
 ├── package/
 │   ├── armiga-launcher/       # Custom launcher (C + SDL3)
-│   ├── armiga-splash-text/
+│   ├── armiga-splash/
 │   ├── btop/
 │   ├── fastfetch/
 │   ├── kmsdrm-test/
