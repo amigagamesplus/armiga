@@ -323,6 +323,8 @@ int main(void)
         }
         usleep(FRAME_US);
     }
+    /* SIGTERM: el arranque ha terminado, dejar la barra llena */
+    draw_bar(1.0);
 #endif
 
     munmap(fbmem, (size_t)fb_stride * fb_h);
