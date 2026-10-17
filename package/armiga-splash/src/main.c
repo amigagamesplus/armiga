@@ -220,45 +220,69 @@ static int pill(double px, double py, double x0, double y0, double w, double h)
     return dx * dx + dy * dy <= r * r;
 }
 
-/* mezcla rgb sobre el framebuffer con cobertura cov (0..SS*SS) */
-static void blend_px(int x, int y, unsigned int rgb, int cov)
+/* La barra se compone entera en RAM y se copia de una vez al framebuffer:
+ * asi nunca se ve el fondo "pelado" entre el borrado y el redibujado, ni se
+ * lee del framebuffer (lento). */
+static unsigned char bar_base[BAR_H * BAR_W * 4];   /* fondo + borde + pista */
+
+/* mezcla rgb en buf (coordenadas locales de la barra) con cobertura cov (0..SS*SS) */
+static void blend_buf(unsigned char *buf, int x, int y, unsigned int rgb, int cov)
 {
-    if (cov <= 0 || x < 0 || y < 0 || x >= fb_w || y >= fb_h) return;
-    unsigned char *p = fbmem + (size_t)y * fb_stride + (size_t)x * 4;
+    if (cov <= 0) return;
+    unsigned char *p = buf + ((size_t)y * BAR_W + (size_t)x) * 4;
     int A = SS * SS;
     p[0] = (unsigned char)((p[0] * (A - cov) + (int)(rgb & 0xFF) * cov) / A);
     p[1] = (unsigned char)((p[1] * (A - cov) + (int)((rgb >> 8) & 0xFF) * cov) / A);
     p[2] = (unsigned char)((p[2] * (A - cov) + (int)((rgb >> 16) & 0xFF) * cov) / A);
 }
 
-static void draw_bar(double frac)
+/* Prepara la parte fija de la barra: fondo de la imagen + borde + pista. */
+static void bar_init(void)
 {
-    /* restaura el fondo bajo la barra */
-    for (int y = 0; y < BAR_H; y++) {
-        size_t off = (size_t)(bar_y + y) * fb_stride + (size_t)bar_x * 4;
-        memcpy(fbmem + off, bg + off, (size_t)BAR_W * 4);
-    }
-    double fw = (BAR_W - 2) * frac;
+    for (int y = 0; y < BAR_H; y++)
+        memcpy(bar_base + (size_t)y * BAR_W * 4,
+               bg + (size_t)(bar_y + y) * fb_stride + (size_t)bar_x * 4,
+               (size_t)BAR_W * 4);
     for (int y = 0; y < BAR_H; y++) {
         for (int x = 0; x < BAR_W; x++) {
-            int c_out = 0, c_in = 0, c_fill = 0;
+            int c_out = 0, c_in = 0;
             for (int sy = 0; sy < SS; sy++) {
                 for (int sx = 0; sx < SS; sx++) {
                     double px = x + (sx + 0.5) / SS, py = y + (sy + 0.5) / SS;
                     c_out += pill(px, py, 0, 0, BAR_W, BAR_H);
-                    int in = pill(px, py, 1, 1, BAR_W - 2, BAR_H - 2);
-                    c_in += in;
-                    if (in && fw > 0) {
+                    c_in += pill(px, py, 1, 1, BAR_W - 2, BAR_H - 2);
+                }
+            }
+            blend_buf(bar_base, x, y, COL_BORDER, c_out);
+            blend_buf(bar_base, x, y, COL_TRACK, c_in);
+        }
+    }
+}
+
+static void draw_bar(double frac)
+{
+    unsigned char buf[BAR_H * BAR_W * 4];
+    memcpy(buf, bar_base, sizeof(buf));
+    double fw = (BAR_W - 2) * frac;
+    if (fw > 0) {
+        for (int y = 0; y < BAR_H; y++) {
+            for (int x = 0; x < BAR_W; x++) {
+                int c_fill = 0;
+                for (int sy = 0; sy < SS; sy++) {
+                    for (int sx = 0; sx < SS; sx++) {
+                        double px = x + (sx + 0.5) / SS, py = y + (sy + 0.5) / SS;
+                        if (!pill(px, py, 1, 1, BAR_W - 2, BAR_H - 2)) continue;
                         if (fw >= BAR_H - 2) c_fill += pill(px, py, 1, 1, fw, BAR_H - 2);
                         else c_fill += (px < 1 + fw);
                     }
                 }
+                blend_buf(buf, x, y, COL_FILL, c_fill);
             }
-            blend_px(bar_x + x, bar_y + y, COL_BORDER, c_out);
-            blend_px(bar_x + x, bar_y + y, COL_TRACK, c_in);
-            blend_px(bar_x + x, bar_y + y, COL_FILL, c_fill);
         }
     }
+    for (int y = 0; y < BAR_H; y++)
+        memcpy(fbmem + (size_t)(bar_y + y) * fb_stride + (size_t)bar_x * 4,
+               buf + (size_t)y * BAR_W * 4, (size_t)BAR_W * 4);
 }
 
 #ifndef SPLASH_TEST
@@ -334,6 +358,7 @@ int main(void)
 
     bar_x = (fb_w - BAR_W) / 2;
     bar_y = BAR_Y;
+    bar_init();
 
 #ifdef SPLASH_TEST
     draw_bar(progress_at(t_sim));
