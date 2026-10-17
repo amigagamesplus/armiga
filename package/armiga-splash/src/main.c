@@ -43,9 +43,9 @@
 #define FONT_PATH     "/usr/share/consolefonts/lat4-10.psfu.gz"
 
 /* --- Diseno: todo lo ajustable esta aqui --------------------------------- */
-#define BAR_MARGIN_X   16        /* margen izquierdo y derecho de la barra */
-#define BAR_H          6         /* alto de la barra, borde incluido */
-#define BAR_BOTTOM     56        /* de la parte alta de la barra al borde inferior */
+#define BAR_W          260       /* ancho de la barra, centrada */
+#define BAR_H          10        /* alto de la barra, borde incluido */
+#define BAR_Y          300       /* y de la parte alta de la barra (bajo el logo) */
 #define TEXT_MARGIN_X  16
 #define TEXT_BOTTOM    40        /* de la primera linea de texto al borde inferior */
 #define LINE_GAP       3
@@ -146,13 +146,6 @@ static void put_px(unsigned char *buf, int x, int y, unsigned int rgb)
     p[3] = 0;
 }
 
-static void fill_rect(unsigned char *buf, int x, int y, int w, int h, unsigned int rgb)
-{
-    for (int yy = 0; yy < h; yy++)
-        for (int xx = 0; xx < w; xx++)
-            put_px(buf, x + xx, y + yy, rgb);
-}
-
 static void draw_char(unsigned char *buf, int x, int y, unsigned char ch)
 {
     if (!g_glyphs || ch >= g_numglyph) return;
@@ -214,20 +207,58 @@ static void blit_image(void)
     stbi_image_free(img);
 }
 
-static int bar_x, bar_y, bar_w;
+static int bar_x, bar_y;
+
+#define SS 4   /* submuestreo por eje para suavizar los bordes */
+
+/* 1 si el punto (px,py) cae dentro de una pastilla (extremos semicirculares) */
+static int pill(double px, double py, double x0, double y0, double w, double h)
+{
+    double r = h / 2.0;
+    double nx = px < x0 + r ? x0 + r : (px > x0 + w - r ? x0 + w - r : px);
+    double dx = px - nx, dy = py - (y0 + r);
+    return dx * dx + dy * dy <= r * r;
+}
+
+/* mezcla rgb sobre el framebuffer con cobertura cov (0..SS*SS) */
+static void blend_px(int x, int y, unsigned int rgb, int cov)
+{
+    if (cov <= 0 || x < 0 || y < 0 || x >= fb_w || y >= fb_h) return;
+    unsigned char *p = fbmem + (size_t)y * fb_stride + (size_t)x * 4;
+    int A = SS * SS;
+    p[0] = (unsigned char)((p[0] * (A - cov) + (int)(rgb & 0xFF) * cov) / A);
+    p[1] = (unsigned char)((p[1] * (A - cov) + (int)((rgb >> 8) & 0xFF) * cov) / A);
+    p[2] = (unsigned char)((p[2] * (A - cov) + (int)((rgb >> 16) & 0xFF) * cov) / A);
+}
 
 static void draw_bar(double frac)
 {
     /* restaura el fondo bajo la barra */
     for (int y = 0; y < BAR_H; y++) {
         size_t off = (size_t)(bar_y + y) * fb_stride + (size_t)bar_x * 4;
-        memcpy(fbmem + off, bg + off, (size_t)bar_w * 4);
+        memcpy(fbmem + off, bg + off, (size_t)BAR_W * 4);
     }
-    fill_rect(fbmem, bar_x, bar_y, bar_w, BAR_H, COL_BORDER);
-    fill_rect(fbmem, bar_x + 1, bar_y + 1, bar_w - 2, BAR_H - 2, COL_TRACK);
-    int fw = (int)((bar_w - 2) * frac);
-    if (fw > 0)
-        fill_rect(fbmem, bar_x + 1, bar_y + 1, fw, BAR_H - 2, COL_FILL);
+    double fw = (BAR_W - 2) * frac;
+    for (int y = 0; y < BAR_H; y++) {
+        for (int x = 0; x < BAR_W; x++) {
+            int c_out = 0, c_in = 0, c_fill = 0;
+            for (int sy = 0; sy < SS; sy++) {
+                for (int sx = 0; sx < SS; sx++) {
+                    double px = x + (sx + 0.5) / SS, py = y + (sy + 0.5) / SS;
+                    c_out += pill(px, py, 0, 0, BAR_W, BAR_H);
+                    int in = pill(px, py, 1, 1, BAR_W - 2, BAR_H - 2);
+                    c_in += in;
+                    if (in && fw > 0) {
+                        if (fw >= BAR_H - 2) c_fill += pill(px, py, 1, 1, fw, BAR_H - 2);
+                        else c_fill += (px < 1 + fw);
+                    }
+                }
+            }
+            blend_px(bar_x + x, bar_y + y, COL_BORDER, c_out);
+            blend_px(bar_x + x, bar_y + y, COL_TRACK, c_in);
+            blend_px(bar_x + x, bar_y + y, COL_FILL, c_fill);
+        }
+    }
 }
 
 #ifndef SPLASH_TEST
@@ -301,9 +332,8 @@ int main(void)
 
     memcpy(fbmem, bg, (size_t)fb_stride * fb_h);
 
-    bar_x = BAR_MARGIN_X;
-    bar_w = fb_w - 2 * BAR_MARGIN_X;
-    bar_y = fb_h - BAR_BOTTOM;
+    bar_x = (fb_w - BAR_W) / 2;
+    bar_y = BAR_Y;
 
 #ifdef SPLASH_TEST
     draw_bar(progress_at(t_sim));
@@ -316,7 +346,7 @@ int main(void)
     int last_fw = -1;
     while (!g_stop) {
         double frac = progress_at(elapsed(&t0));
-        int fw = (int)((bar_w - 2) * frac);
+        int fw = (int)((BAR_W - 2) * frac);
         if (fw != last_fw) {
             draw_bar(frac);
             last_fw = fw;
