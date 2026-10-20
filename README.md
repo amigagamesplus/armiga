@@ -31,7 +31,7 @@ ARMIGA is a minimal Linux distribution based on **Buildroot** for the **Anbernic
 
 ### Working components
 
-- ✅ Boot (U-Boot 2026.01 + kernel 7.3.0-rc7-armiga + DTB); with the console off, plugging in USB-C only charges the battery (AXP717 charge-only boot, the system does not start)
+- ✅ Boot (U-Boot 2026.01 + kernel 7.3.0-armiga + DTB); with the console off, plugging in USB-C only charges the battery (AXP717 charge-only boot, the system does not start)
 - ✅ **A/B** partition scheme with automatic rollback (see below)
 - ✅ Rootfs on **SquashFS + zstd** (system/system_b, 300MB per slot, ro)
 - ✅ RTL8821CS WiFi (`wpa_supplicant` + `udhcpc`, config generated in `/tmp` — `/etc` is ro)
@@ -42,6 +42,7 @@ ARMIGA is a minimal Linux distribution based on **Buildroot** for the **Anbernic
 - ✅ `amiga_data` partition (exFAT, auto-expands to 100% of the SD card on first boot)
 - ✅ Graphics stack: SDL3 3.4.18 (kmsdrm) + Mesa 26.3.0-rc1 (GBM + Panfrost, stripped `.so` in overlay)
 - ✅ Custom C/SDL3 launcher (`armiga-launcher`), bilingual **Spanish/English** interface (toggle `L1`, persistent)
+- ✅ Own gamepad driver (`armiga-joypad`, out-of-tree kernel module): analog sticks read through the analog multiplexer, D-pad as hat, debounced buttons, rumble
 - ✅ RetroArch 1.22.2-nightly (9b2038c) + PUAE 2021 core (`puae2021_libretro.so`, 2.6.1 151828f)
 - ✅ OTA update system (GitHub Releases → download → SHA256 verification → flash inactive slot, all async without blocking the UI)
 - ✅ Automatic A/B rollback on boot failure (attempt counter + slot reversion)
@@ -96,7 +97,7 @@ armiga/
 │   └── build-retroarch-nightly.yml    # Nightly RetroArch CI (manual)
 ├── board/armiga/
 │   ├── bootloader/            # Precompiled kernel, DTB and U-Boot (committed)
-│   ├── linux/             # Kernel config, patches/, dts/ (custom DTS), vendored joypad driver, build_kernel.sh
+│   ├── linux/             # Kernel config, patches/, dts/ (custom DTS), build_kernel.sh; the joypad driver lives in its own repo (amigagamesplus/armiga-joypad, cloned by build-kernel.yml)
 │   ├── rootfs_overlay/
 │   │   ├── usr/lib/           # Mesa .so files (stripped)
 │   │   ├── usr/bin/           # armiga-launcher-wrapper, retroarch (wrapper)
