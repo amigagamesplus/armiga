@@ -497,7 +497,7 @@ static bool redirect_stdio_to_local_console(void)
     /* SDL/DRM deja la consola en KD_GRAPHICS; sin esto el shell corre
      * pero no se ve nada en pantalla (cursor parpadeando, sin texto). */
     ioctl(fd, KDSETMODE, KD_TEXT);
-    /* Limpiar residuos graficos previos (p.ej. armiga-splash-text) que
+    /* Limpiar residuos graficos previos (p.ej. armiga-splash) que
      * pudieran seguir en el framebuffer bajo el modo texto. */
     write(fd, "\033[2J\033[H", 7);
     /* El kernel arranca con vt.global_cursor_default=0 (cursor oculto
@@ -5938,8 +5938,6 @@ int main(void)
             SDL_RenderTexture(ren, logo_tex, NULL, &logo_dst);
         }
 
-        /* Slogan */
-        draw_text(ren, f_ftr, "68K SOUL, ARM64 HEART.", c_dkgreen, mx + 2.0f, 94.0f);
 
         draw_statusbar(ren, f_status_bold, status_time, status_wifi_up, status_battery, status_bt_up, bg_update_available, wifi_icon_tex, battery_icon_tex, bt_icon_tex, ssh_icon_tex, update_badge_tex);
 

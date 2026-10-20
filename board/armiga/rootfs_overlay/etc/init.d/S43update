@@ -24,6 +24,12 @@ DEV="/dev/mmcblk0"
 [ -f "$UPDATE_FLAG" ]   || exit 0
 [ -f "$UPDATE_IMG_GZ" ] || { rm -f "$UPDATE_FLAG"; exit 0; }
 
+# El splash sigue repintando su barra en fb0: pararlo antes de dibujar esta pantalla
+if [ -f /var/run/armiga-splash.pid ]; then
+    kill "$(cat /var/run/armiga-splash.pid)" 2>/dev/null
+    rm -f /var/run/armiga-splash.pid
+fi
+
 log() { echo "$(date): $1" >> "$LOG"; }
 t() { [ "$IS_EN" = "1" ] && echo "$2" || echo "$1"; }
 

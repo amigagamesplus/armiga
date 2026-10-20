@@ -1,0 +1,27 @@
+sun20i-pwm: do not call clk_get_rate() under the control spinlock
+
+sun20i_pwm_apply() took ctrl_lock (a spinlock) and then called
+clk_get_rate(), which takes the clk prepare mutex and may sleep. When the
+mutex is contended this gives 'BUG: scheduling while atomic' (seen from
+pwm_backlight_update_status). Read the clock rate before taking the lock.
+
+---
+diff --git a/drivers/pwm/pwm-sun20i.c b/drivers/pwm/pwm-sun20i.c
+--- a/drivers/pwm/pwm-sun20i.c
++++ b/drivers/pwm/pwm-sun20i.c
+@@ -225,12 +225,14 @@
+ 	u64 clk_rate;
+ 	u32 ctrl;
+ 
++	/* clk_get_rate() takes the clk prepare mutex and can sleep: keep it out of ctrl_lock */
++	clk_rate = sun20i_pwm_get_clock_rate(sun20i_chip, sun20i_chip->clk_src[pwm->hwpwm / 2]);
++
+ 	spin_lock(&sun20i_chip->ctrl_lock);
+ 
+ 	// Period and Duty cycle
+ 	if (state->duty_cycle != pwm->state.duty_cycle || state->period != pwm->state.period) {
+ 		unsigned int idx = pwm->hwpwm / 2;
+-		clk_rate = sun20i_pwm_get_clock_rate(sun20i_chip, sun20i_chip->clk_src[idx]);
+ 		unsigned long div_m = 1U << sun20i_chip->div_m_shift[idx];
+ 		unsigned long long ent_cycle = DIV_ROUND_CLOSEST(state->period * clk_rate, NSEC_PER_SEC * div_m);
+ 		unsigned long long act_cycle = min(DIV_ROUND_CLOSEST(state->duty_cycle * clk_rate, NSEC_PER_SEC * div_m), ent_cycle);
