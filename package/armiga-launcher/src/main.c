@@ -3055,37 +3055,6 @@ static void draw_rect_filled(SDL_Renderer *r, float x, float y,
  * en las franjas superior/inferior de altura 'radius', cada fila recorta
  * su ancho segun la ecuacion del circulo (esquina), el resto de filas se
  * dibujan a ancho completo. SDL3 no tiene primitiva nativa para esto. */
-/* Signed distance de un punto (relativo al centro del rect w x h) a una
- * capsula: rectangulo interior (w-2r) x (h-2r) centrado en el origen,
- * expandido por radius en todas direcciones. Negativo = dentro, positivo =
- * fuera, 0 = justo en el borde. Esto define la capsula como una unica
- * forma continua (sin costura entre rectangulo y semicirculos). */
-static float capsule_sdf(float px, float py, float half_w, float half_h, float radius)
-{
-    float qx = SDL_fabsf(px) - (half_w - radius);
-    float qy = SDL_fabsf(py) - (half_h - radius);
-    float ax = qx > 0.0f ? qx : 0.0f;
-    float ay = qy > 0.0f ? qy : 0.0f;
-    float outside = SDL_sqrtf(ax * ax + ay * ay);
-    float inside = (qx > qy ? qx : qy);
-    if (inside > 0.0f) inside = 0.0f;
-    return outside + inside - radius;
-}
-/* Cobertura de un pixel de 1x1 centrado en (px,py) respecto a la capsula,
- * via supersampling 4x4 (16 submuestras) sobre el SDF. */
-static float capsule_coverage(float px, float py, float half_w, float half_h, float radius)
-{
-    const int SS = 4;
-    int inside = 0;
-    for (int sy = 0; sy < SS; sy++) {
-        float oy = py - 0.5f + ((float)sy + 0.5f) / (float)SS;
-        for (int sx = 0; sx < SS; sx++) {
-            float ox = px - 0.5f + ((float)sx + 0.5f) / (float)SS;
-            if (capsule_sdf(ox, oy, half_w, half_h, radius) <= 0.0f) inside++;
-        }
-    }
-    return (float)inside / (float)(SS * SS);
-}
 /* Cobertura de un pixel de 1x1 centrado en (px,py) respecto al exterior de
  * un cuarto de circulo de radio 'radius' centrado en (cx,cy), via
  * supersampling 4x4. Devuelve 1.0 si el pixel esta totalmente fuera del
@@ -4336,6 +4305,8 @@ int main(void)
     Uint64 last_bt_connected_poll = 0;
     bool brightness_save_pending = false;
     Uint64 brightness_save_pending_since = 0;
+    bool volume_save_pending = false;
+    Uint64 volume_save_pending_since = 0;
     char rt_bt_applied_mac[18] = "";
     bool rt_bt_applied_init = false;
 
@@ -4410,8 +4381,12 @@ int main(void)
                 if (volume_pct < 0) volume_pct = 0;
                 if (volume_pct > 100) volume_pct = 100;
                 write_volume_pct(volume_pct);
-                save_volume_config(volume_pct);
-                set_retroarch_volume_neutral();
+                /* Diferido: guardar (con fsync) solo tras 400ms sin nuevas
+                 * pulsaciones. El volumen neutro de RetroArch ya se fija en
+                 * el hijo justo antes de lanzarlo, no hace falta en cada
+                 * pulsacion. */
+                volume_save_pending = true;
+                volume_save_pending_since = SDL_GetTicks();
                 volume_popup_until = SDL_GetTicks() + 1500;
             }
 
@@ -5792,6 +5767,10 @@ int main(void)
         if (brightness_save_pending && now_ticks - brightness_save_pending_since > 400) {
             save_brightness_config(brightness_pct);
             brightness_save_pending = false;
+        }
+        if (volume_save_pending && now_ticks - volume_save_pending_since > 400) {
+            save_volume_config(volume_pct);
+            volume_save_pending = false;
         }
         if ((state == STATE_MENU || state == STATE_SYSINFO) &&
             (last_cpu_temp_sample == 0 || now_ticks - last_cpu_temp_sample > 1000)) {
@@ -8126,6 +8105,10 @@ draw_text(ren, f_ftr, "WIFI", labelc, mx + 8.0f, wty);
         }
     }
 
+    if (volume_save_pending) {
+        save_volume_config(volume_pct);
+        volume_save_pending = false;
+    }
     if (logo_tex) SDL_DestroyTexture(logo_tex);
     cover_release();
     for (int mi = 0; mi < MENU_ICON_COUNT; mi++)
