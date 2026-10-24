@@ -1,6 +1,7 @@
 #!/bin/sh
 # Aplica preferencia de usuario SAMBA_ENABLED (armiga.cfg) tras el arranque
-# normal de Samba (S52). Si el usuario lo desactivo, lo para aqui.
+# normal de Samba (S52 y S91smb de Buildroot, que no mira armiga.cfg). Si el
+# usuario lo desactivo, lo para aqui; por eso corre despues de S91smb.
 CFG="/media/amiga_data/armiga.cfg"
 ENABLED=1
 if [ -r "$CFG" ]; then

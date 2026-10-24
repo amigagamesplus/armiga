@@ -4175,8 +4175,8 @@ int main(void)
     int dim_max_brightness = read_max_brightness();
     int ssh_enabled = g_cfg.ssh_enabled; /* aplicado ya por S51ssh-toggle en boot, solo reflejar estado en UI */
     int refresh_120hz = read_refresh_120hz(); /* aplicado ya al crear la ventana, solo reflejar estado en UI */
-    int samba_enabled = read_samba_enabled(); /* aplicado ya por S53samba-toggle en boot, solo reflejar estado en UI */
-    int bt_enabled = read_bt_enabled(); /* aplicado ya por S22bluetooth-toggle en boot, solo reflejar estado en UI */
+    int samba_enabled = read_samba_enabled(); /* aplicado ya por S92samba-toggle en boot, solo reflejar estado en UI */
+    int bt_enabled = read_bt_enabled(); /* aplicado ya por S41bluetooth-toggle en boot, solo reflejar estado en UI */
     int wifi_enabled = read_wifi_enabled(); /* aplicado ya por S41wifi-toggle en boot, solo reflejar estado en UI */
     int theme_selected = read_theme_index();
     g_theme = THEMES[theme_selected];

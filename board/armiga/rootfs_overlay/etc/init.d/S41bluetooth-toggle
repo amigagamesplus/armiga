@@ -1,6 +1,8 @@
 #!/bin/sh
 # Aplica preferencia de usuario BT_ENABLED (armiga.cfg) tras el arranque
-# normal de S21bluetooth. Si el usuario lo desactivo, lo para aqui.
+# normal de Bluetooth (S21bluetooth y S40bluetoothd de Buildroot, que no mira
+# armiga.cfg). Si el usuario lo desactivo, lo para aqui; por eso corre despues
+# de S40bluetoothd.
 CFG="/media/amiga_data/armiga.cfg"
 ENABLED=1
 if [ -r "$CFG" ]; then
