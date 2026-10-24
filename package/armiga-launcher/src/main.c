@@ -388,6 +388,7 @@ static const char *DEV_MENU_ITEMS[] = {
 #define BTN_SDL_START  9
 #define BTN_SDL_X      2
 #define BTN_SDL_MODE   10
+#define DIAG_RESULT    "/tmp/armiga-diag.last" /* stdout de armiga-diag: ruta del informe */
 
 #define DEVMODE_HOLD_MS 3000
 
@@ -4240,6 +4241,10 @@ int main(void)
     Uint64 volume_popup_until = 0;           /* ms hasta cuando mostrar el popup de volumen */
     Uint64 brightness_popup_until = 0;       /* ms hasta cuando mostrar el popup de brillo */
     bool screenshot_capture_pending = false; /* diferir captura al final del frame */
+    pid_t diag_pid = 0;                      /* armiga-diag en curso (0 = ninguno) */
+    Uint64 diag_msg_until = 0;               /* ms hasta cuando mostrar el resultado del informe */
+    bool diag_msg_ok = false;
+    char diag_msg[96] = "";                  /* nombre del informe generado */
 
     char dev_ip[32]     = "sin red";
     char dev_uptime[16] = "--";
@@ -5384,6 +5389,22 @@ int main(void)
                     ev.jbutton.button == BTN_SDL_B)
                     state = STATE_MENU;
                 if (ev.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN &&
+                    ev.jbutton.button == BTN_SDL_A && diag_pid == 0) {
+                    diag_pid = fork();
+                    if (diag_pid == 0) {
+                        /* hijo: armiga-diag escribe la ruta del informe en stdout */
+                        int dfd = open(DIAG_RESULT, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+                        if (dfd >= 0) { dup2(dfd, STDOUT_FILENO); dup2(dfd, STDERR_FILENO); close(dfd); }
+                        execl("/usr/bin/armiga-diag", "armiga-diag", (char *)NULL);
+                        _exit(127);
+                    }
+                    if (diag_pid < 0) {
+                        diag_pid = 0;
+                        diag_msg_ok = false;
+                        diag_msg_until = SDL_GetTicks() + 4000;
+                    }
+                }
+                if (ev.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN &&
                     ev.jbutton.button == BTN_SDL_L1)
                     sysinfo_page = (sysinfo_page + 1) % 2;
                 if (ev.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN &&
@@ -5771,6 +5792,28 @@ int main(void)
         if (volume_save_pending && now_ticks - volume_save_pending_since > 400) {
             save_volume_config(volume_pct);
             volume_save_pending = false;
+        }
+        if (diag_pid > 0) {
+            int dst = 0;
+            if (waitpid(diag_pid, &dst, WNOHANG) == diag_pid) {
+                diag_pid = 0;
+                diag_msg_ok = WIFEXITED(dst) && WEXITSTATUS(dst) == 0;
+                diag_msg[0] = '\0';
+                if (diag_msg_ok) {
+                    FILE *df = fopen(DIAG_RESULT, "r");
+                    if (df) {
+                        char dl[200];
+                        if (fgets(dl, sizeof(dl), df)) {
+                            dl[strcspn(dl, "\r\n")] = '\0';
+                            const char *bn = strrchr(dl, '/');
+                            snprintf(diag_msg, sizeof(diag_msg), "%s", bn ? bn + 1 : dl);
+                        }
+                        fclose(df);
+                    }
+                    if (diag_msg[0] == '\0') diag_msg_ok = false;
+                }
+                diag_msg_until = now_ticks + 4000;
+            }
         }
         if ((state == STATE_MENU || state == STATE_SYSINFO) &&
             (last_cpu_temp_sample == 0 || now_ticks - last_cpu_temp_sample > 1000)) {
@@ -7709,7 +7752,7 @@ draw_text(ren, f_ftr, "WIFI", labelc, mx + 8.0f, wty);
 
             /* Barra inferior */
             draw_line(ren, mx, 438.0f, SCREEN_W - 20.0f, 438.0f, c_selbg);
-            draw_footer(ren, f_ftr, tr("[A] Volver  [L1/R1] Pagina", "[A] Back  [L1/R1] Page"), s_version);
+            draw_footer(ren, f_ftr, tr("[B] Informe  [A] Volver  [L1/R1] Pagina", "[B] Report  [A] Back  [L1/R1] Page"), s_version);
         } else if (state == STATE_UPDATE) {
             const float UX = 20.0f;
             draw_statusbar(ren, f_status_bold, status_time, status_wifi_up, status_battery, status_bt_up, bg_update_available, wifi_icon_tex, battery_icon_tex, bt_icon_tex, ssh_icon_tex, update_badge_tex);
@@ -8056,6 +8099,26 @@ draw_text(ren, f_ftr, "WIFI", labelc, mx + 8.0f, wty);
             draw_bar_rounded(ren, bar_x2, bar_y2, bar_w2, bar_h2, bfrac, g_theme.bg, g_theme.accent);
         } else {
             brightness_popup_until = 0;
+        }
+
+        if (diag_pid > 0 || (diag_msg_until > 0 && SDL_GetTicks() < diag_msg_until)) {
+            float pw = 420.0f, ph = 64.0f;
+            float px = (SCREEN_W - pw) / 2.0f;
+            float py = SCREEN_H - ph - 70.0f;
+            draw_rounded_rect_filled(ren, px, py, pw, ph, 16.0f, g_theme.row_bg);
+            if (diag_pid > 0) {
+                draw_text_animdots(ren, f_ftr, tr("Generando informe", "Generating report"),
+                                   g_theme.text_light, px + 24.0f, py + 22.0f, SDL_GetTicks());
+            } else if (diag_msg_ok) {
+                draw_text_centered(ren, f_ftr, tr("Informe guardado en diagnostics/", "Report saved in diagnostics/"),
+                                   g_theme.text_light, SCREEN_W / 2.0f, py + 10.0f);
+                draw_text_centered(ren, f_ftr, diag_msg, g_theme.accent, SCREEN_W / 2.0f, py + 34.0f);
+            } else {
+                draw_text_centered(ren, f_ftr, tr("No se pudo generar el informe", "Could not generate the report"),
+                                   g_theme.text_light, SCREEN_W / 2.0f, py + 22.0f);
+            }
+        } else if (diag_msg_until > 0) {
+            diag_msg_until = 0;
         }
 
         if (screenshot_flash_until > 0 && SDL_GetTicks() < screenshot_flash_until) {
