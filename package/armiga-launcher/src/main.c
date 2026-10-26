@@ -2149,6 +2149,214 @@ static int cat_game_cmp(const void *a, const void *b)
     return strcmp(x->path, y->path);
 }
 
+/* ===== Metadatos (ano, desarrollador, genero) desde metadata.tsv ===== */
+#define METADATA_PATH     "/media/amiga_data/metadata.tsv"
+#define METADATA_PATH_IMG "/usr/share/armiga/metadata.tsv"
+
+/* Fila por CRC (tkey vacio) o por titulo normalizado (crc = 0, tkey = clave). */
+typedef struct { unsigned crc; unsigned short year; char dev[48]; char genre[48]; char tkey[61]; } MetaEntry;
+
+static MetaEntry *g_meta = NULL;
+static int g_meta_n = 0;
+
+static int meta_cmp(const void *a, const void *b)
+{
+    const MetaEntry *x = (const MetaEntry *)a, *y = (const MetaEntry *)b;
+    int tx = x->tkey[0] != '\0', ty = y->tkey[0] != '\0';
+    if (tx != ty) return tx - ty;
+    if (!tx) return (x->crc > y->crc) - (x->crc < y->crc);
+    return strcmp(x->tkey, y->tkey);
+}
+
+static bool meta_junk_token(const char *t)
+{
+    while (*t == ' ') t++;
+    if (!strcasecmp(t, "AGA") || !strcasecmp(t, "OCS") || !strcasecmp(t, "ECS") || !strcasecmp(t, "CD32"))
+        return true;
+    const char *p = t;
+    if (*p == 'v' || *p == 'V') p++;
+    if (!isdigit((unsigned char)*p)) return false;
+    for (; *p; p++)
+        if (!isdigit((unsigned char)*p) && *p != '.') return false;
+    return true;
+}
+
+/* Clave de titulo: misma normalizacion que armiga-metadata.py (sin parentesis, sin _AGA/_vX.Y,
+ * ", The" movido al inicio, solo alfanumericos ASCII en minusculas, sin "the" inicial). */
+static void meta_title_key(const char *title, char *out, size_t sz)
+{
+    char a[256], b[256], c[300];
+    size_t w = 0;
+    safe_copy(a, title, sizeof(a));
+    for (size_t i = 0; a[i];) {
+        if (a[i] == '(') {
+            const char *e = strchr(a + i, ')');
+            if (e) { i = (size_t)(e - a) + 1; b[w++] = ' '; continue; }
+        }
+        b[w++] = a[i++];
+    }
+    b[w] = '\0';
+    w = 0;
+    if (strchr(b, '_')) {
+        size_t i = 0;
+        int first = 1;
+        for (;;) {
+            size_t j = i;
+            while (b[j] && b[j] != '_') j++;
+            char tok[128];
+            size_t tl = j - i;
+            if (tl >= sizeof(tok)) tl = sizeof(tok) - 1;
+            memcpy(tok, b + i, tl);
+            tok[tl] = '\0';
+            if ((first || !meta_junk_token(tok)) && w + tl + 2 < sizeof(c)) {
+                memcpy(c + w, tok, tl);
+                w += tl;
+                c[w++] = ' ';
+            }
+            first = 0;
+            if (!b[j]) break;
+            i = j + 1;
+        }
+        c[w] = '\0';
+    } else {
+        safe_copy(c, b, sizeof(c));
+    }
+    char *s = c;
+    while (*s == ' ') s++;
+    size_t n = strlen(s);
+    while (n > 0 && s[n - 1] == ' ') s[--n] = '\0';
+    const char *art = "";
+    if (n > 5 && !strcmp(s + n - 5, ", The")) { s[n - 5] = '\0'; art = "the "; }
+    else if (n > 4 && !strcmp(s + n - 4, ", An")) { s[n - 4] = '\0'; art = "an "; }
+    else if (n > 3 && !strcmp(s + n - 3, ", A")) { s[n - 3] = '\0'; art = "a "; }
+    char full[340];
+    snprintf(full, sizeof(full), "%s%s", art, s);
+    const char *p = full;
+    while (*p == ' ') p++;
+    if (!strncasecmp(p, "the", 3) && (p[3] == ' ' || p[3] == '\t')) p += 3;
+    size_t o = 0;
+    for (; *p && o + 4 < sz && o < 60; p++) {
+        unsigned char ch = (unsigned char)*p;
+        if (ch == '&') { memcpy(out + o, "and", 3); o += 3; }
+        else if (ch < 128 && isalnum(ch)) out[o++] = (char)tolower(ch);
+    }
+    out[o] = '\0';
+}
+
+/* Formato: "<crc 8 hex | t:clave>\t<ano>\t<desarrollador>\t<genero>[\t<fichero>]". Las lineas "f:..." se ignoran. */
+static void metadata_load(void)
+{
+    free(g_meta);
+    g_meta = NULL;
+    g_meta_n = 0;
+    FILE *f = fopen(METADATA_PATH, "r");
+    if (!f) f = fopen(METADATA_PATH_IMG, "r");
+    if (!f) return;
+    int cap = 256;
+    g_meta = malloc((size_t)cap * sizeof(MetaEntry));
+    if (!g_meta) { fclose(f); return; }
+    char line[512];
+    while (fgets(line, sizeof(line), f)) {
+        line[strcspn(line, "\r\n")] = '\0';
+        char *fld[4];
+        char *p = line;
+        int k;
+        for (k = 0; k < 4; k++) {
+            fld[k] = p;
+            char *t = strchr(p, '\t');
+            if (!t) { k++; break; }
+            *t = '\0';
+            p = t + 1;
+        }
+        if (k < 4) continue;
+        bool is_title = fld[0][0] == 't' && fld[0][1] == ':' && fld[0][2] != '\0';
+        if (!is_title && (strlen(fld[0]) != 8 || strspn(fld[0], "0123456789abcdefABCDEF") != 8)) continue;
+        if (g_meta_n == cap) {
+            MetaEntry *tmp = realloc(g_meta, (size_t)cap * 2 * sizeof(MetaEntry));
+            if (!tmp) break;
+            g_meta = tmp;
+            cap *= 2;
+        }
+        MetaEntry *m = &g_meta[g_meta_n];
+        memset(m, 0, sizeof(*m));
+        if (is_title) safe_copy(m->tkey, fld[0] + 2, sizeof(m->tkey));
+        else m->crc = (unsigned)strtoul(fld[0], NULL, 16);
+        m->year = (unsigned short)atoi(fld[1]);
+        safe_copy(m->dev, fld[2], sizeof(m->dev));
+        safe_copy(m->genre, fld[3], sizeof(m->genre));
+        g_meta_n++;
+    }
+    fclose(f);
+    if (g_meta_n > 1) qsort(g_meta, (size_t)g_meta_n, sizeof(MetaEntry), meta_cmp);
+}
+
+static const MetaEntry *metadata_find(unsigned crc)
+{
+    if (!g_meta || g_meta_n <= 0) return NULL;
+    MetaEntry key;
+    memset(&key, 0, sizeof(key));
+    key.crc = crc;
+    return (const MetaEntry *)bsearch(&key, g_meta, (size_t)g_meta_n, sizeof(MetaEntry), meta_cmp);
+}
+
+static const MetaEntry *metadata_find_title(const char *tkey)
+{
+    if (!g_meta || g_meta_n <= 0 || !tkey[0]) return NULL;
+    MetaEntry key;
+    memset(&key, 0, sizeof(key));
+    safe_copy(key.tkey, tkey, sizeof(key.tkey));
+    return (const MetaEntry *)bsearch(&key, g_meta, (size_t)g_meta_n, sizeof(MetaEntry), meta_cmp);
+}
+
+/* Primero por CRC; si no esta, por titulo normalizado. */
+static const MetaEntry *metadata_lookup(unsigned crc, const char *title)
+{
+    const MetaEntry *m = crc ? metadata_find(crc) : NULL;
+    if (m) return m;
+    char tk[64];
+    meta_title_key(title, tk, sizeof(tk));
+    return metadata_find_title(tk);
+}
+
+static void meta_chip_add(char (*chip)[64], int *n, int max, const char *s, size_t len)
+{
+    if (*n >= max || len == 0) return;
+    if (len > 63) {
+        len = 63;
+        while (len > 0 && ((unsigned char)s[len] & 0xC0) == 0x80) len--;
+    }
+    for (size_t i = 0; i < len; i++) {
+        unsigned char c = (unsigned char)s[i];
+        chip[*n][i] = (c < 128) ? (char)tolower(c) : (char)c;
+    }
+    chip[*n][len] = '\0';
+    (*n)++;
+}
+
+/* Ano, hasta 2 desarrolladores y hasta 2 generos, como textos cortos para etiquetas. */
+static int metadata_chips(const MetaEntry *m, char (*chip)[64], int max)
+{
+    int n = 0;
+    char buf[24];
+    if (m->year > 0) {
+        snprintf(buf, sizeof(buf), "%d", (int)m->year);
+        meta_chip_add(chip, &n, max, buf, strlen(buf));
+    }
+    const char *lists[2] = { m->dev, m->genre };
+    for (int li = 0; li < 2; li++) {
+        const char *p = lists[li];
+        int cnt = 0;
+        while (*p && cnt < 2) {
+            const char *e = strstr(p, ", ");
+            size_t len = e ? (size_t)(e - p) : strlen(p);
+            meta_chip_add(chip, &n, max, p, len);
+            cnt++;
+            p = e ? e + 2 : p + len;
+        }
+    }
+    return n;
+}
+
 static void catalog_load(void)
 {
     free(g_games);
@@ -2207,6 +2415,7 @@ static void catalog_load(void)
     }
     fclose(f);
     if (g_games_n > 1) qsort(g_games, (size_t)g_games_n, sizeof(CatGame), cat_game_cmp);
+    metadata_load();
 }
 
 static void playtime_fmt(unsigned long pt, char *out, size_t sz)
@@ -3876,21 +4085,66 @@ static void cover_tick(SDL_Renderer *ren, const CatGame *g, int sel)
  * Metricas cacheadas por (fuente,texto) para no renderizar texto cada frame.
  * Devuelve el ancho dibujado. */
 typedef struct { TTF_Font *f; char text[24]; int lead, inkw, top, cap; } BadgeMetric;
-static BadgeMetric s_bm[24];
+#define BADGE_CACHE_N 192
+static BadgeMetric s_bm[BADGE_CACHE_N];
+static int s_bm_rr = 0;
 static int s_bm_n = 0;
+static const BadgeMetric *badge_get(TTF_Font *f, const char *text)
+{
+    for (int i = 0; i < s_bm_n; i++)
+        if (s_bm[i].f == f && strcmp(s_bm[i].text, text) == 0) return &s_bm[i];
+    BadgeMetric *m;
+    if (s_bm_n < BADGE_CACHE_N) m = &s_bm[s_bm_n++];
+    else { m = &s_bm[s_bm_rr]; s_bm_rr = (s_bm_rr + 1) % BADGE_CACHE_N; }
+    m->f = f;
+    safe_copy(m->text, text, sizeof(m->text));
+    badge_ink(f, text, &m->lead, &m->inkw, &m->top, &m->cap);
+    return m;
+}
+
+/* Etiqueta rellena con esquinas redondeadas (metadatos). Texto en mayusculas: se centra por la altura de 'H'. */
+static void chip_size(TTF_Font *f, const char *text, float *w, float *h)
+{
+    int tw = 0, th = 0, d = 0, cap = 0;
+    TTF_GetStringSize(f, text, 0, &tw, &th);
+    TTF_GetGlyphMetrics(f, (Uint32)'H', &d, &d, &d, &cap, &d);
+    *w = (float)tw + 16.0f;
+    *h = (float)cap + 10.0f;
+}
+
+static float draw_chip(SDL_Renderer *ren, TTF_Font *f, const char *text, float x, float y,
+                       SDL_Color fg, SDL_Color bg)
+{
+    float w = 0.0f, h = 0.0f;
+    int d = 0, cap = 0;
+    chip_size(f, text, &w, &h);
+    TTF_GetGlyphMetrics(f, (Uint32)'H', &d, &d, &d, &cap, &d);
+    draw_rounded_rect_filled(ren, x, y, w, h, 4.0f, bg);
+    draw_text(ren, f, text, fg, x + 8.0f, y + 5.0f - (float)(TTF_GetFontAscent(f) - cap));
+    return w;
+}
+
+/* Acorta s con "..." hasta que la etiqueta quepa en maxw pixeles. */
+static void chip_fit(TTF_Font *f, char *s, size_t cap, float maxw)
+{
+    float w = 0.0f, h = 0.0f;
+    chip_size(f, s, &w, &h);
+    if (w <= maxw) return;
+    size_t l = strlen(s);
+    while (l > 1) {
+        l--;
+        while (l > 0 && ((unsigned char)s[l] & 0xC0) == 0x80) l--;
+        char t[80];
+        snprintf(t, sizeof(t), "%.*s...", (int)l, s);
+        chip_size(f, t, &w, &h);
+        if (w <= maxw) { safe_copy(s, t, cap); return; }
+    }
+}
+
 static float draw_badge(SDL_Renderer *ren, TTF_Font *f, const char *text,
                         float x, float y, SDL_Color col, SDL_Color bg)
 {
-    BadgeMetric *m = NULL;
-    for (int i = 0; i < s_bm_n; i++)
-        if (s_bm[i].f == f && strcmp(s_bm[i].text, text) == 0) { m = &s_bm[i]; break; }
-    BadgeMetric tmp;
-    if (!m) {
-        m = (s_bm_n < 24) ? &s_bm[s_bm_n++] : &tmp;
-        m->f = f;
-        safe_copy(m->text, text, sizeof(m->text));
-        badge_ink(f, text, &m->lead, &m->inkw, &m->top, &m->cap);
-    }
+    const BadgeMetric *m = badge_get(f, text);
     const float pad = 4.0f;
     float w = (float)m->inkw + pad * 2.0f;
     float h = (float)m->cap + pad * 2.0f;
@@ -6573,9 +6827,31 @@ int main(void)
                 float c2_y = c1_y + c1_h + 8.0f, c2_h = c3_y - 8.0f - c2_y;
                 draw_rounded_rect_filled(ren, rx_g, c2_y, rw_g, c2_h, 10.0f, c_card);
                 TTF_Font *f_ttl = f_title ? f_title : f_gmed;
-                draw_text_wrapped(ren, f_ttl, g->title, c_menu_beige, rx_g + 12.0f, c2_y + 10.0f,
+                int ttl_lines = draw_text_wrapped(ren, f_ttl, g->title, c_menu_beige, rx_g + 12.0f, c2_y + 10.0f,
                                   rw_g - 24.0f, (float)(TTF_GetFontHeight(f_ttl) + 2));
                 float fb_x = rx_g + 12.0f, fb_y = c2_y + c2_h - 28.0f;
+                {
+                    const MetaEntry *me = metadata_lookup(g->crc, g->title);
+                    if (me) {
+                        char chip[10][64];
+                        int nchip = metadata_chips(me, chip, 10);
+                        SDL_Color c_chip_bg = cat_mix(c_card, c_menu_beige, 0.30f);
+                        float cx0 = rx_g + 12.0f, cx_max = rx_g + rw_g - 12.0f;
+                        float cy = c2_y + 10.0f + (float)ttl_lines * (float)(TTF_GetFontHeight(f_ttl) + 2) + 4.0f;
+                        float cy_max = (!g->identified || (g->flags & (GF_NTSC | GF_BETA)))
+                                       ? fb_y - 4.0f : c2_y + c2_h - 8.0f;
+                        float cx = cx0;
+                        for (int ci = 0; ci < nchip; ci++) {
+                            float bw = 0.0f, bh = 0.0f;
+                            chip_fit(f_gsm, chip[ci], sizeof(chip[ci]), cx_max - cx0);
+                            chip_size(f_gsm, chip[ci], &bw, &bh);
+                            if (cx + bw > cx_max && cx > cx0) { cx = cx0; cy += bh + 5.0f; }
+                            if (cy + bh > cy_max) break;
+                            if (cx + bw > cx_max) continue;
+                            cx += draw_chip(ren, f_gsm, chip[ci], cx, cy, c_menu_beige, c_chip_bg) + 5.0f;
+                        }
+                    }
+                }
                 if (!g->identified) {
                     draw_text(ren, f_gsm, tr("Sin identificar en los DAT", "Not found in the DATs"),
                               c_gray, fb_x, fb_y + 4.0f);
