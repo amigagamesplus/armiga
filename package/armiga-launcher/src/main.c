@@ -6774,8 +6774,32 @@ int main(void)
                     if (sel_w > g_list_w) sel_w = g_list_w;
                     draw_rounded_rect_filled(ren, g_lx, pill_top, sel_w, pill_h, pill_h / 2.0f, c_menu_selbg);
                 }
-                draw_text_truncated(ren, f_gmed, st, sel ? c_menu_gold : c_menu_beige,
-                                    g_lx + 14.0f, text_y, g_list_w - 28.0f);
+                {
+                    SDL_Color tcol = sel ? c_menu_gold : c_menu_beige;
+                    float tx = g_lx + 14.0f, t_avail = g_list_w - 28.0f;
+                    int fw = 0, fh = 0;
+                    if (sel) TTF_GetStringSize(f_gmed, st, 0, &fw, &fh);
+                    if (sel && (float)fw > t_avail) {
+                        /* Titulo largo: pausa, desplazamiento suave hasta el final, pausa y vuelta. */
+                        float travel = (float)fw - t_avail;
+                        static int mq_sel = -1;
+                        static Uint64 mq_t0 = 0;
+                        if (mq_sel != games_selected) { mq_sel = games_selected; mq_t0 = SDL_GetTicks(); }
+                        const float pause_ms = 900.0f, leg_ms = travel / 45.0f * 1000.0f;
+                        Uint64 cyc = (Uint64)(2.0f * (pause_ms + leg_ms)) + 1;
+                        float t = (float)((SDL_GetTicks() - mq_t0) % cyc), u;
+                        if (t < pause_ms) u = 0.0f;
+                        else if (t < pause_ms + leg_ms) { u = (t - pause_ms) / leg_ms; u = u * u * (3.0f - 2.0f * u); }
+                        else if (t < 2.0f * pause_ms + leg_ms) u = 1.0f;
+                        else { u = 1.0f - (t - 2.0f * pause_ms - leg_ms) / leg_ms; u = u * u * (3.0f - 2.0f * u); }
+                        SDL_Rect clip = { (int)tx, (int)pill_top, (int)t_avail, (int)pill_h };
+                        SDL_SetRenderClipRect(ren, &clip);
+                        draw_text(ren, f_gmed, st, tcol, tx - u * travel, text_y);
+                        SDL_SetRenderClipRect(ren, NULL);
+                    } else {
+                        draw_text_truncated(ren, f_gmed, st, tcol, tx, text_y, t_avail);
+                    }
+                }
             }
             if (g_games_n > g_visible) {
                 float th = g_th * (float)g_visible / (float)g_games_n;
