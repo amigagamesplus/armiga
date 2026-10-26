@@ -2154,7 +2154,7 @@ static int cat_game_cmp(const void *a, const void *b)
 #define METADATA_PATH_IMG "/usr/share/armiga/metadata.tsv"
 
 /* Fila por CRC (tkey vacio) o por titulo normalizado (crc = 0, tkey = clave). */
-typedef struct { unsigned crc; unsigned short year; char dev[48]; char genre[48]; char tkey[61]; } MetaEntry;
+typedef struct { unsigned crc; unsigned short year; char dev[48]; char genre[48]; char pub[48]; char tkey[61]; } MetaEntry;
 
 static MetaEntry *g_meta = NULL;
 static int g_meta_n = 0;
@@ -2243,7 +2243,9 @@ static void meta_title_key(const char *title, char *out, size_t sz)
     out[o] = '\0';
 }
 
-/* Formato: "<crc 8 hex | t:clave>\t<ano>\t<desarrollador>\t<genero>[\t<fichero>]". Las lineas "f:..." se ignoran. */
+/* Formato: "<crc 8 hex | t:clave>\t<ano>\t<desarrollador>\t<genero>\t<publisher>\t<fichero>".
+ * Sin la columna de publisher (formato antiguo: el 5.o campo es el fichero) no se muestra publisher.
+ * Las lineas "f:..." se ignoran. */
 static void metadata_load(void)
 {
     free(g_meta);
@@ -2260,6 +2262,7 @@ static void metadata_load(void)
         line[strcspn(line, "\r\n")] = '\0';
         char *fld[4];
         char *p = line;
+        char *rest = NULL, *pub = NULL;
         int k;
         for (k = 0; k < 4; k++) {
             fld[k] = p;
@@ -2267,8 +2270,13 @@ static void metadata_load(void)
             if (!t) { k++; break; }
             *t = '\0';
             p = t + 1;
+            if (k == 3) rest = p;
         }
         if (k < 4) continue;
+        if (rest) {
+            char *t = strchr(rest, '\t');
+            if (t) { *t = '\0'; pub = rest; }
+        }
         bool is_title = fld[0][0] == 't' && fld[0][1] == ':' && fld[0][2] != '\0';
         if (!is_title && (strlen(fld[0]) != 8 || strspn(fld[0], "0123456789abcdefABCDEF") != 8)) continue;
         if (g_meta_n == cap) {
@@ -2284,6 +2292,7 @@ static void metadata_load(void)
         m->year = (unsigned short)atoi(fld[1]);
         safe_copy(m->dev, fld[2], sizeof(m->dev));
         safe_copy(m->genre, fld[3], sizeof(m->genre));
+        if (pub) safe_copy(m->pub, pub, sizeof(m->pub));
         g_meta_n++;
     }
     fclose(f);
@@ -2333,18 +2342,53 @@ static void meta_chip_add(char (*chip)[64], int *n, int max, const char *s, size
     (*n)++;
 }
 
-/* Ano, hasta 2 desarrolladores y hasta 2 generos, como textos cortos para etiquetas. */
+static bool meta_same(const char *a, size_t la, const char *b, size_t lb)
+{
+    char x[64], y[64];
+    size_t i = 0, j = 0;
+    for (size_t k = 0; k < la && i < sizeof(x) - 1; k++)
+        if (isalnum((unsigned char)a[k])) x[i++] = (char)tolower((unsigned char)a[k]);
+    for (size_t k = 0; k < lb && j < sizeof(y) - 1; k++)
+        if (isalnum((unsigned char)b[k])) y[j++] = (char)tolower((unsigned char)b[k]);
+    return i > 0 && i == j && memcmp(x, y, i) == 0;
+}
+
+/* Ano, hasta 2 desarrolladores, publisher (con (c) delante, si no coincide con un desarrollador)
+ * y hasta 2 generos, como textos cortos para etiquetas. */
 static int metadata_chips(const MetaEntry *m, char (*chip)[64], int max)
 {
     int n = 0;
-    char buf[24];
+    char buf[80];
     if (m->year > 0) {
         snprintf(buf, sizeof(buf), "%d", (int)m->year);
         meta_chip_add(chip, &n, max, buf, strlen(buf));
     }
-    const char *lists[2] = { m->dev, m->genre };
-    for (int li = 0; li < 2; li++) {
-        const char *p = lists[li];
+    {
+        const char *p = m->dev;
+        int cnt = 0;
+        while (*p && cnt < 2) {
+            const char *e = strstr(p, ", ");
+            size_t len = e ? (size_t)(e - p) : strlen(p);
+            meta_chip_add(chip, &n, max, p, len);
+            cnt++;
+            p = e ? e + 2 : p + len;
+        }
+    }
+    if (m->pub[0]) {
+        bool dup = false;
+        for (const char *q = m->dev; *q;) {
+            const char *e = strstr(q, ", ");
+            size_t len = e ? (size_t)(e - q) : strlen(q);
+            if (meta_same(q, len, m->pub, strlen(m->pub))) { dup = true; break; }
+            q = e ? e + 2 : q + len;
+        }
+        if (!dup) {
+            snprintf(buf, sizeof(buf), "%s", m->pub);
+            meta_chip_add(chip, &n, max, buf, strlen(buf));
+        }
+    }
+    {
+        const char *p = m->genre;
         int cnt = 0;
         while (*p && cnt < 2) {
             const char *e = strstr(p, ", ");
