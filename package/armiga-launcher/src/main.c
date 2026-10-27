@@ -6538,35 +6538,24 @@ int main(void)
             float pill_y = 438.0f - 10.0f - (float)pill_text_h;
             draw_text_truncated(ren, f_ftr, last_game_pill_buf, c_dkgreen, pill_x, pill_y, pill_max_w);
 
-            /* Badge de la carpeta de origen (ADF/DEMOSCENE/HDF/IPF/WHDLOAD),
-             * recuadro de contorno con padding identico en los 4 lados,
-             * alineado a la izquierda del nombre de la partida. */
+            /* Etiquetas de la ultima partida (carpeta de origen y tiempo de juego), con el mismo
+             * estilo que las del catalogo, alineadas a la izquierda del nombre de la partida. */
             if (has_last_game && last_game_source[0]) {
-                int s_lead, s_inkw, s_top, cap_h;
-                badge_ink(f_badge, last_game_source, &s_lead, &s_inkw, &s_top, &cap_h);
-                float badge_pad = 4.0f;
-                float badge_w = (float)s_inkw + badge_pad * 2.0f;
-                float badge_h = (float)cap_h + badge_pad * 2.0f;
-                float badge_x = pill_x;
-                float badge_y = pill_y - badge_h - 4.0f;
-                draw_rounded_rect_outline(ren, badge_x, badge_y, badge_w, badge_h,
-                                           2.0f, 1.0f, c_selbg, c_bg);
-                draw_text(ren, f_badge, last_game_source, c_selbg,
-                          badge_x + badge_pad - (float)s_lead,
-                          badge_y + badge_pad - (float)s_top);
-
-                /* Segundo recuadro: tiempo de juego acumulado */
-                if (last_game_time[0]) {
-                    int t_lead, t_inkw, t_top, t_cap;
-                    badge_ink(f_badge, last_game_time, &t_lead, &t_inkw, &t_top, &t_cap);
-                    float t_bw = (float)t_inkw + badge_pad * 2.0f;
-                    float t_bx = badge_x + badge_w + 4.0f;
-                    draw_rounded_rect_outline(ren, t_bx, badge_y, t_bw, badge_h,
-                                               2.0f, 1.0f, c_selbg, c_bg);
-                    draw_text(ren, f_badge, last_game_time, c_selbg,
-                              t_bx + badge_pad - (float)t_lead,
-                              badge_y + badge_pad - (float)t_top);
-                }
+                SDL_Color lg_bg = g_theme.row_bg;
+                char lg_src[32], lg_tim[32];
+                size_t lk;
+                for (lk = 0; last_game_source[lk] && lk < sizeof(lg_src) - 1; lk++)
+                    lg_src[lk] = (char)tolower((unsigned char)last_game_source[lk]);
+                lg_src[lk] = '\0';
+                for (lk = 0; last_game_time[lk] && lk < sizeof(lg_tim) - 1; lk++)
+                    lg_tim[lk] = (char)tolower((unsigned char)last_game_time[lk]);
+                lg_tim[lk] = '\0';
+                float lg_w = 0.0f, lg_h = 0.0f;
+                chip_size(f_gsm, lg_src, &lg_w, &lg_h);
+                float lg_x = pill_x, lg_y = pill_y - lg_h - 4.0f;
+                lg_x += draw_chip(ren, f_gsm, lg_src, lg_x, lg_y, g_theme.text_light, lg_bg) + 5.0f;
+                if (lg_tim[0])
+                    draw_chip(ren, f_gsm, lg_tim, lg_x, lg_y, g_theme.text_light, lg_bg);
             }
         }
 
