@@ -7546,8 +7546,7 @@ int main(void)
                 float box_h = box_pad + (float)desc_lines * desc_line_h + 6.0f + (float)md5_h + box_pad;
                 float box_x = SCREEN_W - mx - box_w;
                 float box_y = 438.0f - 12.0f - box_h;
-                SDL_Color c_bg_box = g_theme.bg;
-                draw_rounded_rect_outline(ren, box_x, box_y, box_w, box_h, 10.0f, 2.0f, c_menu_selbg, c_bg_box);
+                draw_rounded_rect_filled(ren, box_x, box_y, box_w, box_h, 12.0f, g_theme.row_bg);
                 draw_text_wrapped(ren, f_ftr, desc_line, c_gray, box_x + box_pad, box_y + box_pad, desc_max_w, desc_line_h);
                 draw_text(ren, f_ftr, md5_line, c_gray, box_x + box_pad, box_y + box_pad + (float)desc_lines * desc_line_h + 6.0f);
             }
