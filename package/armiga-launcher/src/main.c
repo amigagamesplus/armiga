@@ -4197,6 +4197,150 @@ static float draw_badge(SDL_Renderer *ren, TTF_Font *f, const char *text,
     return w;
 }
 
+/* ===== Pantalla visual de kickstart_check.sh (analiza la salida de texto del script) ===== */
+#define KS_MAX 24
+typedef struct { char ver[12]; char model[20]; char exp[12]; char got[12]; unsigned char st; } KsRow; /* st: 0 ok, 1 incorrecto, 2 no existe */
+typedef struct { KsRow row[KS_MAX]; int n; int ok, total; bool have_result; } KsData;
+
+static bool ks_parse(const char *out, KsData *d)
+{
+    memset(d, 0, sizeof(*d));
+    const char *p = out;
+    while (*p) {
+        const char *e = strchr(p, '\n');
+        size_t len = e ? (size_t)(e - p) : strlen(p);
+        char line[96];
+        size_t cl = len < sizeof(line) - 1 ? len : sizeof(line) - 1;
+        memcpy(line, p, cl);
+        line[cl] = '\0';
+        p = e ? e + 1 : p + len;
+        int st = -1;
+        const char *lab = NULL;
+        if (!strncmp(line, "[OK]", 4)) { st = 0; lab = line + 4; }
+        else if (!strncmp(line, "[INCORRECTO]", 12)) { st = 1; lab = line + 12; }
+        else if (!strncmp(line, "[NO EXISTE]", 11)) { st = 2; lab = line + 11; }
+        if (st >= 0) {
+            if (d->n >= KS_MAX) continue;
+            while (*lab == ' ') lab++;
+            KsRow *r = &d->row[d->n++];
+            memset(r, 0, sizeof(*r));
+            r->st = (unsigned char)st;
+            const char *sp = strchr(lab, ' ');
+            size_t vl = sp ? (size_t)(sp - lab) : strlen(lab);
+            if (vl >= sizeof(r->ver)) vl = sizeof(r->ver) - 1;
+            memcpy(r->ver, lab, vl);
+            r->ver[vl] = '\0';
+            if (sp) {
+                while (*sp == ' ') sp++;
+                safe_copy(r->model, sp, sizeof(r->model));
+            }
+            continue;
+        }
+        if (d->n > 0) {
+            const char *q = line;
+            while (*q == ' ') q++;
+            if (!strncmp(q, "esperado ", 9)) safe_copy(d->row[d->n - 1].exp, q + 9, sizeof(d->row[0].exp));
+            else if (!strncmp(q, "obtenido ", 9)) safe_copy(d->row[d->n - 1].got, q + 9, sizeof(d->row[0].got));
+        }
+        if (!strncmp(line, "RESULTADO:", 10)) {
+            const char *q = strstr(line, "] ");
+            int a = 0, b = 0;
+            if (q && sscanf(q + 2, "%d de %d", &a, &b) == 2) { d->ok = a; d->total = b; d->have_result = true; }
+        }
+    }
+    return d->n > 0 && d->have_result;
+}
+
+/* Marca de estado: check (ok) o cruz, de "steps" lineas paralelas de grosor, centrada en (cx, cy) con radio r. */
+static void ks_mark(SDL_Renderer *ren, float cx, float cy, float r, bool ok, SDL_Color col, int steps)
+{
+    for (int o = 0; o < steps; o++) {
+        float fo = ((float)o - (float)(steps - 1) / 2.0f);
+        if (ok) {
+            draw_line(ren, cx - 0.55f * r, cy + 0.05f * r + fo, cx - 0.10f * r, cy + 0.50f * r + fo, col);
+            draw_line(ren, cx - 0.10f * r, cy + 0.50f * r + fo, cx + 0.60f * r, cy - 0.40f * r + fo, col);
+        } else {
+            draw_line(ren, cx - 0.45f * r, cy - 0.45f * r + fo, cx + 0.45f * r, cy + 0.45f * r + fo, col);
+            draw_line(ren, cx - 0.45f * r, cy + 0.45f * r + fo, cx + 0.45f * r, cy - 0.45f * r + fo, col);
+        }
+    }
+}
+
+static void ks_draw(SDL_Renderer *ren, const KsData *d, float mx, float sub_x,
+                    TTF_Font *f_t, TTF_Font *f_m, TTF_Font *f_s, TTF_Font *f_x)
+{
+    SDL_Color acc = g_theme.accent, alr = g_theme.alert, txt = g_theme.text_light, card = g_theme.row_bg;
+    SDL_Color dim = cat_mix(g_theme.bg, txt, 0.65f), track = cat_mix(card, txt, 0.30f);
+    bool all_ok = d->total > 0 && d->ok == d->total;
+    SDL_Color sc = all_ok ? acc : alr;
+
+    draw_text(ren, f_s, tr("Verificación de Kickstarts · MD5", "Kickstart check · MD5"), dim, sub_x, 62.0f);
+
+    /* Tarjeta resumen */
+    float cw = (float)SCREEN_W - 2.0f * mx, cy = 88.0f, ch = 88.0f;
+    draw_rounded_rect_filled(ren, mx, cy, cw, ch, 10.0f, card);
+    float ix = mx + 16.0f, iy = cy + 14.0f;
+    draw_rounded_rect_filled(ren, ix, iy, 44.0f, 44.0f, 22.0f, sc);
+    draw_rounded_rect_filled(ren, ix + 2.0f, iy + 2.0f, 40.0f, 40.0f, 20.0f, cat_mix(card, sc, 0.20f));
+    ks_mark(ren, ix + 22.0f, iy + 22.0f, 11.0f, all_ok, sc, 3);
+    char head[48];
+    snprintf(head, sizeof(head), tr("%d de %d correctos", "%d of %d correct"), d->ok, d->total);
+    float tx = ix + 44.0f + 14.0f;
+    draw_text(ren, f_t, head, txt, tx, cy + 14.0f);
+    draw_text(ren, f_s, all_ok ? tr("Todas las Kickstart coinciden con su MD5", "All Kickstarts match their MD5")
+                               : tr("Hay Kickstarts incorrectas o ausentes", "Some Kickstarts are wrong or missing"),
+              dim, tx, cy + 14.0f + (float)TTF_GetFontHeight(f_t) + 2.0f);
+    float bx = mx + 16.0f, by = cy + 68.0f, bw = cw - 32.0f;
+    draw_rounded_rect_filled(ren, bx, by, bw, 6.0f, 3.0f, track);
+    if (d->total > 0 && d->ok > 0) {
+        float fw = bw * (float)d->ok / (float)d->total;
+        if (fw < 6.0f) fw = 6.0f;
+        draw_rounded_rect_filled(ren, bx, by, fw, 6.0f, 3.0f, acc);
+    }
+
+    /* Cuadricula de dos columnas, rellenando primero la izquierda */
+    int n = d->n < 12 ? d->n : 12;
+    int rpc = (n + 1) / 2;
+    if (rpc < 1) rpc = 1;
+    const float rh = 30.0f, gap = 8.0f;
+    float gw = (cw - gap) / 2.0f, gy0 = cy + ch + 10.0f;
+    for (int i = 0; i < n; i++) {
+        const KsRow *r = &d->row[i];
+        float x = mx + (float)(i / rpc) * (gw + gap), y = gy0 + (float)(i % rpc) * (rh + gap);
+        bool good = r->st == 0;
+        SDL_Color rc = good ? acc : alr;
+        draw_rounded_rect_filled(ren, x, y, gw, rh, 8.0f, card);
+        draw_rounded_rect_filled(ren, x + 9.0f, y + 6.0f, 18.0f, 18.0f, 9.0f, rc);
+        ks_mark(ren, x + 18.0f, y + 15.0f, 7.5f, good, good ? g_theme.text_on_accent : txt, 2);
+        draw_text(ren, f_m, r->ver, good ? txt : alr, x + 34.0f, y + (rh - (float)TTF_GetFontHeight(f_m)) / 2.0f);
+        char mdl[20];
+        size_t k = 0;
+        for (; r->model[k] && k < sizeof(mdl) - 1; k++) mdl[k] = (char)tolower((unsigned char)r->model[k]);
+        mdl[k] = '\0';
+        if (mdl[0]) {
+            float cwid = 0.0f, chgt = 0.0f;
+            chip_size(f_s, mdl, &cwid, &chgt);
+            draw_chip(ren, f_s, mdl, x + gw - 10.0f - cwid, y + (rh - chgt) / 2.0f, txt, track);
+        }
+    }
+
+    /* Detalle de los fallos (maximo 2 lineas) bajo la cuadricula */
+    float dy = gy0 + (float)rpc * (rh + gap) - gap + 4.0f;
+    int shown = 0, bad = 0;
+    for (int i = 0; i < d->n; i++) if (d->row[i].st != 0) bad++;
+    for (int i = 0; i < d->n && shown < 2; i++) {
+        const KsRow *r = &d->row[i];
+        if (r->st == 0) continue;
+        char ln[96];
+        if (shown == 1 && bad > 2) snprintf(ln, sizeof(ln), tr("+%d más con error", "+%d more with errors"), bad - 1);
+        else if (r->st == 2) snprintf(ln, sizeof(ln), tr("%s %s: no existe", "%s %s: missing"), r->ver, r->model);
+        else snprintf(ln, sizeof(ln), tr("%s %s: esperado %s / obtenido %s", "%s %s: expected %s / got %s"),
+                      r->ver, r->model, r->exp, r->got);
+        draw_text(ren, f_x, ln, alr, mx, dy + (float)shown * 14.0f);
+        shown++;
+    }
+}
+
 int main(void)
 {
     for (;;) {
@@ -7529,9 +7673,18 @@ int main(void)
                 arexx_scroll = arxr_max_scroll;
             }
             int arxr_start = arexx_scroll;
+            KsData ks_d;
+            bool ks_view = false;
+            const bool ks_script = strcmp(arexx_scripts[arexx_selected].filename, "kickstart_check.sh") == 0;
+            if (ks_script && !arexx_still_running && arexx_output && arexx_output_len > 0)
+                ks_view = ks_parse(arexx_output, &ks_d);
             SDL_Color c_arxr_lime = c_selbg;
             SDL_Color c_arxr_red  = g_theme.alert;
-            if (arxr_wrap)
+            if (ks_view) {
+                int ks_fw = 0, ks_fh = 0;
+                TTF_GetStringSize(f_ftr, arexx_scripts[arexx_selected].filename, 0, &ks_fw, &ks_fh);
+                ks_draw(ren, &ks_d, mx, mx + (float)ks_fw + 14.0f, f_title, f_gmed, f_gsm, f_gxsm);
+            } else if (arxr_wrap && !(ks_script && arexx_still_running))
                 for (int i = arxr_start; i < arxr_nlines && (i - arxr_start) < arxr_max_visible; i++) {
                     const char *src_line = arxr_cached_lines[arxr_wrap[i].src];
                     SDL_Color line_c = c_gray;
