@@ -7578,7 +7578,7 @@ int main(void)
                 draw_text_animdots(ren, f_gxs, tr("Ejecutando", "Running"), c_gray, mx + (float)fname_w + 16.0f, 62.0f, SDL_GetTicks());
             }
             float arxr_y0 = 90.0f;
-            float arxr_line_h = 16.0f;
+            float arxr_line_h = 18.0f;
             if (arexx_output && arexx_output_len > 0 && arexx_output_len != arxr_cached_len) {
                 free(arxr_cached_lines);
                 free(arxr_cached_wrap);
@@ -7620,7 +7620,7 @@ int main(void)
                             do {
                                 int fit_w = 0; size_t fit_len = 0;
                                 if (remaining_len > 0)
-                                    TTF_MeasureString(f_gxsm, cursor, remaining_len, (int)arxr_avail_w, &fit_w, &fit_len);
+                                    TTF_MeasureString(f_gsm, cursor, remaining_len, (int)arxr_avail_w, &fit_w, &fit_len);
                                 if (remaining_len > 0 && fit_len == 0) fit_len = 1; /* progreso garantizado */
                                 size_t break_len = fit_len;
                                 if (fit_len < remaining_len) {
@@ -7680,7 +7680,7 @@ int main(void)
                     else if (strstr(src_line, "[INCORRECTO]") || strstr(src_line, "[CRITICO]") ||
                              strstr(src_line, "[NO EXISTE]")) line_c = c_arxr_red;
                     else if (strstr(src_line, "[AVISO]")) line_c = g_theme.accent;
-                    draw_text(ren, f_gxsm, arxr_wrap[i].text, line_c, mx, arxr_y0 + (i - arxr_start) * arxr_line_h);
+                    draw_text(ren, f_gsm, arxr_wrap[i].text, line_c, mx, arxr_y0 + (i - arxr_start) * arxr_line_h);
                 }
             if (!arexx_still_running && arxr_nlines > arxr_max_visible) {
                 char scroll_info[32];
