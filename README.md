@@ -43,7 +43,7 @@ ARMIGA is a minimal Linux distribution based on **Buildroot** for the **Anbernic
 - ✅ Graphics stack: SDL3 3.4.18 (kmsdrm) + Mesa 26.3.0-rc2 (GBM + Panfrost, stripped `.so` in overlay)
 - ✅ Custom C/SDL3 launcher (`armiga-launcher`), bilingual **Spanish/English** interface (toggle `L1`, persistent)
 - ✅ Own gamepad driver (`armiga-joypad`, out-of-tree kernel module): analog sticks read through the analog multiplexer, D-pad as hat, debounced buttons, rumble
-- ✅ RetroArch 1.22.2-nightly (2242d04) + PUAE 2021 core (`puae2021_libretro.so`, 2.6.1 151828f)
+- ✅ RetroArch 1.22.2-nightly (2242d04) + PUAE 2021 core (`puae2021_libretro.so`, 2.6.1 4ffb396)
 - ✅ OTA update system (GitHub Releases → download → SHA256 verification → flash inactive slot, all async without blocking the UI)
 - ✅ Automatic A/B rollback on boot failure (attempt counter + slot reversion)
 - ✅ Settings menu: wireless network, backup (create/restore/delete), analog stick RGB LEDs, timezone, screensaver, brightness, performance profiles (maximum/balanced/power saving), SSH, factory reset
