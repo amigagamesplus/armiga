@@ -388,6 +388,7 @@ static const char *DEV_MENU_ITEMS[] = {
 #define BTN_SDL_START  9
 #define BTN_SDL_X      2
 #define BTN_SDL_MODE   10
+#define DIAG_RESULT    "/tmp/armiga-diag.last" /* stdout de armiga-diag: ruta del informe */
 
 #define DEVMODE_HOLD_MS 3000
 
@@ -2148,6 +2149,258 @@ static int cat_game_cmp(const void *a, const void *b)
     return strcmp(x->path, y->path);
 }
 
+/* ===== Metadatos (ano, desarrollador, genero) desde metadata.tsv ===== */
+#define METADATA_PATH     "/media/amiga_data/metadata.tsv"
+#define METADATA_PATH_IMG "/usr/share/armiga/metadata.tsv"
+
+/* Fila por CRC (tkey vacio) o por titulo normalizado (crc = 0, tkey = clave). */
+typedef struct { unsigned crc; unsigned short year; char dev[48]; char genre[48]; char pub[48]; char tkey[61]; } MetaEntry;
+
+static MetaEntry *g_meta = NULL;
+static int g_meta_n = 0;
+
+static int meta_cmp(const void *a, const void *b)
+{
+    const MetaEntry *x = (const MetaEntry *)a, *y = (const MetaEntry *)b;
+    int tx = x->tkey[0] != '\0', ty = y->tkey[0] != '\0';
+    if (tx != ty) return tx - ty;
+    if (!tx) return (x->crc > y->crc) - (x->crc < y->crc);
+    return strcmp(x->tkey, y->tkey);
+}
+
+static bool meta_junk_token(const char *t)
+{
+    while (*t == ' ') t++;
+    if (!strcasecmp(t, "AGA") || !strcasecmp(t, "OCS") || !strcasecmp(t, "ECS") || !strcasecmp(t, "CD32"))
+        return true;
+    const char *p = t;
+    if (*p == 'v' || *p == 'V') p++;
+    if (!isdigit((unsigned char)*p)) return false;
+    for (; *p; p++)
+        if (!isdigit((unsigned char)*p) && *p != '.') return false;
+    return true;
+}
+
+/* Clave de titulo: misma normalizacion que armiga-metadata.py (sin parentesis, sin _AGA/_vX.Y,
+ * ", The" movido al inicio, solo alfanumericos ASCII en minusculas, sin "the" inicial). */
+static void meta_title_key(const char *title, char *out, size_t sz)
+{
+    char a[256], b[256], c[300];
+    size_t w = 0;
+    safe_copy(a, title, sizeof(a));
+    for (size_t i = 0; a[i];) {
+        if (a[i] == '(') {
+            const char *e = strchr(a + i, ')');
+            if (e) { i = (size_t)(e - a) + 1; b[w++] = ' '; continue; }
+        }
+        b[w++] = a[i++];
+    }
+    b[w] = '\0';
+    w = 0;
+    if (strchr(b, '_')) {
+        size_t i = 0;
+        int first = 1;
+        for (;;) {
+            size_t j = i;
+            while (b[j] && b[j] != '_') j++;
+            char tok[128];
+            size_t tl = j - i;
+            if (tl >= sizeof(tok)) tl = sizeof(tok) - 1;
+            memcpy(tok, b + i, tl);
+            tok[tl] = '\0';
+            if ((first || !meta_junk_token(tok)) && w + tl + 2 < sizeof(c)) {
+                memcpy(c + w, tok, tl);
+                w += tl;
+                c[w++] = ' ';
+            }
+            first = 0;
+            if (!b[j]) break;
+            i = j + 1;
+        }
+        c[w] = '\0';
+    } else {
+        safe_copy(c, b, sizeof(c));
+    }
+    char *s = c;
+    while (*s == ' ') s++;
+    size_t n = strlen(s);
+    while (n > 0 && s[n - 1] == ' ') s[--n] = '\0';
+    const char *art = "";
+    if (n > 5 && !strcmp(s + n - 5, ", The")) { s[n - 5] = '\0'; art = "the "; }
+    else if (n > 4 && !strcmp(s + n - 4, ", An")) { s[n - 4] = '\0'; art = "an "; }
+    else if (n > 3 && !strcmp(s + n - 3, ", A")) { s[n - 3] = '\0'; art = "a "; }
+    char full[340];
+    snprintf(full, sizeof(full), "%s%s", art, s);
+    const char *p = full;
+    while (*p == ' ') p++;
+    if (!strncasecmp(p, "the", 3) && (p[3] == ' ' || p[3] == '\t')) p += 3;
+    size_t o = 0;
+    for (; *p && o + 4 < sz && o < 60; p++) {
+        unsigned char ch = (unsigned char)*p;
+        if (ch == '&') { memcpy(out + o, "and", 3); o += 3; }
+        else if (ch < 128 && isalnum(ch)) out[o++] = (char)tolower(ch);
+    }
+    out[o] = '\0';
+}
+
+/* Formato: "<crc 8 hex | t:clave>\t<ano>\t<desarrollador>\t<genero>\t<publisher>\t<fichero>".
+ * Sin la columna de publisher (formato antiguo: el 5.o campo es el fichero) no se muestra publisher.
+ * Las lineas "f:..." se ignoran. */
+static void metadata_load(void)
+{
+    free(g_meta);
+    g_meta = NULL;
+    g_meta_n = 0;
+    FILE *f = fopen(METADATA_PATH, "r");
+    if (!f) f = fopen(METADATA_PATH_IMG, "r");
+    if (!f) return;
+    int cap = 256;
+    g_meta = malloc((size_t)cap * sizeof(MetaEntry));
+    if (!g_meta) { fclose(f); return; }
+    char line[512];
+    while (fgets(line, sizeof(line), f)) {
+        line[strcspn(line, "\r\n")] = '\0';
+        char *fld[4];
+        char *p = line;
+        char *rest = NULL, *pub = NULL;
+        int k;
+        for (k = 0; k < 4; k++) {
+            fld[k] = p;
+            char *t = strchr(p, '\t');
+            if (!t) { k++; break; }
+            *t = '\0';
+            p = t + 1;
+            if (k == 3) rest = p;
+        }
+        if (k < 4) continue;
+        if (rest) {
+            char *t = strchr(rest, '\t');
+            if (t) { *t = '\0'; pub = rest; }
+        }
+        bool is_title = fld[0][0] == 't' && fld[0][1] == ':' && fld[0][2] != '\0';
+        if (!is_title && (strlen(fld[0]) != 8 || strspn(fld[0], "0123456789abcdefABCDEF") != 8)) continue;
+        if (g_meta_n == cap) {
+            MetaEntry *tmp = realloc(g_meta, (size_t)cap * 2 * sizeof(MetaEntry));
+            if (!tmp) break;
+            g_meta = tmp;
+            cap *= 2;
+        }
+        MetaEntry *m = &g_meta[g_meta_n];
+        memset(m, 0, sizeof(*m));
+        if (is_title) safe_copy(m->tkey, fld[0] + 2, sizeof(m->tkey));
+        else m->crc = (unsigned)strtoul(fld[0], NULL, 16);
+        m->year = (unsigned short)atoi(fld[1]);
+        safe_copy(m->dev, fld[2], sizeof(m->dev));
+        safe_copy(m->genre, fld[3], sizeof(m->genre));
+        if (pub) safe_copy(m->pub, pub, sizeof(m->pub));
+        g_meta_n++;
+    }
+    fclose(f);
+    if (g_meta_n > 1) qsort(g_meta, (size_t)g_meta_n, sizeof(MetaEntry), meta_cmp);
+}
+
+static const MetaEntry *metadata_find(unsigned crc)
+{
+    if (!g_meta || g_meta_n <= 0) return NULL;
+    MetaEntry key;
+    memset(&key, 0, sizeof(key));
+    key.crc = crc;
+    return (const MetaEntry *)bsearch(&key, g_meta, (size_t)g_meta_n, sizeof(MetaEntry), meta_cmp);
+}
+
+static const MetaEntry *metadata_find_title(const char *tkey)
+{
+    if (!g_meta || g_meta_n <= 0 || !tkey[0]) return NULL;
+    MetaEntry key;
+    memset(&key, 0, sizeof(key));
+    safe_copy(key.tkey, tkey, sizeof(key.tkey));
+    return (const MetaEntry *)bsearch(&key, g_meta, (size_t)g_meta_n, sizeof(MetaEntry), meta_cmp);
+}
+
+/* Primero por CRC; si no esta, por titulo normalizado. */
+static const MetaEntry *metadata_lookup(unsigned crc, const char *title)
+{
+    const MetaEntry *m = crc ? metadata_find(crc) : NULL;
+    if (m) return m;
+    char tk[64];
+    meta_title_key(title, tk, sizeof(tk));
+    return metadata_find_title(tk);
+}
+
+static void meta_chip_add(char (*chip)[64], int *n, int max, const char *s, size_t len)
+{
+    if (*n >= max || len == 0) return;
+    if (len > 63) {
+        len = 63;
+        while (len > 0 && ((unsigned char)s[len] & 0xC0) == 0x80) len--;
+    }
+    for (size_t i = 0; i < len; i++) {
+        unsigned char c = (unsigned char)s[i];
+        chip[*n][i] = (c < 128) ? (char)tolower(c) : (char)c;
+    }
+    chip[*n][len] = '\0';
+    (*n)++;
+}
+
+static bool meta_same(const char *a, size_t la, const char *b, size_t lb)
+{
+    char x[64], y[64];
+    size_t i = 0, j = 0;
+    for (size_t k = 0; k < la && i < sizeof(x) - 1; k++)
+        if (isalnum((unsigned char)a[k])) x[i++] = (char)tolower((unsigned char)a[k]);
+    for (size_t k = 0; k < lb && j < sizeof(y) - 1; k++)
+        if (isalnum((unsigned char)b[k])) y[j++] = (char)tolower((unsigned char)b[k]);
+    return i > 0 && i == j && memcmp(x, y, i) == 0;
+}
+
+/* Ano, hasta 2 desarrolladores, publisher (con (c) delante, si no coincide con un desarrollador)
+ * y hasta 2 generos, como textos cortos para etiquetas. */
+static int metadata_chips(const MetaEntry *m, char (*chip)[64], int max)
+{
+    int n = 0;
+    char buf[80];
+    if (m->year > 0) {
+        snprintf(buf, sizeof(buf), "%d", (int)m->year);
+        meta_chip_add(chip, &n, max, buf, strlen(buf));
+    }
+    {
+        const char *p = m->dev;
+        int cnt = 0;
+        while (*p && cnt < 2) {
+            const char *e = strstr(p, ", ");
+            size_t len = e ? (size_t)(e - p) : strlen(p);
+            meta_chip_add(chip, &n, max, p, len);
+            cnt++;
+            p = e ? e + 2 : p + len;
+        }
+    }
+    if (m->pub[0]) {
+        bool dup = false;
+        for (const char *q = m->dev; *q;) {
+            const char *e = strstr(q, ", ");
+            size_t len = e ? (size_t)(e - q) : strlen(q);
+            if (meta_same(q, len, m->pub, strlen(m->pub))) { dup = true; break; }
+            q = e ? e + 2 : q + len;
+        }
+        if (!dup) {
+            snprintf(buf, sizeof(buf), "%s", m->pub);
+            meta_chip_add(chip, &n, max, buf, strlen(buf));
+        }
+    }
+    {
+        const char *p = m->genre;
+        int cnt = 0;
+        while (*p && cnt < 2) {
+            const char *e = strstr(p, ", ");
+            size_t len = e ? (size_t)(e - p) : strlen(p);
+            meta_chip_add(chip, &n, max, p, len);
+            cnt++;
+            p = e ? e + 2 : p + len;
+        }
+    }
+    return n;
+}
+
 static void catalog_load(void)
 {
     free(g_games);
@@ -2206,6 +2459,7 @@ static void catalog_load(void)
     }
     fclose(f);
     if (g_games_n > 1) qsort(g_games, (size_t)g_games_n, sizeof(CatGame), cat_game_cmp);
+    metadata_load();
 }
 
 static void playtime_fmt(unsigned long pt, char *out, size_t sz)
@@ -3055,37 +3309,6 @@ static void draw_rect_filled(SDL_Renderer *r, float x, float y,
  * en las franjas superior/inferior de altura 'radius', cada fila recorta
  * su ancho segun la ecuacion del circulo (esquina), el resto de filas se
  * dibujan a ancho completo. SDL3 no tiene primitiva nativa para esto. */
-/* Signed distance de un punto (relativo al centro del rect w x h) a una
- * capsula: rectangulo interior (w-2r) x (h-2r) centrado en el origen,
- * expandido por radius en todas direcciones. Negativo = dentro, positivo =
- * fuera, 0 = justo en el borde. Esto define la capsula como una unica
- * forma continua (sin costura entre rectangulo y semicirculos). */
-static float capsule_sdf(float px, float py, float half_w, float half_h, float radius)
-{
-    float qx = SDL_fabsf(px) - (half_w - radius);
-    float qy = SDL_fabsf(py) - (half_h - radius);
-    float ax = qx > 0.0f ? qx : 0.0f;
-    float ay = qy > 0.0f ? qy : 0.0f;
-    float outside = SDL_sqrtf(ax * ax + ay * ay);
-    float inside = (qx > qy ? qx : qy);
-    if (inside > 0.0f) inside = 0.0f;
-    return outside + inside - radius;
-}
-/* Cobertura de un pixel de 1x1 centrado en (px,py) respecto a la capsula,
- * via supersampling 4x4 (16 submuestras) sobre el SDF. */
-static float capsule_coverage(float px, float py, float half_w, float half_h, float radius)
-{
-    const int SS = 4;
-    int inside = 0;
-    for (int sy = 0; sy < SS; sy++) {
-        float oy = py - 0.5f + ((float)sy + 0.5f) / (float)SS;
-        for (int sx = 0; sx < SS; sx++) {
-            float ox = px - 0.5f + ((float)sx + 0.5f) / (float)SS;
-            if (capsule_sdf(ox, oy, half_w, half_h, radius) <= 0.0f) inside++;
-        }
-    }
-    return (float)inside / (float)(SS * SS);
-}
 /* Cobertura de un pixel de 1x1 centrado en (px,py) respecto al exterior de
  * un cuarto de circulo de radio 'radius' centrado en (cx,cy), via
  * supersampling 4x4. Devuelve 1.0 si el pixel esta totalmente fuera del
@@ -3906,27 +4129,216 @@ static void cover_tick(SDL_Renderer *ren, const CatGame *g, int sel)
  * Metricas cacheadas por (fuente,texto) para no renderizar texto cada frame.
  * Devuelve el ancho dibujado. */
 typedef struct { TTF_Font *f; char text[24]; int lead, inkw, top, cap; } BadgeMetric;
-static BadgeMetric s_bm[24];
+#define BADGE_CACHE_N 192
+static BadgeMetric s_bm[BADGE_CACHE_N];
+static int s_bm_rr = 0;
 static int s_bm_n = 0;
+static const BadgeMetric *badge_get(TTF_Font *f, const char *text)
+{
+    for (int i = 0; i < s_bm_n; i++)
+        if (s_bm[i].f == f && strcmp(s_bm[i].text, text) == 0) return &s_bm[i];
+    BadgeMetric *m;
+    if (s_bm_n < BADGE_CACHE_N) m = &s_bm[s_bm_n++];
+    else { m = &s_bm[s_bm_rr]; s_bm_rr = (s_bm_rr + 1) % BADGE_CACHE_N; }
+    m->f = f;
+    safe_copy(m->text, text, sizeof(m->text));
+    badge_ink(f, text, &m->lead, &m->inkw, &m->top, &m->cap);
+    return m;
+}
+
+/* Etiqueta rellena con esquinas redondeadas (metadatos). Texto en mayusculas: se centra por la altura de 'H'. */
+static void chip_size(TTF_Font *f, const char *text, float *w, float *h)
+{
+    int tw = 0, th = 0, d = 0, cap = 0;
+    TTF_GetStringSize(f, text, 0, &tw, &th);
+    TTF_GetGlyphMetrics(f, (Uint32)'H', &d, &d, &d, &cap, &d);
+    *w = (float)tw + 16.0f;
+    *h = (float)cap + 10.0f;
+}
+
+static float draw_chip(SDL_Renderer *ren, TTF_Font *f, const char *text, float x, float y,
+                       SDL_Color fg, SDL_Color bg)
+{
+    float w = 0.0f, h = 0.0f;
+    int d = 0, cap = 0;
+    chip_size(f, text, &w, &h);
+    TTF_GetGlyphMetrics(f, (Uint32)'H', &d, &d, &d, &cap, &d);
+    draw_rounded_rect_filled(ren, x, y, w, h, 4.0f, bg);
+    draw_text(ren, f, text, fg, x + 8.0f, y + 5.0f - (float)(TTF_GetFontAscent(f) - cap));
+    return w;
+}
+
+/* Acorta s con "..." hasta que la etiqueta quepa en maxw pixeles. */
+static void chip_fit(TTF_Font *f, char *s, size_t cap, float maxw)
+{
+    float w = 0.0f, h = 0.0f;
+    chip_size(f, s, &w, &h);
+    if (w <= maxw) return;
+    size_t l = strlen(s);
+    while (l > 1) {
+        l--;
+        while (l > 0 && ((unsigned char)s[l] & 0xC0) == 0x80) l--;
+        char t[80];
+        snprintf(t, sizeof(t), "%.*s...", (int)l, s);
+        chip_size(f, t, &w, &h);
+        if (w <= maxw) { safe_copy(s, t, cap); return; }
+    }
+}
+
 static float draw_badge(SDL_Renderer *ren, TTF_Font *f, const char *text,
                         float x, float y, SDL_Color col, SDL_Color bg)
 {
-    BadgeMetric *m = NULL;
-    for (int i = 0; i < s_bm_n; i++)
-        if (s_bm[i].f == f && strcmp(s_bm[i].text, text) == 0) { m = &s_bm[i]; break; }
-    BadgeMetric tmp;
-    if (!m) {
-        m = (s_bm_n < 24) ? &s_bm[s_bm_n++] : &tmp;
-        m->f = f;
-        safe_copy(m->text, text, sizeof(m->text));
-        badge_ink(f, text, &m->lead, &m->inkw, &m->top, &m->cap);
-    }
+    const BadgeMetric *m = badge_get(f, text);
     const float pad = 4.0f;
     float w = (float)m->inkw + pad * 2.0f;
     float h = (float)m->cap + pad * 2.0f;
     draw_rounded_rect_outline(ren, x, y, w, h, 2.0f, 1.0f, col, bg);
     draw_text(ren, f, text, col, x + pad - (float)m->lead, y + pad - (float)m->top);
     return w;
+}
+
+/* ===== Pantalla visual de kickstart_check.sh (analiza la salida de texto del script) ===== */
+#define KS_MAX 24
+typedef struct { char ver[12]; char model[20]; char exp[12]; char got[12]; unsigned char st; } KsRow; /* st: 0 ok, 1 incorrecto, 2 no existe */
+typedef struct { KsRow row[KS_MAX]; int n; int ok, total; bool have_result; } KsData;
+
+static bool ks_parse(const char *out, KsData *d)
+{
+    memset(d, 0, sizeof(*d));
+    const char *p = out;
+    while (*p) {
+        const char *e = strchr(p, '\n');
+        size_t len = e ? (size_t)(e - p) : strlen(p);
+        char line[96];
+        size_t cl = len < sizeof(line) - 1 ? len : sizeof(line) - 1;
+        memcpy(line, p, cl);
+        line[cl] = '\0';
+        p = e ? e + 1 : p + len;
+        int st = -1;
+        const char *lab = NULL;
+        if (!strncmp(line, "[OK]", 4)) { st = 0; lab = line + 4; }
+        else if (!strncmp(line, "[INCORRECTO]", 12)) { st = 1; lab = line + 12; }
+        else if (!strncmp(line, "[NO EXISTE]", 11)) { st = 2; lab = line + 11; }
+        if (st >= 0) {
+            if (d->n >= KS_MAX) continue;
+            while (*lab == ' ') lab++;
+            KsRow *r = &d->row[d->n++];
+            memset(r, 0, sizeof(*r));
+            r->st = (unsigned char)st;
+            const char *sp = strchr(lab, ' ');
+            size_t vl = sp ? (size_t)(sp - lab) : strlen(lab);
+            if (vl >= sizeof(r->ver)) vl = sizeof(r->ver) - 1;
+            memcpy(r->ver, lab, vl);
+            r->ver[vl] = '\0';
+            if (sp) {
+                while (*sp == ' ') sp++;
+                safe_copy(r->model, sp, sizeof(r->model));
+            }
+            continue;
+        }
+        if (d->n > 0) {
+            const char *q = line;
+            while (*q == ' ') q++;
+            if (!strncmp(q, "esperado ", 9)) safe_copy(d->row[d->n - 1].exp, q + 9, sizeof(d->row[0].exp));
+            else if (!strncmp(q, "obtenido ", 9)) safe_copy(d->row[d->n - 1].got, q + 9, sizeof(d->row[0].got));
+        }
+        if (!strncmp(line, "RESULTADO:", 10)) {
+            const char *q = strstr(line, "] ");
+            int a = 0, b = 0;
+            if (q && sscanf(q + 2, "%d de %d", &a, &b) == 2) { d->ok = a; d->total = b; d->have_result = true; }
+        }
+    }
+    return d->n > 0 && d->have_result;
+}
+
+/* Marca de estado: check (ok) o cruz, de "steps" lineas paralelas de grosor, centrada en (cx, cy) con radio r. */
+static void ks_mark(SDL_Renderer *ren, float cx, float cy, float r, bool ok, SDL_Color col, int steps)
+{
+    for (int o = 0; o < steps; o++) {
+        float fo = ((float)o - (float)(steps - 1) / 2.0f);
+        if (ok) {
+            draw_line(ren, cx - 0.55f * r, cy + 0.05f * r + fo, cx - 0.10f * r, cy + 0.50f * r + fo, col);
+            draw_line(ren, cx - 0.10f * r, cy + 0.50f * r + fo, cx + 0.60f * r, cy - 0.40f * r + fo, col);
+        } else {
+            draw_line(ren, cx - 0.45f * r, cy - 0.45f * r + fo, cx + 0.45f * r, cy + 0.45f * r + fo, col);
+            draw_line(ren, cx - 0.45f * r, cy + 0.45f * r + fo, cx + 0.45f * r, cy - 0.45f * r + fo, col);
+        }
+    }
+}
+
+static void ks_draw(SDL_Renderer *ren, const KsData *d, float mx, float sub_x,
+                    TTF_Font *f_t, TTF_Font *f_m, TTF_Font *f_s, TTF_Font *f_x)
+{
+    SDL_Color acc = g_theme.accent, alr = g_theme.alert, txt = g_theme.text_light, card = g_theme.row_bg;
+    SDL_Color dim = cat_mix(g_theme.bg, txt, 0.65f), track = cat_mix(card, txt, 0.30f);
+    bool all_ok = d->total > 0 && d->ok == d->total;
+    SDL_Color sc = all_ok ? acc : alr;
+
+    draw_text(ren, f_s, tr("Verificación de Kickstarts · MD5", "Kickstart check · MD5"), dim, sub_x, 62.0f);
+
+    /* Tarjeta resumen */
+    float cw = (float)SCREEN_W - 2.0f * mx, cy = 88.0f, ch = 88.0f;
+    draw_rounded_rect_filled(ren, mx, cy, cw, ch, 10.0f, card);
+    float ix = mx + 16.0f, iy = cy + 14.0f;
+    draw_rounded_rect_filled(ren, ix, iy, 44.0f, 44.0f, 22.0f, sc);
+    draw_rounded_rect_filled(ren, ix + 2.0f, iy + 2.0f, 40.0f, 40.0f, 20.0f, cat_mix(card, sc, 0.20f));
+    ks_mark(ren, ix + 22.0f, iy + 22.0f, 11.0f, all_ok, sc, 3);
+    char head[48];
+    snprintf(head, sizeof(head), tr("%d de %d correctos", "%d of %d correct"), d->ok, d->total);
+    float tx = ix + 44.0f + 14.0f;
+    draw_text(ren, f_t, head, txt, tx, cy + 14.0f);
+    draw_text(ren, f_s, all_ok ? tr("Todas las Kickstart coinciden con su MD5", "All Kickstarts match their MD5")
+                               : tr("Hay Kickstarts incorrectas o ausentes", "Some Kickstarts are wrong or missing"),
+              dim, tx, cy + 14.0f + (float)TTF_GetFontHeight(f_t) + 2.0f);
+    float bx = mx + 16.0f, by = cy + 68.0f, bw = cw - 32.0f;
+    draw_rounded_rect_filled(ren, bx, by, bw, 6.0f, 3.0f, track);
+    if (d->total > 0 && d->ok > 0) {
+        float fw = bw * (float)d->ok / (float)d->total;
+        if (fw < 6.0f) fw = 6.0f;
+        draw_rounded_rect_filled(ren, bx, by, fw, 6.0f, 3.0f, acc);
+    }
+
+    /* Cuadricula de dos columnas, rellenando primero la izquierda */
+    int n = d->n < 12 ? d->n : 12;
+    int rpc = (n + 1) / 2;
+    if (rpc < 1) rpc = 1;
+    const float rh = 30.0f, gap = 8.0f;
+    float gw = (cw - gap) / 2.0f, gy0 = cy + ch + 10.0f;
+    for (int i = 0; i < n; i++) {
+        const KsRow *r = &d->row[i];
+        float x = mx + (float)(i / rpc) * (gw + gap), y = gy0 + (float)(i % rpc) * (rh + gap);
+        bool good = r->st == 0;
+        SDL_Color rc = good ? acc : alr;
+        draw_rounded_rect_filled(ren, x, y, gw, rh, 8.0f, card);
+        draw_rounded_rect_filled(ren, x + 9.0f, y + 6.0f, 18.0f, 18.0f, 9.0f, rc);
+        ks_mark(ren, x + 18.0f, y + 15.0f, 7.5f, good, good ? g_theme.text_on_accent : txt, 2);
+        draw_text(ren, f_m, r->ver, good ? txt : alr, x + 34.0f, y + (rh - (float)TTF_GetFontHeight(f_m)) / 2.0f);
+        char mdl[20];
+        size_t k = 0;
+        for (; r->model[k] && k < sizeof(mdl) - 1; k++) mdl[k] = (char)tolower((unsigned char)r->model[k]);
+        mdl[k] = '\0';
+        if (mdl[0]) {
+            float cwid = 0.0f, chgt = 0.0f;
+            chip_size(f_s, mdl, &cwid, &chgt);
+            draw_chip(ren, f_s, mdl, x + gw - 10.0f - cwid, y + (rh - chgt) / 2.0f, txt, track);
+        }
+    }
+
+    /* Detalle de los fallos (maximo 2 lineas) bajo la cuadricula */
+    float dy = gy0 + (float)rpc * (rh + gap) - gap + 4.0f;
+    int shown = 0, bad = 0;
+    for (int i = 0; i < d->n; i++) if (d->row[i].st != 0) bad++;
+    for (int i = 0; i < d->n && shown < 2; i++) {
+        const KsRow *r = &d->row[i];
+        if (r->st == 0) continue;
+        char ln[96];
+        if (shown == 1 && bad > 2) snprintf(ln, sizeof(ln), tr("+%d más con error", "+%d more with errors"), bad - 1);
+        else if (r->st == 2) snprintf(ln, sizeof(ln), tr("%s %s: no existe", "%s %s: missing"), r->ver, r->model);
+        else snprintf(ln, sizeof(ln), tr("%s %s: esperado %s / obtenido %s", "%s %s: expected %s / got %s"),
+                      r->ver, r->model, r->exp, r->got);
+        draw_text(ren, f_x, ln, alr, mx, dy + (float)shown * 14.0f);
+        shown++;
+    }
 }
 
 int main(void)
@@ -4205,8 +4617,8 @@ int main(void)
     int dim_max_brightness = read_max_brightness();
     int ssh_enabled = g_cfg.ssh_enabled; /* aplicado ya por S51ssh-toggle en boot, solo reflejar estado en UI */
     int refresh_120hz = read_refresh_120hz(); /* aplicado ya al crear la ventana, solo reflejar estado en UI */
-    int samba_enabled = read_samba_enabled(); /* aplicado ya por S53samba-toggle en boot, solo reflejar estado en UI */
-    int bt_enabled = read_bt_enabled(); /* aplicado ya por S22bluetooth-toggle en boot, solo reflejar estado en UI */
+    int samba_enabled = read_samba_enabled(); /* aplicado ya por S92samba-toggle en boot, solo reflejar estado en UI */
+    int bt_enabled = read_bt_enabled(); /* aplicado ya por S41bluetooth-toggle en boot, solo reflejar estado en UI */
     int wifi_enabled = read_wifi_enabled(); /* aplicado ya por S41wifi-toggle en boot, solo reflejar estado en UI */
     int theme_selected = read_theme_index();
     g_theme = THEMES[theme_selected];
@@ -4271,6 +4683,10 @@ int main(void)
     Uint64 volume_popup_until = 0;           /* ms hasta cuando mostrar el popup de volumen */
     Uint64 brightness_popup_until = 0;       /* ms hasta cuando mostrar el popup de brillo */
     bool screenshot_capture_pending = false; /* diferir captura al final del frame */
+    pid_t diag_pid = 0;                      /* armiga-diag en curso (0 = ninguno) */
+    Uint64 diag_msg_until = 0;               /* ms hasta cuando mostrar el resultado del informe */
+    bool diag_msg_ok = false;
+    char diag_msg[96] = "";                  /* nombre del informe generado */
 
     char dev_ip[32]     = "sin red";
     char dev_uptime[16] = "--";
@@ -4336,6 +4752,8 @@ int main(void)
     Uint64 last_bt_connected_poll = 0;
     bool brightness_save_pending = false;
     Uint64 brightness_save_pending_since = 0;
+    bool volume_save_pending = false;
+    Uint64 volume_save_pending_since = 0;
     char rt_bt_applied_mac[18] = "";
     bool rt_bt_applied_init = false;
 
@@ -4410,8 +4828,12 @@ int main(void)
                 if (volume_pct < 0) volume_pct = 0;
                 if (volume_pct > 100) volume_pct = 100;
                 write_volume_pct(volume_pct);
-                save_volume_config(volume_pct);
-                set_retroarch_volume_neutral();
+                /* Diferido: guardar (con fsync) solo tras 400ms sin nuevas
+                 * pulsaciones. El volumen neutro de RetroArch ya se fija en
+                 * el hijo justo antes de lanzarlo, no hace falta en cada
+                 * pulsacion. */
+                volume_save_pending = true;
+                volume_save_pending_since = SDL_GetTicks();
                 volume_popup_until = SDL_GetTicks() + 1500;
             }
 
@@ -5409,6 +5831,22 @@ int main(void)
                     ev.jbutton.button == BTN_SDL_B)
                     state = STATE_MENU;
                 if (ev.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN &&
+                    ev.jbutton.button == BTN_SDL_A && diag_pid == 0) {
+                    diag_pid = fork();
+                    if (diag_pid == 0) {
+                        /* hijo: armiga-diag escribe la ruta del informe en stdout */
+                        int dfd = open(DIAG_RESULT, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+                        if (dfd >= 0) { dup2(dfd, STDOUT_FILENO); dup2(dfd, STDERR_FILENO); close(dfd); }
+                        execl("/usr/bin/armiga-diag", "armiga-diag", (char *)NULL);
+                        _exit(127);
+                    }
+                    if (diag_pid < 0) {
+                        diag_pid = 0;
+                        diag_msg_ok = false;
+                        diag_msg_until = SDL_GetTicks() + 4000;
+                    }
+                }
+                if (ev.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN &&
                     ev.jbutton.button == BTN_SDL_L1)
                     sysinfo_page = (sysinfo_page + 1) % 2;
                 if (ev.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN &&
@@ -5793,6 +6231,32 @@ int main(void)
             save_brightness_config(brightness_pct);
             brightness_save_pending = false;
         }
+        if (volume_save_pending && now_ticks - volume_save_pending_since > 400) {
+            save_volume_config(volume_pct);
+            volume_save_pending = false;
+        }
+        if (diag_pid > 0) {
+            int dst = 0;
+            if (waitpid(diag_pid, &dst, WNOHANG) == diag_pid) {
+                diag_pid = 0;
+                diag_msg_ok = WIFEXITED(dst) && WEXITSTATUS(dst) == 0;
+                diag_msg[0] = '\0';
+                if (diag_msg_ok) {
+                    FILE *df = fopen(DIAG_RESULT, "r");
+                    if (df) {
+                        char dl[200];
+                        if (fgets(dl, sizeof(dl), df)) {
+                            dl[strcspn(dl, "\r\n")] = '\0';
+                            const char *bn = strrchr(dl, '/');
+                            snprintf(diag_msg, sizeof(diag_msg), "%s", bn ? bn + 1 : dl);
+                        }
+                        fclose(df);
+                    }
+                    if (diag_msg[0] == '\0') diag_msg_ok = false;
+                }
+                diag_msg_until = now_ticks + 4000;
+            }
+        }
         if ((state == STATE_MENU || state == STATE_SYSINFO) &&
             (last_cpu_temp_sample == 0 || now_ticks - last_cpu_temp_sample > 1000)) {
             read_cpu_temp(dash_cpu_temp, sizeof(dash_cpu_temp));
@@ -6074,35 +6538,24 @@ int main(void)
             float pill_y = 438.0f - 10.0f - (float)pill_text_h;
             draw_text_truncated(ren, f_ftr, last_game_pill_buf, c_dkgreen, pill_x, pill_y, pill_max_w);
 
-            /* Badge de la carpeta de origen (ADF/DEMOSCENE/HDF/IPF/WHDLOAD),
-             * recuadro de contorno con padding identico en los 4 lados,
-             * alineado a la izquierda del nombre de la partida. */
+            /* Etiquetas de la ultima partida (carpeta de origen y tiempo de juego), con el mismo
+             * estilo que las del catalogo, alineadas a la izquierda del nombre de la partida. */
             if (has_last_game && last_game_source[0]) {
-                int s_lead, s_inkw, s_top, cap_h;
-                badge_ink(f_badge, last_game_source, &s_lead, &s_inkw, &s_top, &cap_h);
-                float badge_pad = 4.0f;
-                float badge_w = (float)s_inkw + badge_pad * 2.0f;
-                float badge_h = (float)cap_h + badge_pad * 2.0f;
-                float badge_x = pill_x;
-                float badge_y = pill_y - badge_h - 4.0f;
-                draw_rounded_rect_outline(ren, badge_x, badge_y, badge_w, badge_h,
-                                           2.0f, 1.0f, c_selbg, c_bg);
-                draw_text(ren, f_badge, last_game_source, c_selbg,
-                          badge_x + badge_pad - (float)s_lead,
-                          badge_y + badge_pad - (float)s_top);
-
-                /* Segundo recuadro: tiempo de juego acumulado */
-                if (last_game_time[0]) {
-                    int t_lead, t_inkw, t_top, t_cap;
-                    badge_ink(f_badge, last_game_time, &t_lead, &t_inkw, &t_top, &t_cap);
-                    float t_bw = (float)t_inkw + badge_pad * 2.0f;
-                    float t_bx = badge_x + badge_w + 4.0f;
-                    draw_rounded_rect_outline(ren, t_bx, badge_y, t_bw, badge_h,
-                                               2.0f, 1.0f, c_selbg, c_bg);
-                    draw_text(ren, f_badge, last_game_time, c_selbg,
-                              t_bx + badge_pad - (float)t_lead,
-                              badge_y + badge_pad - (float)t_top);
-                }
+                SDL_Color lg_bg = g_theme.row_bg;
+                char lg_src[32], lg_tim[32];
+                size_t lk;
+                for (lk = 0; last_game_source[lk] && lk < sizeof(lg_src) - 1; lk++)
+                    lg_src[lk] = (char)tolower((unsigned char)last_game_source[lk]);
+                lg_src[lk] = '\0';
+                for (lk = 0; last_game_time[lk] && lk < sizeof(lg_tim) - 1; lk++)
+                    lg_tim[lk] = (char)tolower((unsigned char)last_game_time[lk]);
+                lg_tim[lk] = '\0';
+                float lg_w = 0.0f, lg_h = 0.0f;
+                chip_size(f_gsm, lg_src, &lg_w, &lg_h);
+                float lg_x = pill_x, lg_y = pill_y - lg_h - 4.0f;
+                lg_x += draw_chip(ren, f_gsm, lg_src, lg_x, lg_y, g_theme.text_light, lg_bg) + 5.0f;
+                if (lg_tim[0])
+                    draw_chip(ren, f_gsm, lg_tim, lg_x, lg_y, g_theme.text_light, lg_bg);
             }
         }
 
@@ -6454,8 +6907,32 @@ int main(void)
                     if (sel_w > g_list_w) sel_w = g_list_w;
                     draw_rounded_rect_filled(ren, g_lx, pill_top, sel_w, pill_h, pill_h / 2.0f, c_menu_selbg);
                 }
-                draw_text_truncated(ren, f_gmed, st, sel ? c_menu_gold : c_menu_beige,
-                                    g_lx + 14.0f, text_y, g_list_w - 28.0f);
+                {
+                    SDL_Color tcol = sel ? c_menu_gold : c_menu_beige;
+                    float tx = g_lx + 14.0f, t_avail = g_list_w - 28.0f;
+                    int fw = 0, fh = 0;
+                    if (sel) TTF_GetStringSize(f_gmed, st, 0, &fw, &fh);
+                    if (sel && (float)fw > t_avail) {
+                        /* Titulo largo: pausa, desplazamiento suave hasta el final, pausa y vuelta. */
+                        float travel = (float)fw - t_avail;
+                        static int mq_sel = -1;
+                        static Uint64 mq_t0 = 0;
+                        if (mq_sel != games_selected) { mq_sel = games_selected; mq_t0 = SDL_GetTicks(); }
+                        const float pause_ms = 900.0f, leg_ms = travel / 45.0f * 1000.0f;
+                        Uint64 cyc = (Uint64)(2.0f * (pause_ms + leg_ms)) + 1;
+                        float t = (float)((SDL_GetTicks() - mq_t0) % cyc), u;
+                        if (t < pause_ms) u = 0.0f;
+                        else if (t < pause_ms + leg_ms) { u = (t - pause_ms) / leg_ms; u = u * u * (3.0f - 2.0f * u); }
+                        else if (t < 2.0f * pause_ms + leg_ms) u = 1.0f;
+                        else { u = 1.0f - (t - 2.0f * pause_ms - leg_ms) / leg_ms; u = u * u * (3.0f - 2.0f * u); }
+                        SDL_Rect clip = { (int)tx, (int)pill_top, (int)t_avail, (int)pill_h };
+                        SDL_SetRenderClipRect(ren, &clip);
+                        draw_text(ren, f_gmed, st, tcol, tx - u * travel, text_y);
+                        SDL_SetRenderClipRect(ren, NULL);
+                    } else {
+                        draw_text_truncated(ren, f_gmed, st, tcol, tx, text_y, t_avail);
+                    }
+                }
             }
             if (g_games_n > g_visible) {
                 float th = g_th * (float)g_visible / (float)g_games_n;
@@ -6551,9 +7028,31 @@ int main(void)
                 float c2_y = c1_y + c1_h + 8.0f, c2_h = c3_y - 8.0f - c2_y;
                 draw_rounded_rect_filled(ren, rx_g, c2_y, rw_g, c2_h, 10.0f, c_card);
                 TTF_Font *f_ttl = f_title ? f_title : f_gmed;
-                draw_text_wrapped(ren, f_ttl, g->title, c_menu_beige, rx_g + 12.0f, c2_y + 10.0f,
+                int ttl_lines = draw_text_wrapped(ren, f_ttl, g->title, c_menu_beige, rx_g + 12.0f, c2_y + 10.0f,
                                   rw_g - 24.0f, (float)(TTF_GetFontHeight(f_ttl) + 2));
                 float fb_x = rx_g + 12.0f, fb_y = c2_y + c2_h - 28.0f;
+                {
+                    const MetaEntry *me = metadata_lookup(g->crc, g->title);
+                    if (me) {
+                        char chip[10][64];
+                        int nchip = metadata_chips(me, chip, 10);
+                        SDL_Color c_chip_bg = cat_mix(c_card, c_menu_beige, 0.30f);
+                        float cx0 = rx_g + 12.0f, cx_max = rx_g + rw_g - 12.0f;
+                        float cy = c2_y + 10.0f + (float)ttl_lines * (float)(TTF_GetFontHeight(f_ttl) + 2) + 4.0f;
+                        float cy_max = (!g->identified || (g->flags & (GF_NTSC | GF_BETA)))
+                                       ? fb_y - 4.0f : c2_y + c2_h - 8.0f;
+                        float cx = cx0;
+                        for (int ci = 0; ci < nchip; ci++) {
+                            float bw = 0.0f, bh = 0.0f;
+                            chip_fit(f_gsm, chip[ci], sizeof(chip[ci]), cx_max - cx0);
+                            chip_size(f_gsm, chip[ci], &bw, &bh);
+                            if (cx + bw > cx_max && cx > cx0) { cx = cx0; cy += bh + 5.0f; }
+                            if (cy + bh > cy_max) break;
+                            if (cx + bw > cx_max) continue;
+                            cx += draw_chip(ren, f_gsm, chip[ci], cx, cy, c_menu_beige, c_chip_bg) + 5.0f;
+                        }
+                    }
+                }
                 if (!g->identified) {
                     draw_text(ren, f_gsm, tr("Sin identificar en los DAT", "Not found in the DATs"),
                               c_gray, fb_x, fb_y + 4.0f);
@@ -7036,8 +7535,7 @@ int main(void)
                 float box_h = box_pad + (float)desc_lines * desc_line_h + 6.0f + (float)md5_h + box_pad;
                 float box_x = SCREEN_W - mx - box_w;
                 float box_y = 438.0f - 12.0f - box_h;
-                SDL_Color c_bg_box = g_theme.bg;
-                draw_rounded_rect_outline(ren, box_x, box_y, box_w, box_h, 10.0f, 2.0f, c_menu_selbg, c_bg_box);
+                draw_rounded_rect_filled(ren, box_x, box_y, box_w, box_h, 12.0f, g_theme.row_bg);
                 draw_text_wrapped(ren, f_ftr, desc_line, c_gray, box_x + box_pad, box_y + box_pad, desc_max_w, desc_line_h);
                 draw_text(ren, f_ftr, md5_line, c_gray, box_x + box_pad, box_y + box_pad + (float)desc_lines * desc_line_h + 6.0f);
             }
@@ -7080,7 +7578,7 @@ int main(void)
                 draw_text_animdots(ren, f_gxs, tr("Ejecutando", "Running"), c_gray, mx + (float)fname_w + 16.0f, 62.0f, SDL_GetTicks());
             }
             float arxr_y0 = 90.0f;
-            float arxr_line_h = 16.0f;
+            float arxr_line_h = 18.0f;
             if (arexx_output && arexx_output_len > 0 && arexx_output_len != arxr_cached_len) {
                 free(arxr_cached_lines);
                 free(arxr_cached_wrap);
@@ -7122,7 +7620,7 @@ int main(void)
                             do {
                                 int fit_w = 0; size_t fit_len = 0;
                                 if (remaining_len > 0)
-                                    TTF_MeasureString(f_gxsm, cursor, remaining_len, (int)arxr_avail_w, &fit_w, &fit_len);
+                                    TTF_MeasureString(f_gsm, cursor, remaining_len, (int)arxr_avail_w, &fit_w, &fit_len);
                                 if (remaining_len > 0 && fit_len == 0) fit_len = 1; /* progreso garantizado */
                                 size_t break_len = fit_len;
                                 if (fit_len < remaining_len) {
@@ -7163,9 +7661,18 @@ int main(void)
                 arexx_scroll = arxr_max_scroll;
             }
             int arxr_start = arexx_scroll;
+            KsData ks_d;
+            bool ks_view = false;
+            const bool ks_script = strcmp(arexx_scripts[arexx_selected].filename, "kickstart_check.sh") == 0;
+            if (ks_script && !arexx_still_running && arexx_output && arexx_output_len > 0)
+                ks_view = ks_parse(arexx_output, &ks_d);
             SDL_Color c_arxr_lime = c_selbg;
             SDL_Color c_arxr_red  = g_theme.alert;
-            if (arxr_wrap)
+            if (ks_view) {
+                int ks_fw = 0, ks_fh = 0;
+                TTF_GetStringSize(f_ftr, arexx_scripts[arexx_selected].filename, 0, &ks_fw, &ks_fh);
+                ks_draw(ren, &ks_d, mx, mx + (float)ks_fw + 14.0f, f_title, f_gmed, f_gsm, f_gxsm);
+            } else if (arxr_wrap && !(ks_script && arexx_still_running))
                 for (int i = arxr_start; i < arxr_nlines && (i - arxr_start) < arxr_max_visible; i++) {
                     const char *src_line = arxr_cached_lines[arxr_wrap[i].src];
                     SDL_Color line_c = c_gray;
@@ -7173,7 +7680,7 @@ int main(void)
                     else if (strstr(src_line, "[INCORRECTO]") || strstr(src_line, "[CRITICO]") ||
                              strstr(src_line, "[NO EXISTE]")) line_c = c_arxr_red;
                     else if (strstr(src_line, "[AVISO]")) line_c = g_theme.accent;
-                    draw_text(ren, f_gxsm, arxr_wrap[i].text, line_c, mx, arxr_y0 + (i - arxr_start) * arxr_line_h);
+                    draw_text(ren, f_gsm, arxr_wrap[i].text, line_c, mx, arxr_y0 + (i - arxr_start) * arxr_line_h);
                 }
             if (!arexx_still_running && arxr_nlines > arxr_max_visible) {
                 char scroll_info[32];
@@ -7730,7 +8237,7 @@ draw_text(ren, f_ftr, "WIFI", labelc, mx + 8.0f, wty);
 
             /* Barra inferior */
             draw_line(ren, mx, 438.0f, SCREEN_W - 20.0f, 438.0f, c_selbg);
-            draw_footer(ren, f_ftr, tr("[A] Volver  [L1/R1] Pagina", "[A] Back  [L1/R1] Page"), s_version);
+            draw_footer(ren, f_ftr, tr("[B] Informe  [A] Volver  [L1/R1] Pagina", "[B] Report  [A] Back  [L1/R1] Page"), s_version);
         } else if (state == STATE_UPDATE) {
             const float UX = 20.0f;
             draw_statusbar(ren, f_status_bold, status_time, status_wifi_up, status_battery, status_bt_up, bg_update_available, wifi_icon_tex, battery_icon_tex, bt_icon_tex, ssh_icon_tex, update_badge_tex);
@@ -8079,6 +8586,26 @@ draw_text(ren, f_ftr, "WIFI", labelc, mx + 8.0f, wty);
             brightness_popup_until = 0;
         }
 
+        if (diag_pid > 0 || (diag_msg_until > 0 && SDL_GetTicks() < diag_msg_until)) {
+            float pw = 420.0f, ph = 64.0f;
+            float px = (SCREEN_W - pw) / 2.0f;
+            float py = SCREEN_H - ph - 70.0f;
+            draw_rounded_rect_filled(ren, px, py, pw, ph, 16.0f, g_theme.row_bg);
+            if (diag_pid > 0) {
+                draw_text_animdots(ren, f_ftr, tr("Generando informe", "Generating report"),
+                                   g_theme.text_light, px + 24.0f, py + 22.0f, SDL_GetTicks());
+            } else if (diag_msg_ok) {
+                draw_text_centered(ren, f_ftr, tr("Informe guardado en diagnostics/", "Report saved in diagnostics/"),
+                                   g_theme.text_light, SCREEN_W / 2.0f, py + 10.0f);
+                draw_text_centered(ren, f_ftr, diag_msg, g_theme.accent, SCREEN_W / 2.0f, py + 34.0f);
+            } else {
+                draw_text_centered(ren, f_ftr, tr("No se pudo generar el informe", "Could not generate the report"),
+                                   g_theme.text_light, SCREEN_W / 2.0f, py + 22.0f);
+            }
+        } else if (diag_msg_until > 0) {
+            diag_msg_until = 0;
+        }
+
         if (screenshot_flash_until > 0 && SDL_GetTicks() < screenshot_flash_until) {
             SDL_SetRenderDrawBlendMode(ren, SDL_BLENDMODE_BLEND);
             SDL_SetRenderDrawColor(ren, 255, 255, 255, 180);
@@ -8126,6 +8653,10 @@ draw_text(ren, f_ftr, "WIFI", labelc, mx + 8.0f, wty);
         }
     }
 
+    if (volume_save_pending) {
+        save_volume_config(volume_pct);
+        volume_save_pending = false;
+    }
     if (logo_tex) SDL_DestroyTexture(logo_tex);
     cover_release();
     for (int mi = 0; mi < MENU_ICON_COUNT; mi++)

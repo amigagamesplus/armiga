@@ -80,7 +80,7 @@ cat > "$TARGET_DIR/etc/armiga-release" << RELEASE_EOF
 ARMIGA_VERSION=$ARMIGA_VERSION
 BUILD_NUMBER=$BUILD_NUMBER
 KERNEL_VERSION=$KVER
-MESA_VERSION=26.3.0-rc1
+MESA_VERSION=26.3.0-rc2
 RETROARCH_VERSION=$RETROARCH_VER
 SDL3_VERSION=$SDL3_VER
 PUAE2021_CORE_VERSION=$PUAE_VER
@@ -97,9 +97,9 @@ chmod +x "$TARGET_DIR/etc/init.d/S43update"
 cp "$(dirname "$0")/rootfs_overlay/etc/init.d/S52samba" "$TARGET_DIR/etc/init.d/S52samba"
 chmod +x "$TARGET_DIR/etc/init.d/S52samba"
 
-# --- S53samba-toggle -------------------------------------------------------
-cp "$(dirname "$0")/rootfs_overlay/etc/init.d/S53samba-toggle" "$TARGET_DIR/etc/init.d/S53samba-toggle"
-chmod +x "$TARGET_DIR/etc/init.d/S53samba-toggle"
+# --- S92samba-toggle -------------------------------------------------------
+cp "$(dirname "$0")/rootfs_overlay/etc/init.d/S92samba-toggle" "$TARGET_DIR/etc/init.d/S92samba-toggle"
+chmod +x "$TARGET_DIR/etc/init.d/S92samba-toggle"
 
 # --- S05font -----------------------------------------------------------
 cp "$(dirname "$0")/rootfs_overlay/etc/init.d/S05font" "$TARGET_DIR/etc/init.d/S05font"
