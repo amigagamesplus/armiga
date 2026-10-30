@@ -675,6 +675,17 @@ static int semver_cmp(const char *a, const char *b)
 static pid_t s_checkjson_pid = -1;
 /* PID del hijo curl para la descarga del .sha256 (async, fase VERIFYING). */
 static pid_t s_sha_pid = -1;
+/* Datos del release mas reciente (API de GitHub): tamano exacto y SHA256 del
+ * .img.gz y fecha de publicacion (AAAA-MM-DD). */
+static long long s_upd_size = 0;
+static char s_upd_digest[65] = "";
+static char s_upd_published[16] = "";
+/* Progreso de la descarga: bytes en disco, velocidad suavizada (B/s) y ETA (s, -1 = desconocido). */
+static long long s_upd_bytes = 0;
+static float s_upd_speed = 0.0f;
+static int s_upd_eta = -1;
+static Uint64 s_upd_sp_t = 0;
+static long long s_upd_sp_b = 0;
 #define CHECK_JSON_TMP "/tmp/armiga_release.json"
 #define BG_CHECK_JSON_TMP "/tmp/armiga_bgcheck.json"
 /* Lanza curl en background hacia out_path, sin pasar por shell (B01). */
@@ -724,6 +735,9 @@ static int finish_check_update(const char *json_path, const char *current_ver,
     safe_copy(new_ver, "", new_ver_sz);
     safe_copy(dl_url,  "", dl_url_sz);
     safe_copy(sha_url, "", sha_url_sz);
+    s_upd_size = 0;
+    s_upd_digest[0] = '\0';
+    s_upd_published[0] = '\0';
     FILE *f = fopen(json_path, "r");
     if (!f) return -1;
     char line[512];
@@ -732,6 +746,9 @@ static int finish_check_update(const char *json_path, const char *current_ver,
     char sha_asset_url[512] = "";
     bool in_assets = false;
     char last_name[128] = "";
+    char published[16] = "";
+    long long last_size = 0, asset_size = 0;
+    char last_digest[72] = "", asset_digest[72] = "";
     while (fgets(line, sizeof(line), f)) {
         char *p;
         if ((p = strstr(line, "\"tag_name\""))) {
@@ -739,10 +756,21 @@ static int finish_check_update(const char *json_path, const char *current_ver,
             if (!tag[0]) sscanf(p, "\"tag_name\":\"%31[^\"]\"", tag);
             if (!tag[0]) sscanf(p, "\"tag_name\": \"%31[^\"]\"", tag);
         }
+        if (!in_assets && !published[0] && (p = strstr(line, "\"published_at\"")))
+            sscanf(p, "\"published_at\"%*[ :]\"%10[^\"]\"", published);
         if (strstr(line, "\"assets\"")) in_assets = true;
         if (in_assets) {
+            if ((p = strstr(line, "\"size\"")) && strchr(p, ':'))
+                last_size = atoll(strchr(p, ':') + 1);
+            if ((p = strstr(line, "\"digest\""))) {
+                char *sh = strstr(p, "sha256:");
+                last_digest[0] = '\0';
+                if (sh) sscanf(sh + 7, "%64[0-9a-fA-F]", last_digest);
+            }
             if ((p = strstr(line, "\"name\""))) {
                 last_name[0] = '\0';
+                last_size = 0;
+                last_digest[0] = '\0';
                 sscanf(p, "\"name\" : \"%127[^\"]\"", last_name);
                 if (!last_name[0]) sscanf(p, "\"name\":\"%127[^\"]\"", last_name);
                 if (!last_name[0]) sscanf(p, "\"name\": \"%127[^\"]\"", last_name);
@@ -752,8 +780,11 @@ static int finish_check_update(const char *json_path, const char *current_ver,
                 sscanf(p, "\"browser_download_url\" : \"%511[^\"]\"", url);
                 if (!url[0]) sscanf(p, "\"browser_download_url\":\"%511[^\"]\"", url);
                 if (!url[0]) sscanf(p, "\"browser_download_url\": \"%511[^\"]\"", url);
-                if (strstr(last_name, ".img.gz") && !strstr(last_name, ".sha256"))
+                if (strstr(last_name, ".img.gz") && !strstr(last_name, ".sha256")) {
                     safe_copy(asset_url, url, sizeof(asset_url));
+                    asset_size = last_size;
+                    safe_copy(asset_digest, last_digest, sizeof(asset_digest));
+                }
                 if (strstr(last_name, ".sha256"))
                     safe_copy(sha_asset_url, url, sizeof(sha_asset_url));
                 if (asset_url[0] && sha_asset_url[0]) goto parse_done;
@@ -764,6 +795,9 @@ static int finish_check_update(const char *json_path, const char *current_ver,
     fclose(f);
     unlink(json_path);
     if (!tag[0] || !asset_url[0]) return 0;
+    s_upd_size = asset_size;
+    safe_copy(s_upd_digest, asset_digest, sizeof(s_upd_digest));
+    safe_copy(s_upd_published, published, sizeof(s_upd_published));
     const char *ver = tag;
     if (ver[0] == 'v') ver++;
     safe_copy(new_ver, ver, new_ver_sz);
@@ -917,6 +951,11 @@ static int download_update(const char *url, float *progress_out)
         safe_copy(s_last_download_url, url, sizeof(s_last_download_url));
     }
     s_curl_pid = -1;
+    s_upd_bytes = 0;
+    s_upd_speed = 0.0f;
+    s_upd_eta = -1;
+    s_upd_sp_t = 0;
+    s_upd_sp_b = 0;
 
     pid_t pid = fork();
     if (pid < 0) return -1; /* fork fallo */
@@ -928,7 +967,7 @@ static int download_update(const char *url, float *progress_out)
         if (fd >= 0) { dup2(fd, STDOUT_FILENO); dup2(fd, STDERR_FILENO); close(fd); }
         execlp("curl", "curl", "-s", "-C", "-",
                "--retry", "3", "--retry-delay", "2",
-               "--connect-timeout", "15", "--max-time", "300", "-L",
+               "--connect-timeout", "15", "--speed-limit", "1024", "--speed-time", "30", "-L",
                "-o", UPDATE_IMG, url, (char *)NULL);
         _exit(127); /* solo si execlp falla */
     }
@@ -949,18 +988,25 @@ static float get_download_progress(const char *url)
         /* Verificar que el fichero existe y tiene tamaño, y que curl salio OK */
         struct stat st;
         bool curl_ok = (r > 0 && WIFEXITED(status) && WEXITSTATUS(status) == 0);
-        if (curl_ok && stat(UPDATE_IMG, &st) == 0 && st.st_size > 1024*1024)
-            return 1.0f; /* completado */
+        if (curl_ok && stat(UPDATE_IMG, &st) == 0 && st.st_size > 1024*1024) {
+            s_upd_bytes = (long long)st.st_size;
+            if (s_upd_size <= 0 || (long long)st.st_size == s_upd_size)
+                return 1.0f; /* completado */
+            if ((long long)st.st_size > s_upd_size)
+                unlink(UPDATE_IMG); /* mas grande de lo esperado: corrupto, no reanudable */
+        }
         return -1.0f; /* error */
     }
 
-    /* Estimar progreso por tamaño del fichero descargado */
+    /* Progreso real: bytes en disco / tamano exacto del asset (API de GitHub).
+     * Nunca devuelve 0.0f: el bucle principal lo usa como "descarga no iniciada". */
     struct stat st;
-    if (stat(UPDATE_IMG, &st) != 0) return 0.0f;
-    /* Tamaño esperado ~55MB comprimido */
-    float expected = 55.0f * 1024 * 1024;
-    float pct = (float)st.st_size / expected;
-    if (pct > 0.99f) pct = 0.99f;
+    if (stat(UPDATE_IMG, &st) != 0) return 0.001f;
+    s_upd_bytes = (long long)st.st_size;
+    if (s_upd_size <= 0) return 0.001f;
+    float pct = (float)((double)st.st_size / (double)s_upd_size);
+    if (pct < 0.001f) pct = 0.001f;
+    if (pct > 0.999f) pct = 0.999f;
     return pct;
 }
 
@@ -6184,6 +6230,15 @@ int main(void)
                 } else {
                     float p = get_download_progress(upd_dl_url);
                     if (p >= 0.0f) upd_progress = p;
+                    if (s_upd_sp_t == 0 || now_ticks < s_upd_sp_t) {
+                        s_upd_sp_t = now_ticks; s_upd_sp_b = s_upd_bytes;
+                    } else if (now_ticks - s_upd_sp_t >= 1000) {
+                        float inst = (float)(s_upd_bytes - s_upd_sp_b) * 1000.0f / (float)(now_ticks - s_upd_sp_t);
+                        s_upd_speed = (s_upd_speed <= 0.0f) ? inst : s_upd_speed * 0.7f + inst * 0.3f;
+                        s_upd_sp_t = now_ticks; s_upd_sp_b = s_upd_bytes;
+                        s_upd_eta = (s_upd_size > 0 && s_upd_speed > 1024.0f)
+                                  ? (int)((double)(s_upd_size - s_upd_bytes) / (double)s_upd_speed) : -1;
+                    }
                     if (p == 1.0f) update_phase = UPD_VERIFYING;
                     if (p < 0.0f && upd_progress > 0.0f) {
                         update_phase = UPD_ERROR;
@@ -8318,13 +8373,47 @@ draw_text(ren, f_ftr, "WIFI", labelc, mx + 8.0f, wty);
             } else if (update_phase == UPD_DOWNLOADING) {
                 draw_text_animdots(ren, f_ftr, tr("Descargando actualización", "Downloading update"), c_white, UX, 100.0f, now_ticks);
                 /* Barra de progreso */
-                int pct = (int)(upd_progress * 100.0f);
-                char pct_buf[8]; snprintf(pct_buf, sizeof(pct_buf), "%d%%", pct);
-                { SDL_Color _c_upd_bg = g_theme.row_bg;
-                  SDL_Color _c_upd_fill = c_selbg;
-                  draw_bar_rounded(ren, UX, 122.0f, 260.0f, 12.0f, upd_progress, _c_upd_bg, _c_upd_fill); }
-                draw_text(ren, f_ftr, pct_buf, c_white, UX + 270.0f, 118.0f);
-                draw_text(ren, f_ftr, tr("No apagues el dispositivo durante la descarga.", "Do not turn off the device during download."), c_gray, UX, 144.0f);
+                {
+                    const float bar_x = UX, bar_y = 122.0f, bar_w = SCREEN_W - 2.0f * UX, bar_h = 22.0f;
+                    float fr = upd_progress < 0.0f ? 0.0f : (upd_progress > 1.0f ? 1.0f : upd_progress);
+                    char pct_buf[8]; snprintf(pct_buf, sizeof(pct_buf), "%d%%", (int)(fr * 100.0f));
+                    draw_bar_rounded(ren, bar_x, bar_y, bar_w, bar_h, fr, g_theme.row_bg, c_selbg);
+                    float fill_w = bar_w * fr;
+                    if (fill_w < bar_h) fill_w = bar_h;
+                    int tw = 0, th = 0;
+                    TTF_GetStringSize(f_ftr, pct_buf, 0, &tw, &th);
+                    float tx = bar_x + (bar_w - (float)tw) / 2.0f;
+                    float ty = bar_y + (bar_h - (float)th) / 2.0f + 2.0f;
+                    int split = (int)(bar_x + fill_w + 0.5f);
+                    SDL_Rect clip_fill = { (int)bar_x, (int)bar_y, split - (int)bar_x, (int)bar_h };
+                    SDL_Rect clip_rest = { split, (int)bar_y, (int)(bar_x + bar_w) - split, (int)bar_h };
+                    SDL_SetRenderClipRect(ren, &clip_fill);
+                    draw_text(ren, f_ftr, pct_buf, g_theme.text_on_accent, tx, ty);
+                    SDL_SetRenderClipRect(ren, &clip_rest);
+                    draw_text(ren, f_ftr, pct_buf, g_theme.text_light, tx, ty);
+                    SDL_SetRenderClipRect(ren, NULL);
+                }
+                {
+                    char l_buf[48], r_buf[64] = "";
+                    double mb_done = (double)s_upd_bytes / 1048576.0;
+                    if (s_upd_size > 0) snprintf(l_buf, sizeof(l_buf), "%.0f / %.0f MB", mb_done, (double)s_upd_size / 1048576.0);
+                    else snprintf(l_buf, sizeof(l_buf), "%.0f MB", mb_done);
+                    if (s_upd_speed > 1024.0f) {
+                        double mbs = (double)s_upd_speed / 1048576.0;
+                        if (s_upd_eta >= 0)
+                            snprintf(r_buf, sizeof(r_buf), tr("%.1f MB/s  ·  %d:%02d restantes", "%.1f MB/s  ·  %d:%02d left"),
+                                     mbs, s_upd_eta / 60, s_upd_eta % 60);
+                        else
+                            snprintf(r_buf, sizeof(r_buf), "%.1f MB/s", mbs);
+                    }
+                    draw_text(ren, f_ftr, l_buf, c_white, UX, 152.0f);
+                    if (r_buf[0]) {
+                        int rw = 0, rh = 0;
+                        TTF_GetStringSize(f_ftr, r_buf, 0, &rw, &rh);
+                        draw_text(ren, f_ftr, r_buf, c_white, SCREEN_W - UX - (float)rw, 152.0f);
+                    }
+                }
+                draw_text(ren, f_ftr, tr("No apagues el dispositivo durante la descarga.", "Do not turn off the device during download."), c_gray, UX, 182.0f);
 
             } else if (update_phase == UPD_VERIFYING) {
                 draw_text_animdots(ren, f_ftr, tr("Verificando integridad", "Verifying integrity"), c_white, UX, 100.0f, now_ticks);
