@@ -166,3 +166,10 @@ make -C output -j$(nproc)
 ## License
 
 Each component retains its original license.
+
+## Credits
+
+Game metadata shown in the launcher catalog (release year, developer, publisher, genre) comes from:
+
+- [IGDB.com](https://www.igdb.com)
+- [OpenRetro](https://openretro.org/amiga)
