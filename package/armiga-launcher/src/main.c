@@ -8376,8 +8376,8 @@ draw_text(ren, f_ftr, "WIFI", labelc, mx + 8.0f, wty);
             const float SI_CW_R  = 420.0f;
             const float SI_MX    = (SCREEN_W - SI_CW_L) / 2.0f;   /* centrado horizontal */
             const float SI_RX    = SI_MX;
-            const float SI_ROW_H = 17.0f;   /* altura de fila label+valor */
-            const float SI_BLK_H = 120.0f;  /* altura de cada bloque, 3 bloques por pagina */
+            const float SI_ROW_H = 19.0f;   /* altura de fila label+valor */
+            const float SI_BLK_H = 130.0f;  /* altura de cada bloque, 3 bloques por pagina */
             const float SI_Y0    = 54.0f;   /* Y inicio primer bloque */
             const float SI_SEP_H1 = SI_Y0 + SI_BLK_H;
             const float SI_SEP_H2 = SI_Y0 + SI_BLK_H * 2;
