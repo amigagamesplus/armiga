@@ -6998,6 +6998,8 @@ int main(void)
                         safe_copy(pn_bk_last, pn_bk_n > 0 ? pn_bk_names[0] : "", sizeof(pn_bk_last));
                     } else if (pn_sel == 3) {
                         read_current_tz(pn_tz, sizeof(pn_tz));
+                    } else if (pn_sel == 6 || pn_sel == 7) {
+                        read_ip_address(pn_ip, sizeof(pn_ip));
                     }
                 }
                 float pn_cy = pn_y + 14.0f;
@@ -7054,13 +7056,18 @@ int main(void)
                     pn_cy += 30.0f;
                     pn_desc = tr("Ajusta la luz de fondo de la pantalla.", "Adjusts the screen backlight.");
                     break;
-                case 6:
-                    PN_KV(tr("Estado", "Status"), PN_ONOFF(ssh_enabled));
+                case 6: {
+                    char pn_b[48];
+                    snprintf(pn_b, sizeof(pn_b), "root@%s", pn_ip[0] ? pn_ip : "--");
+                    PN_KV(tr("Acceso", "Access"), pn_b);
                     pn_desc = tr("Acceso remoto por terminal a través de la red.", "Remote terminal access over the network.");
-                    break;
+                    break; }
                 case 7:
-                    PN_KV(tr("Estado", "Status"), PN_ONOFF(samba_enabled));
-                    PN_KV(tr("Recurso", "Share"), "\\\\armiga");
+                    {
+                        char pn_b[48];
+                        snprintf(pn_b, sizeof(pn_b), "\\\\%s", pn_ip[0] ? pn_ip : "armiga");
+                        PN_KV(tr("Acceso", "Access"), pn_b);
+                    }
                     pn_desc = tr("Compartición de archivos en red (SMB) con tu PC.", "Network file sharing (SMB) with your PC.");
                     break;
                 case 8: {
@@ -7080,7 +7087,6 @@ int main(void)
                     pn_desc = tr("Activa o desactiva el Bluetooth.", "Enable or disable Bluetooth.");
                     break;
                 case 10:
-                    PN_KV(tr("Actual", "Current"), refresh_120hz ? "120 Hz" : "60 Hz");
                     pn_desc = tr("Frecuencia de refresco de la pantalla.", "Screen refresh rate.");
                     break;
                 case 11:
