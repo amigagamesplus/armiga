@@ -3750,12 +3750,12 @@ static void draw_bar_rounded(SDL_Renderer *r, float x, float y, float w, float h
 }
 /* Barra de la pantalla de actualizacion: porcentaje centrado dentro; el color del
  * texto cambia en el borde del relleno (oscuro sobre el acento, claro sobre el fondo). */
-static void draw_upd_bar(SDL_Renderer *r, TTF_Font *f, float bar_x, float bar_y, float bar_w, float bar_h, float frac)
+static void draw_upd_bar_ex(SDL_Renderer *r, TTF_Font *f, float bar_x, float bar_y, float bar_w, float bar_h, float frac, SDL_Color track)
 {
     float fr = frac < 0.0f ? 0.0f : (frac > 1.0f ? 1.0f : frac);
     char pct_buf[8];
     snprintf(pct_buf, sizeof(pct_buf), "%d%%", (int)(fr * 100.0f));
-    draw_bar_rounded(r, bar_x, bar_y, bar_w, bar_h, fr, g_theme.row_bg, g_theme.accent);
+    draw_bar_rounded(r, bar_x, bar_y, bar_w, bar_h, fr, track, g_theme.accent);
     float fill_w = bar_w * fr;
     if (fill_w < bar_h) fill_w = bar_h;
     int tw = 0, th = 0;
@@ -3770,6 +3770,10 @@ static void draw_upd_bar(SDL_Renderer *r, TTF_Font *f, float bar_x, float bar_y,
     SDL_SetRenderClipRect(r, &clip_rest);
     draw_text(r, f, pct_buf, g_theme.text_light, tx, ty);
     SDL_SetRenderClipRect(r, NULL);
+}
+static void draw_upd_bar(SDL_Renderer *r, TTF_Font *f, float bar_x, float bar_y, float bar_w, float bar_h, float frac)
+{
+    draw_upd_bar_ex(r, f, bar_x, bar_y, bar_w, bar_h, frac, g_theme.row_bg);
 }
 static float draw_status_pill(SDL_Renderer *ren, TTF_Font *f, float right_edge, float y_center,
                                SDL_Texture *icon, const char *label, SDL_Color fg, SDL_Color bg,
@@ -6966,6 +6970,140 @@ int main(void)
                     }
                     draw_text(ren, f_gset, item_label, c_menu_beige, mx + 46.0f, ty);
                 }
+            }
+            /* Panel de detalle (derecha): estado y descripcion del ajuste seleccionado. */
+            {
+                const float pn_x = 340.0f, pn_y = 60.0f, pn_w = SCREEN_W - 20.0f - 340.0f, pn_h = 352.0f;
+                const float pn_ix = pn_x + 16.0f, pn_iw = pn_w - 32.0f;
+                const SDL_Color pn_val = g_theme.text_light;
+                const SDL_Color pn_dim = { (Uint8)((g_theme.row_bg.r * 45 + g_theme.text_light.r * 55) / 100),
+                                           (Uint8)((g_theme.row_bg.g * 45 + g_theme.text_light.g * 55) / 100),
+                                           (Uint8)((g_theme.row_bg.b * 45 + g_theme.text_light.b * 55) / 100), 255 };
+                static int pn_sel = -1;
+                static Uint64 pn_t = 0;
+                static char pn_ssid[64] = "", pn_ip[32] = "", pn_sig[32] = "", pn_tz[64] = "", pn_bk_last[64] = "";
+                static char pn_bk_names[64][64];
+                static int pn_pct = -1, pn_bk_n = 0;
+                if (pn_sel != settings_selected || now_ticks < pn_t || now_ticks - pn_t > 2000) {
+                    pn_sel = settings_selected;
+                    pn_t = now_ticks;
+                    if (pn_sel == 0) {
+                        char pn_pw[64];
+                        read_wifi_conf(pn_ssid, sizeof(pn_ssid), pn_pw, sizeof(pn_pw));
+                        memset(pn_pw, 0, sizeof(pn_pw));
+                        read_ip_address(pn_ip, sizeof(pn_ip));
+                        read_wifi_signal(pn_sig, sizeof(pn_sig), &pn_pct);
+                    } else if (pn_sel == 1) {
+                        pn_bk_n = list_backups(pn_bk_names, 64);
+                        safe_copy(pn_bk_last, pn_bk_n > 0 ? pn_bk_names[0] : "", sizeof(pn_bk_last));
+                    } else if (pn_sel == 3) {
+                        read_current_tz(pn_tz, sizeof(pn_tz));
+                    }
+                }
+                float pn_cy = pn_y + 14.0f;
+                const char *pn_desc = "";
+                draw_rounded_rect_filled(ren, pn_x, pn_y, pn_w, pn_h, 12.0f, g_theme.row_bg);
+                draw_text_truncated(ren, f_gset, SETTINGS_MENU_ITEMS[settings_selected][current_lang], g_theme.accent, pn_ix, pn_cy, pn_iw);
+                pn_cy += 36.0f;
+#define PN_KV(lbl, val) do { \
+    draw_text(ren, f_ftr, (lbl), pn_dim, pn_ix, pn_cy); \
+    draw_text_truncated(ren, f_ftr, (val), pn_val, pn_ix + 92.0f, pn_cy, pn_iw - 92.0f); \
+    pn_cy += 24.0f; \
+} while (0)
+#define PN_ONOFF(on) ((on) ? tr("Activado", "Enabled") : tr("Desactivado", "Disabled"))
+                switch (settings_selected) {
+                case 0:
+                    PN_KV(tr("Estado", "Status"), status_wifi_up ? tr("Conectado", "Connected") : tr("Desconectado", "Disconnected"));
+                    PN_KV(tr("Red", "Network"), pn_ssid[0] ? pn_ssid : "--");
+                    PN_KV("IP", pn_ip[0] ? pn_ip : "--");
+                    draw_text(ren, f_ftr, tr("Señal", "Signal"), pn_dim, pn_ix, pn_cy);
+                    if (pn_pct >= 0)
+                        draw_bar_rounded(ren, pn_ix + 92.0f, pn_cy + 4.0f, pn_iw - 92.0f, 8.0f, (float)pn_pct / 100.0f, g_theme.bg, g_theme.accent);
+                    else
+                        draw_text(ren, f_ftr, "--", pn_val, pn_ix + 92.0f, pn_cy);
+                    pn_cy += 24.0f;
+                    pn_desc = tr("Conecta con una red Wi-Fi y gestiona sus datos.", "Connect to a Wi-Fi network and manage its details.");
+                    break;
+                case 1: {
+                    char pn_b[16];
+                    snprintf(pn_b, sizeof(pn_b), "%d", pn_bk_n);
+                    PN_KV(tr("Copias", "Backups"), pn_b);
+                    PN_KV(tr("Última", "Latest"), pn_bk_last[0] ? pn_bk_last : "--");
+                    pn_desc = tr("Crea, restaura y borra copias de seguridad.", "Create, restore and delete backups.");
+                    break; }
+                case 2:
+                    pn_desc = tr("Color y brillo de los LED de los sticks analógicos.", "Color and brightness of the analog stick LEDs.");
+                    break;
+                case 3:
+                    PN_KV(tr("Zona", "Zone"), pn_tz[0] ? pn_tz : "UTC");
+                    PN_KV(tr("Hora local", "Local time"), status_time);
+                    pn_desc = tr("Zona horaria que usa el reloj del sistema.", "Time zone used by the system clock.");
+                    break;
+                case 4: {
+                    const char *pn_to = DIM_TIMEOUT_LABELS[0][current_lang];
+                    for (int k = 0; k < DIM_TIMEOUT_COUNT; k++)
+                        if (DIM_TIMEOUT_OPTIONS[k] == g_cfg.dim_timeout_sec) pn_to = DIM_TIMEOUT_LABELS[k][current_lang];
+                    char pn_b[16];
+                    snprintf(pn_b, sizeof(pn_b), "%d%%", g_cfg.dim_percent);
+                    PN_KV(tr("Tras", "After"), pn_to);
+                    PN_KV(tr("Nivel", "Level"), pn_b);
+                    pn_desc = tr("Atenúa la pantalla tras un tiempo sin actividad.", "Dims the screen after a period of inactivity.");
+                    break; }
+                case 5:
+                    draw_upd_bar_ex(ren, f_ftr, pn_ix, pn_cy, pn_iw, 22.0f, (float)brightness_pct / 100.0f, g_theme.bg);
+                    pn_cy += 30.0f;
+                    pn_desc = tr("Ajusta la luz de fondo de la pantalla.", "Adjusts the screen backlight.");
+                    break;
+                case 6:
+                    PN_KV(tr("Estado", "Status"), PN_ONOFF(ssh_enabled));
+                    pn_desc = tr("Acceso remoto por terminal a través de la red.", "Remote terminal access over the network.");
+                    break;
+                case 7:
+                    PN_KV(tr("Estado", "Status"), PN_ONOFF(samba_enabled));
+                    PN_KV(tr("Recurso", "Share"), "\\\\armiga");
+                    pn_desc = tr("Compartición de archivos en red (SMB) con tu PC.", "Network file sharing (SMB) with your PC.");
+                    break;
+                case 8: {
+                    static const char *const pn_perf_n[3][2] = {
+                        {"Rendimiento máximo", "Maximum performance"}, {"Equilibrado", "Balanced"}, {"Ahorro de batería", "Battery saver"} };
+                    static const char *const pn_perf_d[3][2] = {
+                        {"CPU y GPU siempre a máxima frecuencia. Mayor consumo.", "CPU and GPU always at max frequency. Higher consumption."},
+                        {"CPU adaptativa, GPU a máxima frecuencia. Buen balance.", "Adaptive CPU, max GPU frequency. Good balance."},
+                        {"CPU y GPU a frecuencia mínima. Mayor autonomía.", "CPU and GPU at minimum frequency. Longer battery life."} };
+                    int pp = g_cfg.perf_profile;
+                    if (pp < 0 || pp > 2) pp = 1;
+                    PN_KV(tr("Perfil", "Profile"), pn_perf_n[pp][current_lang]);
+                    pn_desc = pn_perf_d[pp][current_lang];
+                    break; }
+                case 9:
+                    PN_KV(tr("Estado", "Status"), PN_ONOFF(g_cfg.bt_enabled));
+                    pn_desc = tr("Activa o desactiva el Bluetooth.", "Enable or disable Bluetooth.");
+                    break;
+                case 10:
+                    PN_KV(tr("Actual", "Current"), refresh_120hz ? "120 Hz" : "60 Hz");
+                    pn_desc = tr("Frecuencia de refresco de la pantalla.", "Screen refresh rate.");
+                    break;
+                case 11:
+                    pn_desc = tr("Restaura todos los ajustes. Se conservan ROMs, Kickstarts, partidas, copias y capturas.",
+                                 "Restores all settings. ROMs, Kickstarts, saves, backups and screenshots are kept.");
+                    break;
+                case 12:
+                    pn_desc = tr("Prueba botones, sticks y gatillos del mando.", "Test the buttons, sticks and triggers of the controller.");
+                    break;
+                case 13:
+                    if (g_cfg.theme_index >= 0 && g_cfg.theme_index < THEME_COUNT)
+                        PN_KV(tr("Actual", "Current"), THEME_NAMES[g_cfg.theme_index][current_lang]);
+                    pn_desc = tr("Cambia la paleta de colores de la interfaz.", "Changes the interface color palette.");
+                    break;
+                default:
+                    break;
+                }
+                if (pn_desc[0]) {
+                    int pn_nl = count_text_wrapped(f_ftr, pn_desc, pn_iw);
+                    draw_text_wrapped(ren, f_ftr, pn_desc, pn_dim, pn_ix, pn_y + pn_h - 14.0f - (float)pn_nl * 17.0f, pn_iw, 17.0f);
+                }
+#undef PN_KV
+#undef PN_ONOFF
             }
             if (settings_scroll > 0) {
                 draw_text(ren, f_gxs, tr("más arriba ↑", "more above ↑"), c_menu_selbg,
