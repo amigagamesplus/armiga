@@ -1,0 +1,18 @@
+diff --git a/drivers/clk/sunxi-ng/ccu_common.c b/drivers/clk/sunxi-ng/ccu_common.c
+--- a/drivers/clk/sunxi-ng/ccu_common.c
++++ b/drivers/clk/sunxi-ng/ccu_common.c
+@@ -94,6 +94,14 @@
+ 	if (ret)
+ 		goto out;
+ 
++	/*
++	 * With CLK_SET_RATE_UNGATE the PLL is gated again before this
++	 * POST_RATE_CHANGE notification when nothing else keeps it enabled,
++	 * so its lock bit can never be set: don't wait for it.
++	 */
++	if (!clk_hw_is_enabled(&pll->common->hw))
++		goto out;
++
+ 	ccu_helper_wait_for_lock(pll->common, pll->lock);
+ 
+ out:
