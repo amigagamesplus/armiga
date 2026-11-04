@@ -31,7 +31,7 @@ ARMIGA is a minimal Linux distribution based on **Buildroot** for the **Anbernic
 
 ### Working components
 
-- ✅ Boot (U-Boot 2026.01 + kernel 7.3.0-armiga + DTB); with the console off, plugging in USB-C only charges the battery (AXP717 charge-only boot, the system does not start)
+- ✅ Boot (U-Boot 2026.01 + kernel 7.4.0-rc1-armiga + DTB); with the console off, plugging in USB-C only charges the battery (AXP717 charge-only boot, the system does not start)
 - ✅ **A/B** partition scheme with automatic rollback (see below)
 - ✅ Rootfs on **SquashFS + zstd** (system/system_b, 300MB per slot, ro)
 - ✅ RTL8821CS WiFi (`wpa_supplicant` + `udhcpc`, config generated in `/tmp` — `/etc` is ro)
@@ -59,9 +59,9 @@ ARMIGA is a minimal Linux distribution based on **Buildroot** for the **Anbernic
 
 | # | Label       | FS       | Size            | Content                                            | Mount                           |
 | --- | ----------- | -------- | --------------- | -------------------------------------------------- | -------------------------------- |
-| 1 | boot        | FAT32    | 64 MB           | Kernel, dtb.img, extlinux.conf (armiga-A/B labels) | `/boot` (on demand)              |
-| 2 | system      | squashfs | 300 MB          | Rootfs — slot A                                    | `/` (ro) if `DEFAULT=armiga-A`   |
-| 3 | system\_b   | squashfs | 300 MB          | Rootfs — slot B (identical copy on every build)    | `/` (ro) if `DEFAULT=armiga-B`   |
+| 1 | boot        | FAT32    | 64 MB           | Kernel, dtb.img, extlinux.conf (armiga-a/b labels) | `/boot` (on demand)              |
+| 2 | system      | squashfs | 300 MB          | Rootfs — slot A                                    | `/` (ro) if `DEFAULT=armiga-a`   |
+| 3 | system\_b   | squashfs | 300 MB          | Rootfs — slot B (identical copy on every build)    | `/` (ro) if `DEFAULT=armiga-b`   |
 | 4 | amiga\_data | exFAT    | rest of the disk | Kickstarts, ROMs, configs, saves                   | `/media/amiga_data`              |
 
 `amiga_data` **must always** be the last physical partition, so that auto-expansion to 100% of the disk works on SD cards of any size.
