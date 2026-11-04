@@ -1,0 +1,19 @@
+dts: h616: disable the video-codec node
+
+Linux 7.4-rc1 adds video-codec@1c0e000 to sun50i-h616.dtsi with an iommus
+property and no status, so it is enabled by default. That makes the sun50i
+IOMMU translate for every master and the display engine (which uses physical
+addresses) page-faults on every frame: backlight on, black screen.
+No driver is used for the video engine in armiga, so keep the node disabled.
+
+---
+--- a/arch/arm64/boot/dts/allwinner/sun50i-h616.dtsi
++++ b/arch/arm64/boot/dts/allwinner/sun50i-h616.dtsi
+@@ -185,6 +185,7 @@
+ 			interrupts = <GIC_SPI 93 IRQ_TYPE_LEVEL_HIGH>;
+ 			iommus = <&iommu 3>, <&iommu 2>;
+ 			allwinner,sram = <&ve_sram 1>, <&sram_c 1>;
++			status = "disabled";
+ 		};
+ 
+ 		syscon: syscon@3000000 {

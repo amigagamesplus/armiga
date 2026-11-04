@@ -675,6 +675,17 @@ static int semver_cmp(const char *a, const char *b)
 static pid_t s_checkjson_pid = -1;
 /* PID del hijo curl para la descarga del .sha256 (async, fase VERIFYING). */
 static pid_t s_sha_pid = -1;
+/* Datos del release mas reciente (API de GitHub): tamano exacto y SHA256 del
+ * .img.gz y fecha de publicacion (AAAA-MM-DD). */
+static long long s_upd_size = 0;
+static char s_upd_digest[65] = "";
+static char s_upd_published[16] = "";
+/* Progreso de la descarga: bytes en disco, velocidad suavizada (B/s) y ETA (s, -1 = desconocido). */
+static long long s_upd_bytes = 0;
+static float s_upd_speed = 0.0f;
+static int s_upd_eta = -1;
+static Uint64 s_upd_sp_t = 0;
+static long long s_upd_sp_b = 0;
 #define CHECK_JSON_TMP "/tmp/armiga_release.json"
 #define BG_CHECK_JSON_TMP "/tmp/armiga_bgcheck.json"
 /* Lanza curl en background hacia out_path, sin pasar por shell (B01). */
@@ -724,6 +735,9 @@ static int finish_check_update(const char *json_path, const char *current_ver,
     safe_copy(new_ver, "", new_ver_sz);
     safe_copy(dl_url,  "", dl_url_sz);
     safe_copy(sha_url, "", sha_url_sz);
+    s_upd_size = 0;
+    s_upd_digest[0] = '\0';
+    s_upd_published[0] = '\0';
     FILE *f = fopen(json_path, "r");
     if (!f) return -1;
     char line[512];
@@ -732,6 +746,9 @@ static int finish_check_update(const char *json_path, const char *current_ver,
     char sha_asset_url[512] = "";
     bool in_assets = false;
     char last_name[128] = "";
+    char published[16] = "";
+    long long last_size = 0, asset_size = 0;
+    char last_digest[72] = "", asset_digest[72] = "";
     while (fgets(line, sizeof(line), f)) {
         char *p;
         if ((p = strstr(line, "\"tag_name\""))) {
@@ -739,10 +756,21 @@ static int finish_check_update(const char *json_path, const char *current_ver,
             if (!tag[0]) sscanf(p, "\"tag_name\":\"%31[^\"]\"", tag);
             if (!tag[0]) sscanf(p, "\"tag_name\": \"%31[^\"]\"", tag);
         }
+        if (!in_assets && !published[0] && (p = strstr(line, "\"published_at\"")))
+            sscanf(p, "\"published_at\"%*[ :]\"%10[^\"]\"", published);
         if (strstr(line, "\"assets\"")) in_assets = true;
         if (in_assets) {
+            if ((p = strstr(line, "\"size\"")) && strchr(p, ':'))
+                last_size = atoll(strchr(p, ':') + 1);
+            if ((p = strstr(line, "\"digest\""))) {
+                char *sh = strstr(p, "sha256:");
+                last_digest[0] = '\0';
+                if (sh) sscanf(sh + 7, "%64[0-9a-fA-F]", last_digest);
+            }
             if ((p = strstr(line, "\"name\""))) {
                 last_name[0] = '\0';
+                last_size = 0;
+                last_digest[0] = '\0';
                 sscanf(p, "\"name\" : \"%127[^\"]\"", last_name);
                 if (!last_name[0]) sscanf(p, "\"name\":\"%127[^\"]\"", last_name);
                 if (!last_name[0]) sscanf(p, "\"name\": \"%127[^\"]\"", last_name);
@@ -752,8 +780,11 @@ static int finish_check_update(const char *json_path, const char *current_ver,
                 sscanf(p, "\"browser_download_url\" : \"%511[^\"]\"", url);
                 if (!url[0]) sscanf(p, "\"browser_download_url\":\"%511[^\"]\"", url);
                 if (!url[0]) sscanf(p, "\"browser_download_url\": \"%511[^\"]\"", url);
-                if (strstr(last_name, ".img.gz") && !strstr(last_name, ".sha256"))
+                if (strstr(last_name, ".img.gz") && !strstr(last_name, ".sha256")) {
                     safe_copy(asset_url, url, sizeof(asset_url));
+                    asset_size = last_size;
+                    safe_copy(asset_digest, last_digest, sizeof(asset_digest));
+                }
                 if (strstr(last_name, ".sha256"))
                     safe_copy(sha_asset_url, url, sizeof(sha_asset_url));
                 if (asset_url[0] && sha_asset_url[0]) goto parse_done;
@@ -764,6 +795,9 @@ static int finish_check_update(const char *json_path, const char *current_ver,
     fclose(f);
     unlink(json_path);
     if (!tag[0] || !asset_url[0]) return 0;
+    s_upd_size = asset_size;
+    safe_copy(s_upd_digest, asset_digest, sizeof(s_upd_digest));
+    safe_copy(s_upd_published, published, sizeof(s_upd_published));
     const char *ver = tag;
     if (ver[0] == 'v') ver++;
     safe_copy(new_ver, ver, new_ver_sz);
@@ -917,6 +951,11 @@ static int download_update(const char *url, float *progress_out)
         safe_copy(s_last_download_url, url, sizeof(s_last_download_url));
     }
     s_curl_pid = -1;
+    s_upd_bytes = 0;
+    s_upd_speed = 0.0f;
+    s_upd_eta = -1;
+    s_upd_sp_t = 0;
+    s_upd_sp_b = 0;
 
     pid_t pid = fork();
     if (pid < 0) return -1; /* fork fallo */
@@ -928,7 +967,7 @@ static int download_update(const char *url, float *progress_out)
         if (fd >= 0) { dup2(fd, STDOUT_FILENO); dup2(fd, STDERR_FILENO); close(fd); }
         execlp("curl", "curl", "-s", "-C", "-",
                "--retry", "3", "--retry-delay", "2",
-               "--connect-timeout", "15", "--max-time", "300", "-L",
+               "--connect-timeout", "15", "--speed-limit", "1024", "--speed-time", "30", "-L",
                "-o", UPDATE_IMG, url, (char *)NULL);
         _exit(127); /* solo si execlp falla */
     }
@@ -949,28 +988,202 @@ static float get_download_progress(const char *url)
         /* Verificar que el fichero existe y tiene tamaño, y que curl salio OK */
         struct stat st;
         bool curl_ok = (r > 0 && WIFEXITED(status) && WEXITSTATUS(status) == 0);
-        if (curl_ok && stat(UPDATE_IMG, &st) == 0 && st.st_size > 1024*1024)
-            return 1.0f; /* completado */
+        if (curl_ok && stat(UPDATE_IMG, &st) == 0 && st.st_size > 1024*1024) {
+            s_upd_bytes = (long long)st.st_size;
+            if (s_upd_size <= 0 || (long long)st.st_size == s_upd_size)
+                return 1.0f; /* completado */
+            if ((long long)st.st_size > s_upd_size)
+                unlink(UPDATE_IMG); /* mas grande de lo esperado: corrupto, no reanudable */
+        }
         return -1.0f; /* error */
     }
 
-    /* Estimar progreso por tamaño del fichero descargado */
+    /* Progreso real: bytes en disco / tamano exacto del asset (API de GitHub).
+     * Nunca devuelve 0.0f: el bucle principal lo usa como "descarga no iniciada". */
     struct stat st;
-    if (stat(UPDATE_IMG, &st) != 0) return 0.0f;
-    /* Tamaño esperado ~55MB comprimido */
-    float expected = 55.0f * 1024 * 1024;
-    float pct = (float)st.st_size / expected;
-    if (pct > 0.99f) pct = 0.99f;
+    if (stat(UPDATE_IMG, &st) != 0) return 0.001f;
+    s_upd_bytes = (long long)st.st_size;
+    if (s_upd_size <= 0) return 0.001f;
+    float pct = (float)((double)st.st_size / (double)s_upd_size);
+    if (pct < 0.001f) pct = 0.001f;
+    if (pct > 0.999f) pct = 0.999f;
     return pct;
 }
 
-static int verify_sha256(void)
+/* ==== UPD VERIFY BEGIN ==== */
+/* Verificacion del .img.gz: SHA-256 calculado en un proceso hijo (la interfaz no
+ * se bloquea) que informa del progreso por una tuberia. El hash esperado sale del
+ * campo "digest" de la API de GitHub; si no esta, del fichero .sha256. */
+typedef struct { Uint32 h[8]; Uint64 len; Uint8 buf[64]; int n; } Sha256Ctx;
+static const Uint32 sha256_k[64] = {
+    0x428a2f98,0x71374491,0xb5c0fbcf,0xe9b5dba5,0x3956c25b,0x59f111f1,0x923f82a4,0xab1c5ed5,
+    0xd807aa98,0x12835b01,0x243185be,0x550c7dc3,0x72be5d74,0x80deb1fe,0x9bdc06a7,0xc19bf174,
+    0xe49b69c1,0xefbe4786,0x0fc19dc6,0x240ca1cc,0x2de92c6f,0x4a7484aa,0x5cb0a9dc,0x76f988da,
+    0x983e5152,0xa831c66d,0xb00327c8,0xbf597fc7,0xc6e00bf3,0xd5a79147,0x06ca6351,0x14292967,
+    0x27b70a85,0x2e1b2138,0x4d2c6dfc,0x53380d13,0x650a7354,0x766a0abb,0x81c2c92e,0x92722c85,
+    0xa2bfe8a1,0xa81a664b,0xc24b8b70,0xc76c51a3,0xd192e819,0xd6990624,0xf40e3585,0x106aa070,
+    0x19a4c116,0x1e376c08,0x2748774c,0x34b0bcb5,0x391c0cb3,0x4ed8aa4a,0x5b9cca4f,0x682e6ff3,
+    0x748f82ee,0x78a5636f,0x84c87814,0x8cc70208,0x90befffa,0xa4506ceb,0xbef9a3f7,0xc67178f2
+};
+#define SHA_ROR(x, n) (((x) >> (n)) | ((x) << (32 - (n))))
+static void sha256_block(Sha256Ctx *c, const Uint8 *p)
 {
-    if (access(UPDATE_SHA256, F_OK) != 0) return -1; /* sin sha, rechazar (fail-safe) */
-    /* sha256sum -c verifica el fichero */
-    int ret = system("cd \"" UPDATE_DIR "\" && sha256sum -c armiga.img.gz.sha256 >/dev/null 2>&1");
-    return (ret == 0) ? 0 : -1;
+    Uint32 w[64];
+    for (int i = 0; i < 16; i++)
+        w[i] = ((Uint32)p[4*i] << 24) | ((Uint32)p[4*i+1] << 16) | ((Uint32)p[4*i+2] << 8) | (Uint32)p[4*i+3];
+    for (int i = 16; i < 64; i++) {
+        Uint32 s0 = SHA_ROR(w[i-15], 7) ^ SHA_ROR(w[i-15], 18) ^ (w[i-15] >> 3);
+        Uint32 s1 = SHA_ROR(w[i-2], 17) ^ SHA_ROR(w[i-2], 19) ^ (w[i-2] >> 10);
+        w[i] = w[i-16] + s0 + w[i-7] + s1;
+    }
+    Uint32 a = c->h[0], b = c->h[1], cc = c->h[2], d = c->h[3];
+    Uint32 e = c->h[4], f = c->h[5], g = c->h[6], h = c->h[7];
+    for (int i = 0; i < 64; i++) {
+        Uint32 S1 = SHA_ROR(e, 6) ^ SHA_ROR(e, 11) ^ SHA_ROR(e, 25);
+        Uint32 ch = (e & f) ^ (~e & g);
+        Uint32 t1 = h + S1 + ch + sha256_k[i] + w[i];
+        Uint32 S0 = SHA_ROR(a, 2) ^ SHA_ROR(a, 13) ^ SHA_ROR(a, 22);
+        Uint32 mj = (a & b) ^ (a & cc) ^ (b & cc);
+        Uint32 t2 = S0 + mj;
+        h = g; g = f; f = e; e = d + t1; d = cc; cc = b; b = a; a = t1 + t2;
+    }
+    c->h[0] += a; c->h[1] += b; c->h[2] += cc; c->h[3] += d;
+    c->h[4] += e; c->h[5] += f; c->h[6] += g; c->h[7] += h;
 }
+static void sha256_init(Sha256Ctx *c)
+{
+    static const Uint32 iv[8] = { 0x6a09e667,0xbb67ae85,0x3c6ef372,0xa54ff53a,0x510e527f,0x9b05688c,0x1f83d9ab,0x5be0cd19 };
+    memcpy(c->h, iv, sizeof(iv));
+    c->len = 0;
+    c->n = 0;
+}
+static void sha256_update(Sha256Ctx *c, const Uint8 *p, size_t len)
+{
+    c->len += len;
+    while (len > 0) {
+        if (c->n == 0 && len >= 64) { sha256_block(c, p); p += 64; len -= 64; continue; }
+        size_t take = 64 - (size_t)c->n;
+        if (take > len) take = len;
+        memcpy(c->buf + c->n, p, take);
+        c->n += (int)take; p += take; len -= take;
+        if (c->n == 64) { sha256_block(c, c->buf); c->n = 0; }
+    }
+}
+static void sha256_final(Sha256Ctx *c, Uint8 out[32])
+{
+    Uint64 bits = c->len * 8;
+    Uint8 pad = 0x80;
+    sha256_update(c, &pad, 1);
+    pad = 0;
+    while (c->n != 56) sha256_update(c, &pad, 1);
+    Uint8 lb[8];
+    for (int i = 0; i < 8; i++) lb[i] = (Uint8)(bits >> (56 - 8 * i));
+    sha256_update(c, lb, 8);
+    for (int i = 0; i < 8; i++) {
+        out[4*i]   = (Uint8)(c->h[i] >> 24);
+        out[4*i+1] = (Uint8)(c->h[i] >> 16);
+        out[4*i+2] = (Uint8)(c->h[i] >> 8);
+        out[4*i+3] = (Uint8)(c->h[i]);
+    }
+}
+typedef struct { long long done; int final; int err; Uint8 digest[32]; } VfyMsg;
+static pid_t s_vfy_pid = -1;
+static int s_vfy_fd = -1;
+static long long s_vfy_done = 0;
+static Uint64 s_vfy_t0 = 0;
+static int s_vfy_phase = 0;          /* 0 sin iniciar, 1 bajando el .sha256, 2 calculando el hash, -1 error */
+static char s_vfy_expected[65] = "";
+static char s_vfy_got[65] = "";
+static char s_vfy_src[8] = "";       /* origen del hash esperado: "api" o "file" */
+static void vfy_hex(const Uint8 *d, char *out)
+{
+    static const char hx[] = "0123456789abcdef";
+    for (int i = 0; i < 32; i++) { out[2*i] = hx[d[i] >> 4]; out[2*i+1] = hx[d[i] & 15]; }
+    out[64] = '\0';
+}
+static void vfy_lower(char *s)
+{
+    for (; *s; s++) if (*s >= 'A' && *s <= 'F') *s = (char)(*s + 32);
+}
+static void vfy_cleanup(void)
+{
+    if (s_vfy_fd >= 0) { close(s_vfy_fd); s_vfy_fd = -1; }
+    if (s_vfy_pid > 0) { kill(s_vfy_pid, SIGKILL); waitpid(s_vfy_pid, NULL, 0); s_vfy_pid = -1; }
+}
+static int verify_start(void)
+{
+    vfy_cleanup();
+    int fds[2];
+    if (pipe(fds) != 0) return -1;
+    pid_t pid = fork();
+    if (pid < 0) { close(fds[0]); close(fds[1]); return -1; }
+    if (pid == 0) {
+        close(fds[0]);
+        VfyMsg m;
+        memset(&m, 0, sizeof(m));
+        int fd = open(UPDATE_IMG, O_RDONLY);
+        if (fd < 0) {
+            m.final = 1; m.err = 1;
+            if (write(fds[1], &m, sizeof(m)) < 0) { }
+            _exit(1);
+        }
+        static Uint8 buf[262144];
+        Sha256Ctx c;
+        sha256_init(&c);
+        ssize_t n;
+        long long tot = 0;
+        int k = 0;
+        while ((n = read(fd, buf, sizeof(buf))) > 0) {
+            sha256_update(&c, buf, (size_t)n);
+            tot += n;
+            if (++k % 16 == 0) { m.done = tot; if (write(fds[1], &m, sizeof(m)) < 0) { } }
+        }
+        m.done = tot;
+        m.final = 1;
+        m.err = (n < 0);
+        sha256_final(&c, m.digest);
+        if (write(fds[1], &m, sizeof(m)) < 0) { }
+        _exit(0);
+    }
+    close(fds[1]);
+    fcntl(fds[0], F_SETFL, fcntl(fds[0], F_GETFL, 0) | O_NONBLOCK);
+    s_vfy_pid = pid;
+    s_vfy_fd = fds[0];
+    s_vfy_done = 0;
+    s_vfy_t0 = SDL_GetTicks();
+    s_vfy_got[0] = '\0';
+    return 0;
+}
+/* 0 = en curso, 1 = terminado (s_vfy_got relleno), -1 = error de lectura */
+static int verify_poll(void)
+{
+    if (s_vfy_fd < 0) return -1;
+    VfyMsg m;
+    ssize_t r;
+    while ((r = read(s_vfy_fd, &m, sizeof(m))) == (ssize_t)sizeof(m)) {
+        s_vfy_done = m.done;
+        if (m.final) {
+            vfy_hex(m.digest, s_vfy_got);
+            int err = m.err;
+            vfy_cleanup();
+            return err ? -1 : 1;
+        }
+    }
+    if (r == 0) { vfy_cleanup(); return -1; } /* el hijo murio sin mensaje final */
+    return 0;
+}
+static void upd_log_line(const char *msg)
+{
+    FILE *f = fopen(UPDATE_DIR "/verify.log", "a");
+    if (!f) return;
+    char ts[40] = "";
+    time_t t = time(NULL);
+    struct tm *tmv = gmtime(&t);
+    if (tmv) strftime(ts, sizeof(ts), "%Y-%m-%d %H:%M:%S UTC", tmv);
+    fprintf(f, "%s: %s\n", ts, msg);
+    fclose(f);
+}
+/* ==== UPD VERIFY END ==== */
 
 static void write_update_flag(void)
 {
@@ -3534,6 +3747,33 @@ static void draw_bar_rounded(SDL_Renderer *r, float x, float y, float w, float h
     if (fill_w > w) fill_w = w;
     if (fill_w > 0.0f)
         draw_rounded_rect_filled(r, x, y, fill_w, h, radius, c_fill);
+}
+/* Barra de la pantalla de actualizacion: porcentaje centrado dentro; el color del
+ * texto cambia en el borde del relleno (oscuro sobre el acento, claro sobre el fondo). */
+static void draw_upd_bar_ex(SDL_Renderer *r, TTF_Font *f, float bar_x, float bar_y, float bar_w, float bar_h, float frac, SDL_Color track)
+{
+    float fr = frac < 0.0f ? 0.0f : (frac > 1.0f ? 1.0f : frac);
+    char pct_buf[8];
+    snprintf(pct_buf, sizeof(pct_buf), "%d%%", (int)(fr * 100.0f));
+    draw_bar_rounded(r, bar_x, bar_y, bar_w, bar_h, fr, track, g_theme.accent);
+    float fill_w = bar_w * fr;
+    if (fill_w < bar_h) fill_w = bar_h;
+    int tw = 0, th = 0;
+    TTF_GetStringSize(f, pct_buf, 0, &tw, &th);
+    float tx = bar_x + (bar_w - (float)tw) / 2.0f;
+    float ty = bar_y + (bar_h - (float)th) / 2.0f + 2.0f;
+    int split = (int)(bar_x + fill_w + 0.5f);
+    SDL_Rect clip_fill = { (int)bar_x, (int)bar_y, split - (int)bar_x, (int)bar_h };
+    SDL_Rect clip_rest = { split, (int)bar_y, (int)(bar_x + bar_w) - split, (int)bar_h };
+    SDL_SetRenderClipRect(r, &clip_fill);
+    draw_text(r, f, pct_buf, g_theme.text_on_accent, tx, ty);
+    SDL_SetRenderClipRect(r, &clip_rest);
+    draw_text(r, f, pct_buf, g_theme.text_light, tx, ty);
+    SDL_SetRenderClipRect(r, NULL);
+}
+static void draw_upd_bar(SDL_Renderer *r, TTF_Font *f, float bar_x, float bar_y, float bar_w, float bar_h, float frac)
+{
+    draw_upd_bar_ex(r, f, bar_x, bar_y, bar_w, bar_h, frac, g_theme.row_bg);
 }
 static float draw_status_pill(SDL_Renderer *ren, TTF_Font *f, float right_edge, float y_center,
                                SDL_Texture *icon, const char *label, SDL_Color fg, SDL_Color bg,
@@ -6184,6 +6424,15 @@ int main(void)
                 } else {
                     float p = get_download_progress(upd_dl_url);
                     if (p >= 0.0f) upd_progress = p;
+                    if (s_upd_sp_t == 0 || now_ticks < s_upd_sp_t) {
+                        s_upd_sp_t = now_ticks; s_upd_sp_b = s_upd_bytes;
+                    } else if (now_ticks - s_upd_sp_t >= 1000) {
+                        float inst = (float)(s_upd_bytes - s_upd_sp_b) * 1000.0f / (float)(now_ticks - s_upd_sp_t);
+                        s_upd_speed = (s_upd_speed <= 0.0f) ? inst : s_upd_speed * 0.7f + inst * 0.3f;
+                        s_upd_sp_t = now_ticks; s_upd_sp_b = s_upd_bytes;
+                        s_upd_eta = (s_upd_size > 0 && s_upd_speed > 1024.0f)
+                                  ? (int)((double)(s_upd_size - s_upd_bytes) / (double)s_upd_speed) : -1;
+                    }
                     if (p == 1.0f) update_phase = UPD_VERIFYING;
                     if (p < 0.0f && upd_progress > 0.0f) {
                         update_phase = UPD_ERROR;
@@ -6192,36 +6441,76 @@ int main(void)
                 }
             }
             if (update_phase == UPD_VERIFYING) {
-                if (upd_sha_url[0]) {
-                    if (!upd_verify_dl_started) {
-                        upd_verify_dl_started = true;
+                if (!upd_verify_dl_started) {
+                    upd_verify_dl_started = true;
+                    s_vfy_expected[0] = '\0';
+                    s_vfy_src[0] = '\0';
+                    s_vfy_phase = -1;
+                    if (strlen(s_upd_digest) == 64) {
+                        safe_copy(s_vfy_expected, s_upd_digest, sizeof(s_vfy_expected));
+                        vfy_lower(s_vfy_expected);
+                        safe_copy(s_vfy_src, "api", sizeof(s_vfy_src));
+                        if (verify_start() == 0) s_vfy_phase = 2;
+                    } else if (upd_sha_url[0]) {
+                        unlink(UPDATE_SHA256);
                         s_sha_pid = spawn_curl_to_file(upd_sha_url, UPDATE_SHA256, "10");
-                    } else {
-                        int r = poll_curl_pid(&s_sha_pid, UPDATE_SHA256, 1);
-                        if (r != 0) {
-                            if (verify_sha256() == 0) {
-                                write_update_flag();
-                                update_phase = UPD_READY;
-                            } else {
-                                update_phase = UPD_ERROR;
-                                safe_copy(upd_msg, tr("Error de verificación SHA256.", "SHA256 verification error."), sizeof(upd_msg));
-                                unlink(UPDATE_IMG);
-                                unlink(UPDATE_SHA256);
-                                s_last_download_url[0] = '\0';
-                            }
+                        safe_copy(s_vfy_src, "file", sizeof(s_vfy_src));
+                        s_vfy_phase = 1;
+                    }
+                    if (s_vfy_phase < 0) {
+                        upd_log_line("verify: no checksum available (no digest in API, no .sha256 url)");
+                        update_phase = UPD_ERROR;
+                        safe_copy(upd_msg, tr("No se pudo obtener el checksum.", "Could not get the checksum."), sizeof(upd_msg));
+                    }
+                } else if (s_vfy_phase == 1) {
+                    int r = poll_curl_pid(&s_sha_pid, UPDATE_SHA256, 64);
+                    if (r != 0) {
+                        char hx[80] = "";
+                        FILE *sf = (r == 1) ? fopen(UPDATE_SHA256, "r") : NULL;
+                        if (sf) {
+                            if (fscanf(sf, "%64[0-9a-fA-F]", hx) != 1) hx[0] = '\0';
+                            fclose(sf);
+                        }
+                        if (strlen(hx) == 64 && verify_start() == 0) {
+                            safe_copy(s_vfy_expected, hx, sizeof(s_vfy_expected));
+                            vfy_lower(s_vfy_expected);
+                            s_vfy_phase = 2;
+                        } else {
+                            s_vfy_phase = -1;
+                            upd_log_line("verify: could not download or parse the .sha256 file (image kept)");
+                            update_phase = UPD_ERROR;
+                            safe_copy(upd_msg, tr("No se pudo obtener el checksum.", "Could not get the checksum."), sizeof(upd_msg));
                         }
                     }
-                } else {
-                    /* sin sha_url: verify_sha256() rechazara igualmente (B06) */
-                    if (verify_sha256() == 0) {
-                        write_update_flag();
-                        update_phase = UPD_READY;
-                    } else {
-                        update_phase = UPD_ERROR;
-                        safe_copy(upd_msg, tr("Error de verificación SHA256.", "SHA256 verification error."), sizeof(upd_msg));
-                        unlink(UPDATE_IMG);
-                        unlink(UPDATE_SHA256);
-                        s_last_download_url[0] = '\0';
+                } else if (s_vfy_phase == 2) {
+                    int r = verify_poll();
+                    if (r != 0) {
+                        struct stat vst;
+                        long long disk = (stat(UPDATE_IMG, &vst) == 0) ? (long long)vst.st_size : -1;
+                        char lg[320];
+                        s_vfy_phase = 0;
+                        if (r == 1 && strcmp(s_vfy_got, s_vfy_expected) == 0) {
+                            snprintf(lg, sizeof(lg), "verify OK: src=%s size_disk=%lld size_api=%lld sha256=%s",
+                                     s_vfy_src, disk, s_upd_size, s_vfy_got);
+                            upd_log_line(lg);
+                            write_update_flag();
+                            update_phase = UPD_READY;
+                        } else if (r == 1) {
+                            snprintf(lg, sizeof(lg), "verify MISMATCH: src=%s size_disk=%lld size_api=%lld expected=%s got=%s",
+                                     s_vfy_src, disk, s_upd_size, s_vfy_expected, s_vfy_got);
+                            upd_log_line(lg);
+                            update_phase = UPD_ERROR;
+                            safe_copy(upd_msg, tr("Error de verificación SHA256.", "SHA256 verification error."), sizeof(upd_msg));
+                            unlink(UPDATE_IMG);
+                            unlink(UPDATE_SHA256);
+                            s_last_download_url[0] = '\0';
+                        } else {
+                            snprintf(lg, sizeof(lg), "verify READ ERROR: src=%s size_disk=%lld size_api=%lld (image kept)",
+                                     s_vfy_src, disk, s_upd_size);
+                            upd_log_line(lg);
+                            update_phase = UPD_ERROR;
+                            safe_copy(upd_msg, tr("Error al leer la imagen descargada.", "Error reading the downloaded image."), sizeof(upd_msg));
+                        }
                     }
                 }
             }
@@ -6681,6 +6970,146 @@ int main(void)
                     }
                     draw_text(ren, f_gset, item_label, c_menu_beige, mx + 46.0f, ty);
                 }
+            }
+            /* Panel de detalle (derecha): estado y descripcion del ajuste seleccionado. */
+            {
+                const float pn_x = 340.0f, pn_y = 60.0f, pn_w = SCREEN_W - 20.0f - 340.0f, pn_h = 352.0f;
+                const float pn_ix = pn_x + 16.0f, pn_iw = pn_w - 32.0f;
+                const SDL_Color pn_val = g_theme.text_light;
+                const SDL_Color pn_dim = { (Uint8)((g_theme.row_bg.r * 45 + g_theme.text_light.r * 55) / 100),
+                                           (Uint8)((g_theme.row_bg.g * 45 + g_theme.text_light.g * 55) / 100),
+                                           (Uint8)((g_theme.row_bg.b * 45 + g_theme.text_light.b * 55) / 100), 255 };
+                static int pn_sel = -1;
+                static Uint64 pn_t = 0;
+                static char pn_ssid[64] = "", pn_ip[32] = "", pn_sig[32] = "", pn_tz[64] = "", pn_bk_last[64] = "";
+                static char pn_bk_names[64][64];
+                static int pn_pct = -1, pn_bk_n = 0;
+                if (pn_sel != settings_selected || now_ticks < pn_t || now_ticks - pn_t > 2000) {
+                    pn_sel = settings_selected;
+                    pn_t = now_ticks;
+                    if (pn_sel == 0) {
+                        char pn_pw[64];
+                        read_wifi_conf(pn_ssid, sizeof(pn_ssid), pn_pw, sizeof(pn_pw));
+                        memset(pn_pw, 0, sizeof(pn_pw));
+                        read_ip_address(pn_ip, sizeof(pn_ip));
+                        read_wifi_signal(pn_sig, sizeof(pn_sig), &pn_pct);
+                    } else if (pn_sel == 1) {
+                        pn_bk_n = list_backups(pn_bk_names, 64);
+                        safe_copy(pn_bk_last, pn_bk_n > 0 ? pn_bk_names[0] : "", sizeof(pn_bk_last));
+                    } else if (pn_sel == 3) {
+                        read_current_tz(pn_tz, sizeof(pn_tz));
+                    } else if (pn_sel == 6 || pn_sel == 7) {
+                        read_ip_address(pn_ip, sizeof(pn_ip));
+                    }
+                }
+                float pn_cy = pn_y + 14.0f;
+                const char *pn_desc = "";
+                draw_rounded_rect_filled(ren, pn_x, pn_y, pn_w, pn_h, 12.0f, g_theme.row_bg);
+                draw_text_truncated(ren, f_gset, SETTINGS_MENU_ITEMS[settings_selected][current_lang], g_theme.accent, pn_ix, pn_cy, pn_iw);
+                pn_cy += 36.0f;
+#define PN_KV(lbl, val) do { \
+    draw_text(ren, f_ftr, (lbl), pn_dim, pn_ix, pn_cy); \
+    draw_text_truncated(ren, f_ftr, (val), pn_val, pn_ix + 92.0f, pn_cy, pn_iw - 92.0f); \
+    pn_cy += 24.0f; \
+} while (0)
+#define PN_ONOFF(on) ((on) ? tr("Activado", "Enabled") : tr("Desactivado", "Disabled"))
+                switch (settings_selected) {
+                case 0:
+                    PN_KV(tr("Estado", "Status"), status_wifi_up ? tr("Conectado", "Connected") : tr("Desconectado", "Disconnected"));
+                    PN_KV(tr("Red", "Network"), pn_ssid[0] ? pn_ssid : "--");
+                    PN_KV("IP", pn_ip[0] ? pn_ip : "--");
+                    draw_text(ren, f_ftr, tr("Señal", "Signal"), pn_dim, pn_ix, pn_cy);
+                    if (pn_pct >= 0)
+                        draw_bar_rounded(ren, pn_ix + 92.0f, pn_cy + 4.0f, pn_iw - 92.0f, 8.0f, (float)pn_pct / 100.0f, g_theme.bg, g_theme.accent);
+                    else
+                        draw_text(ren, f_ftr, "--", pn_val, pn_ix + 92.0f, pn_cy);
+                    pn_cy += 24.0f;
+                    pn_desc = tr("Conecta con una red Wi-Fi y gestiona sus datos.", "Connect to a Wi-Fi network and manage its details.");
+                    break;
+                case 1: {
+                    char pn_b[16];
+                    snprintf(pn_b, sizeof(pn_b), "%d", pn_bk_n);
+                    PN_KV(tr("Copias", "Backups"), pn_b);
+                    PN_KV(tr("Última", "Latest"), pn_bk_last[0] ? pn_bk_last : "--");
+                    pn_desc = tr("Crea, restaura y borra copias de seguridad.", "Create, restore and delete backups.");
+                    break; }
+                case 2:
+                    pn_desc = tr("Color y brillo de los LED de los sticks analógicos.", "Color and brightness of the analog stick LEDs.");
+                    break;
+                case 3:
+                    PN_KV(tr("Zona", "Zone"), pn_tz[0] ? pn_tz : "UTC");
+                    PN_KV(tr("Hora local", "Local time"), status_time);
+                    pn_desc = tr("Zona horaria que usa el reloj del sistema.", "Time zone used by the system clock.");
+                    break;
+                case 4: {
+                    const char *pn_to = DIM_TIMEOUT_LABELS[0][current_lang];
+                    for (int k = 0; k < DIM_TIMEOUT_COUNT; k++)
+                        if (DIM_TIMEOUT_OPTIONS[k] == g_cfg.dim_timeout_sec) pn_to = DIM_TIMEOUT_LABELS[k][current_lang];
+                    char pn_b[16];
+                    snprintf(pn_b, sizeof(pn_b), "%d%%", g_cfg.dim_percent);
+                    PN_KV(tr("Tras", "After"), pn_to);
+                    PN_KV(tr("Nivel", "Level"), pn_b);
+                    pn_desc = tr("Atenúa la pantalla tras un tiempo sin actividad.", "Dims the screen after a period of inactivity.");
+                    break; }
+                case 5:
+                    draw_upd_bar_ex(ren, f_ftr, pn_ix, pn_cy, pn_iw, 22.0f, (float)brightness_pct / 100.0f, g_theme.bg);
+                    pn_cy += 30.0f;
+                    pn_desc = tr("Ajusta la luz de fondo de la pantalla.", "Adjusts the screen backlight.");
+                    break;
+                case 6: {
+                    char pn_b[48];
+                    snprintf(pn_b, sizeof(pn_b), "root@%s", pn_ip[0] ? pn_ip : "--");
+                    PN_KV(tr("Acceso", "Access"), pn_b);
+                    pn_desc = tr("Acceso remoto por terminal a través de la red.", "Remote terminal access over the network.");
+                    break; }
+                case 7:
+                    {
+                        char pn_b[48];
+                        snprintf(pn_b, sizeof(pn_b), "\\\\%s", pn_ip[0] ? pn_ip : "armiga");
+                        PN_KV(tr("Acceso", "Access"), pn_b);
+                    }
+                    pn_desc = tr("Compartición de archivos en red (SMB) con tu PC.", "Network file sharing (SMB) with your PC.");
+                    break;
+                case 8: {
+                    static const char *const pn_perf_n[3][2] = {
+                        {"Rendimiento máximo", "Maximum performance"}, {"Equilibrado", "Balanced"}, {"Ahorro de batería", "Battery saver"} };
+                    static const char *const pn_perf_d[3][2] = {
+                        {"CPU y GPU siempre a máxima frecuencia. Mayor consumo.", "CPU and GPU always at max frequency. Higher consumption."},
+                        {"CPU adaptativa, GPU a máxima frecuencia. Buen balance.", "Adaptive CPU, max GPU frequency. Good balance."},
+                        {"CPU y GPU a frecuencia mínima. Mayor autonomía.", "CPU and GPU at minimum frequency. Longer battery life."} };
+                    int pp = g_cfg.perf_profile;
+                    if (pp < 0 || pp > 2) pp = 1;
+                    PN_KV(tr("Perfil", "Profile"), pn_perf_n[pp][current_lang]);
+                    pn_desc = pn_perf_d[pp][current_lang];
+                    break; }
+                case 9:
+                    PN_KV(tr("Estado", "Status"), PN_ONOFF(g_cfg.bt_enabled));
+                    pn_desc = tr("Activa o desactiva el Bluetooth.", "Enable or disable Bluetooth.");
+                    break;
+                case 10:
+                    pn_desc = tr("Frecuencia de refresco de la pantalla.", "Screen refresh rate.");
+                    break;
+                case 11:
+                    pn_desc = tr("Restaura todos los ajustes. Se conservan ROMs, Kickstarts, partidas, copias y capturas.",
+                                 "Restores all settings. ROMs, Kickstarts, saves, backups and screenshots are kept.");
+                    break;
+                case 12:
+                    pn_desc = tr("Prueba botones, sticks y gatillos del mando.", "Test the buttons, sticks and triggers of the controller.");
+                    break;
+                case 13:
+                    if (g_cfg.theme_index >= 0 && g_cfg.theme_index < THEME_COUNT)
+                        PN_KV(tr("Actual", "Current"), THEME_NAMES[g_cfg.theme_index][current_lang]);
+                    pn_desc = tr("Cambia la paleta de colores de la interfaz.", "Changes the interface color palette.");
+                    break;
+                default:
+                    break;
+                }
+                if (pn_desc[0]) {
+                    int pn_nl = count_text_wrapped(f_ftr, pn_desc, pn_iw);
+                    draw_text_wrapped(ren, f_ftr, pn_desc, pn_dim, pn_ix, pn_y + pn_h - 14.0f - (float)pn_nl * 17.0f, pn_iw, 17.0f);
+                }
+#undef PN_KV
+#undef PN_ONOFF
             }
             if (settings_scroll > 0) {
                 draw_text(ren, f_gxs, tr("más arriba ↑", "more above ↑"), c_menu_selbg,
@@ -8091,8 +8520,8 @@ draw_text(ren, f_ftr, "WIFI", labelc, mx + 8.0f, wty);
             const float SI_CW_R  = 420.0f;
             const float SI_MX    = (SCREEN_W - SI_CW_L) / 2.0f;   /* centrado horizontal */
             const float SI_RX    = SI_MX;
-            const float SI_ROW_H = 17.0f;   /* altura de fila label+valor */
-            const float SI_BLK_H = 120.0f;  /* altura de cada bloque, 3 bloques por pagina */
+            const float SI_ROW_H = 19.0f;   /* altura de fila label+valor */
+            const float SI_BLK_H = 130.0f;  /* altura de cada bloque, 3 bloques por pagina */
             const float SI_Y0    = 54.0f;   /* Y inicio primer bloque */
             const float SI_SEP_H1 = SI_Y0 + SI_BLK_H;
             const float SI_SEP_H2 = SI_Y0 + SI_BLK_H * 2;
@@ -8260,10 +8689,25 @@ draw_text(ren, f_ftr, "WIFI", labelc, mx + 8.0f, wty);
                 char buf[64];
                 snprintf(buf, sizeof(buf), tr("Nueva versión disponible:   %s", "New version available:   %s"), upd_new_ver);
                 draw_text(ren, f_ftr, buf, c_green, UX, 100.0f);
-                draw_text(ren, f_ftr, tr("La descarga se realizará en segundo plano.", "The download will run in the background."), c_gray, UX, 122.0f);
-                draw_text(ren, f_ftr, tr("El dispositivo se reiniciará al completar.", "The device will restart when finished."), c_gray, UX, 140.0f);
                 {
-                    const float n_x = 25.0f, n_y = 164.0f, n_w = SCREEN_W - 50.0f, n_h = 264.0f;
+                    static const char *const mes_es[12] = { "ene","feb","mar","abr","may","jun","jul","ago","sep","oct","nov","dic" };
+                    static const char *const mes_en[12] = { "Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec" };
+                    char info[96] = "";
+                    int iy = 0, im = 0, id = 0;
+                    if (sscanf(s_upd_published, "%d-%d-%d", &iy, &im, &id) == 3 && im >= 1 && im <= 12)
+                        snprintf(info, sizeof(info), tr("Publicada: %d %s %d", "Published: %d %s %d"), id,
+                                 (current_lang == LANG_EN) ? mes_en[im - 1] : mes_es[im - 1], iy);
+                    if (s_upd_size > 0) {
+                        size_t il = strlen(info);
+                        snprintf(info + il, sizeof(info) - il, "%s%s: %.0f MB", il ? "   ·   " : "",
+                                 tr("Tamaño", "Size"), (double)s_upd_size / 1048576.0);
+                    }
+                    if (info[0]) draw_text(ren, f_ftr, info, c_gray, UX, 118.0f);
+                }
+                draw_text(ren, f_ftr, tr("La descarga se realizará en segundo plano.", "The download will run in the background."), c_gray, UX, 136.0f);
+                draw_text(ren, f_ftr, tr("El dispositivo se reiniciará al completar.", "The device will restart when finished."), c_gray, UX, 154.0f);
+                {
+                    const float n_x = 25.0f, n_y = 178.0f, n_w = SCREEN_W - 50.0f, n_h = 250.0f;
                     const float n_tx = n_x + 10.0f, n_tw = n_w - 20.0f, n_lh = 16.0f;
                     const int n_vis = (int)((n_h - 16.0f) / n_lh);
                     draw_rounded_rect_filled(ren, n_x, n_y, n_w, n_h, 12.0f, g_theme.row_bg);
@@ -8318,16 +8762,51 @@ draw_text(ren, f_ftr, "WIFI", labelc, mx + 8.0f, wty);
             } else if (update_phase == UPD_DOWNLOADING) {
                 draw_text_animdots(ren, f_ftr, tr("Descargando actualización", "Downloading update"), c_white, UX, 100.0f, now_ticks);
                 /* Barra de progreso */
-                int pct = (int)(upd_progress * 100.0f);
-                char pct_buf[8]; snprintf(pct_buf, sizeof(pct_buf), "%d%%", pct);
-                { SDL_Color _c_upd_bg = g_theme.row_bg;
-                  SDL_Color _c_upd_fill = c_selbg;
-                  draw_bar_rounded(ren, UX, 122.0f, 260.0f, 12.0f, upd_progress, _c_upd_bg, _c_upd_fill); }
-                draw_text(ren, f_ftr, pct_buf, c_white, UX + 270.0f, 118.0f);
-                draw_text(ren, f_ftr, tr("No apagues el dispositivo durante la descarga.", "Do not turn off the device during download."), c_gray, UX, 144.0f);
+                draw_upd_bar(ren, f_ftr, UX, 122.0f, SCREEN_W - 2.0f * UX, 22.0f, upd_progress);
+                {
+                    char l_buf[48], r_buf[64] = "";
+                    double mb_done = (double)s_upd_bytes / 1048576.0;
+                    if (s_upd_size > 0) snprintf(l_buf, sizeof(l_buf), "%.0f / %.0f MB", mb_done, (double)s_upd_size / 1048576.0);
+                    else snprintf(l_buf, sizeof(l_buf), "%.0f MB", mb_done);
+                    if (s_upd_speed > 1024.0f) {
+                        double mbs = (double)s_upd_speed / 1048576.0;
+                        if (s_upd_eta >= 0)
+                            snprintf(r_buf, sizeof(r_buf), tr("%.1f MB/s  ·  %d:%02d restantes", "%.1f MB/s  ·  %d:%02d left"),
+                                     mbs, s_upd_eta / 60, s_upd_eta % 60);
+                        else
+                            snprintf(r_buf, sizeof(r_buf), "%.1f MB/s", mbs);
+                    }
+                    draw_text(ren, f_ftr, l_buf, c_white, UX, 152.0f);
+                    if (r_buf[0]) {
+                        int rw = 0, rh = 0;
+                        TTF_GetStringSize(f_ftr, r_buf, 0, &rw, &rh);
+                        draw_text(ren, f_ftr, r_buf, c_white, SCREEN_W - UX - (float)rw, 152.0f);
+                    }
+                }
+                draw_text(ren, f_ftr, tr("No apagues el dispositivo durante la descarga.", "Do not turn off the device during download."), c_gray, UX, 182.0f);
 
             } else if (update_phase == UPD_VERIFYING) {
                 draw_text_animdots(ren, f_ftr, tr("Verificando integridad", "Verifying integrity"), c_white, UX, 100.0f, now_ticks);
+                if (s_vfy_phase == 2) {
+                    long long v_total = (s_upd_size > 0) ? s_upd_size : s_upd_bytes;
+                    float vf = (v_total > 0) ? (float)((double)s_vfy_done / (double)v_total) : 0.0f;
+                    draw_upd_bar(ren, f_ftr, UX, 122.0f, SCREEN_W - 2.0f * UX, 22.0f, vf);
+                    char vl_buf[48], vr_buf[48] = "";
+                    if (v_total > 0) snprintf(vl_buf, sizeof(vl_buf), "%.0f / %.0f MB", (double)s_vfy_done / 1048576.0, (double)v_total / 1048576.0);
+                    else snprintf(vl_buf, sizeof(vl_buf), "%.0f MB", (double)s_vfy_done / 1048576.0);
+                    Uint64 v_el = now_ticks - s_vfy_t0;
+                    if (v_total > 0 && s_vfy_done > 0 && v_el > 1500) {
+                        int v_eta = (int)((double)(v_total - s_vfy_done) * (double)v_el / (double)s_vfy_done / 1000.0);
+                        snprintf(vr_buf, sizeof(vr_buf), tr("%d:%02d restantes", "%d:%02d left"), v_eta / 60, v_eta % 60);
+                    }
+                    draw_text(ren, f_ftr, vl_buf, c_white, UX, 152.0f);
+                    if (vr_buf[0]) {
+                        int vw = 0, vh = 0;
+                        TTF_GetStringSize(f_ftr, vr_buf, 0, &vw, &vh);
+                        draw_text(ren, f_ftr, vr_buf, c_white, SCREEN_W - UX - (float)vw, 152.0f);
+                    }
+                    draw_text(ren, f_ftr, tr("No apagues el dispositivo.", "Do not turn off the device."), c_gray, UX, 182.0f);
+                }
 
             } else if (update_phase == UPD_READY) {
                 draw_text(ren, f_ftr, tr("Actualización lista. Reiniciando...", "Update ready. Restarting..."), c_green, UX, 100.0f);

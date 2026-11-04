@@ -30,7 +30,7 @@ get_real_slot() {
 }
 
 slot_to_label() {
-    [ "$1" = "A" ] && echo "Armiga-A" || echo "Armiga-B"
+    [ "$1" = "A" ] && echo "armiga-a" || echo "armiga-b"
 }
 
 do_start() {
