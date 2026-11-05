@@ -8672,23 +8672,30 @@ draw_text(ren, f_ftr, "WIFI", labelc, mx + 8.0f, wty);
             draw_statusbar(ren, f_status_bold, status_time, status_wifi_up, status_battery, status_bt_up, bg_update_available, wifi_icon_tex, battery_icon_tex, bt_icon_tex, ssh_icon_tex, update_badge_tex);
             draw_active_dash_breadcrumbs(ren, f_gcr, UX, 25.0f, 2, tr("Actualización de sistema", "System Update"));
 
-            /* Versión actual */
+            /* Versión actual: ficha como las del menú principal */
             {
-                char buf[64];
-                snprintf(buf, sizeof(buf), tr("Versión instalada:   %s", "Installed version:   %s"), s_version);
-                draw_text(ren, f_ftr, buf, c_gray, UX, 64.0f);
+                const float v_y = 52.0f, v_h = 44.0f, v_padx = 14.0f;
+                const char *v_lbl = tr("Versión instalada", "Installed version");
+                SDL_Color v_lblc = cat_mix(g_theme.row_bg, g_theme.text_light, 0.60f);
+                int v_lw = 0, v_lh = 0, v_nw = 0, v_nh = 0;
+                TTF_GetStringSize(f_gsm, v_lbl, 0, &v_lw, &v_lh);
+                TTF_GetStringSize(f_title, s_version, 0, &v_nw, &v_nh);
+                float v_w = (float)(v_lw > v_nw ? v_lw : v_nw) + 2.0f * v_padx;
+                draw_rounded_rect_filled(ren, UX, v_y, v_w, v_h, 12.0f, g_theme.row_bg);
+                draw_text(ren, f_gsm, v_lbl, v_lblc, UX + (v_w - (float)v_lw) / 2.0f, v_y + 6.0f);
+                draw_text(ren, f_title, s_version, g_theme.accent, UX + (v_w - (float)v_nw) / 2.0f, v_y + 21.0f);
             }
 
             if (update_phase == UPD_CHECKING) {
-                draw_text_animdots(ren, f_ftr, tr("Comprobando actualizaciones", "Checking for updates"), c_white, UX, 100.0f, now_ticks);
+                draw_text_animdots(ren, f_ftr, tr("Comprobando actualizaciones", "Checking for updates"), c_white, UX, 110.0f, now_ticks);
 
             } else if (update_phase == UPD_NO_UPDATE) {
-                draw_text(ren, f_ftr, tr("El sistema está actualizado.", "System is up to date."), c_green, UX, 100.0f);
+                draw_text(ren, f_ftr, tr("El sistema está actualizado.", "System is up to date."), c_green, UX, 110.0f);
 
             } else if (update_phase == UPD_CONFIRM) {
                 char buf[64];
-                snprintf(buf, sizeof(buf), tr("Nueva versión disponible:   %s", "New version available:   %s"), upd_new_ver);
-                draw_text(ren, f_ftr, buf, c_green, UX, 100.0f);
+                snprintf(buf, sizeof(buf), tr("Nueva versión disponible:   v%s", "New version available:   v%s"), upd_new_ver);
+                draw_text(ren, f_ftr, buf, c_green, UX, 110.0f);
                 {
                     static const char *const mes_es[12] = { "ene","feb","mar","abr","may","jun","jul","ago","sep","oct","nov","dic" };
                     static const char *const mes_en[12] = { "Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec" };
@@ -8702,12 +8709,12 @@ draw_text(ren, f_ftr, "WIFI", labelc, mx + 8.0f, wty);
                         snprintf(info + il, sizeof(info) - il, "%s%s: %.0f MB", il ? "   ·   " : "",
                                  tr("Tamaño", "Size"), (double)s_upd_size / 1048576.0);
                     }
-                    if (info[0]) draw_text(ren, f_ftr, info, c_gray, UX, 118.0f);
+                    if (info[0]) draw_text(ren, f_ftr, info, c_gray, UX, 128.0f);
                 }
-                draw_text(ren, f_ftr, tr("La descarga se realizará en segundo plano.", "The download will run in the background."), c_gray, UX, 136.0f);
-                draw_text(ren, f_ftr, tr("El dispositivo se reiniciará al completar.", "The device will restart when finished."), c_gray, UX, 154.0f);
+                draw_text(ren, f_ftr, tr("La descarga se realizará en segundo plano.", "The download will run in the background."), c_gray, UX, 146.0f);
+                draw_text(ren, f_ftr, tr("El dispositivo se reiniciará al completar.", "The device will restart when finished."), c_gray, UX, 164.0f);
                 {
-                    const float n_x = 25.0f, n_y = 178.0f, n_w = SCREEN_W - 50.0f, n_h = 250.0f;
+                    const float n_x = 25.0f, n_y = 188.0f, n_w = SCREEN_W - 50.0f, n_h = 240.0f;
                     const float n_tx = n_x + 10.0f, n_tw = n_w - 20.0f, n_lh = 16.0f;
                     const int n_vis = (int)((n_h - 16.0f) / n_lh);
                     draw_rounded_rect_filled(ren, n_x, n_y, n_w, n_h, 12.0f, g_theme.row_bg);
@@ -8760,9 +8767,9 @@ draw_text(ren, f_ftr, "WIFI", labelc, mx + 8.0f, wty);
                 }
 
             } else if (update_phase == UPD_DOWNLOADING) {
-                draw_text_animdots(ren, f_ftr, tr("Descargando actualización", "Downloading update"), c_white, UX, 100.0f, now_ticks);
+                draw_text_animdots(ren, f_ftr, tr("Descargando actualización", "Downloading update"), c_white, UX, 110.0f, now_ticks);
                 /* Barra de progreso */
-                draw_upd_bar(ren, f_ftr, UX, 122.0f, SCREEN_W - 2.0f * UX, 22.0f, upd_progress);
+                draw_upd_bar(ren, f_ftr, UX, 132.0f, SCREEN_W - 2.0f * UX, 22.0f, upd_progress);
                 {
                     char l_buf[48], r_buf[64] = "";
                     double mb_done = (double)s_upd_bytes / 1048576.0;
@@ -8776,21 +8783,21 @@ draw_text(ren, f_ftr, "WIFI", labelc, mx + 8.0f, wty);
                         else
                             snprintf(r_buf, sizeof(r_buf), "%.1f MB/s", mbs);
                     }
-                    draw_text(ren, f_ftr, l_buf, c_white, UX, 152.0f);
+                    draw_text(ren, f_ftr, l_buf, c_white, UX, 162.0f);
                     if (r_buf[0]) {
                         int rw = 0, rh = 0;
                         TTF_GetStringSize(f_ftr, r_buf, 0, &rw, &rh);
-                        draw_text(ren, f_ftr, r_buf, c_white, SCREEN_W - UX - (float)rw, 152.0f);
+                        draw_text(ren, f_ftr, r_buf, c_white, SCREEN_W - UX - (float)rw, 162.0f);
                     }
                 }
-                draw_text(ren, f_ftr, tr("No apagues el dispositivo durante la descarga.", "Do not turn off the device during download."), c_gray, UX, 182.0f);
+                draw_text(ren, f_ftr, tr("No apagues el dispositivo durante la descarga.", "Do not turn off the device during download."), c_gray, UX, 192.0f);
 
             } else if (update_phase == UPD_VERIFYING) {
-                draw_text_animdots(ren, f_ftr, tr("Verificando integridad", "Verifying integrity"), c_white, UX, 100.0f, now_ticks);
+                draw_text_animdots(ren, f_ftr, tr("Verificando integridad", "Verifying integrity"), c_white, UX, 110.0f, now_ticks);
                 if (s_vfy_phase == 2) {
                     long long v_total = (s_upd_size > 0) ? s_upd_size : s_upd_bytes;
                     float vf = (v_total > 0) ? (float)((double)s_vfy_done / (double)v_total) : 0.0f;
-                    draw_upd_bar(ren, f_ftr, UX, 122.0f, SCREEN_W - 2.0f * UX, 22.0f, vf);
+                    draw_upd_bar(ren, f_ftr, UX, 132.0f, SCREEN_W - 2.0f * UX, 22.0f, vf);
                     char vl_buf[48], vr_buf[48] = "";
                     if (v_total > 0) snprintf(vl_buf, sizeof(vl_buf), "%.0f / %.0f MB", (double)s_vfy_done / 1048576.0, (double)v_total / 1048576.0);
                     else snprintf(vl_buf, sizeof(vl_buf), "%.0f MB", (double)s_vfy_done / 1048576.0);
@@ -8799,25 +8806,25 @@ draw_text(ren, f_ftr, "WIFI", labelc, mx + 8.0f, wty);
                         int v_eta = (int)((double)(v_total - s_vfy_done) * (double)v_el / (double)s_vfy_done / 1000.0);
                         snprintf(vr_buf, sizeof(vr_buf), tr("%d:%02d restantes", "%d:%02d left"), v_eta / 60, v_eta % 60);
                     }
-                    draw_text(ren, f_ftr, vl_buf, c_white, UX, 152.0f);
+                    draw_text(ren, f_ftr, vl_buf, c_white, UX, 162.0f);
                     if (vr_buf[0]) {
                         int vw = 0, vh = 0;
                         TTF_GetStringSize(f_ftr, vr_buf, 0, &vw, &vh);
-                        draw_text(ren, f_ftr, vr_buf, c_white, SCREEN_W - UX - (float)vw, 152.0f);
+                        draw_text(ren, f_ftr, vr_buf, c_white, SCREEN_W - UX - (float)vw, 162.0f);
                     }
-                    draw_text(ren, f_ftr, tr("No apagues el dispositivo.", "Do not turn off the device."), c_gray, UX, 182.0f);
+                    draw_text(ren, f_ftr, tr("No apagues el dispositivo.", "Do not turn off the device."), c_gray, UX, 192.0f);
                 }
 
             } else if (update_phase == UPD_READY) {
-                draw_text(ren, f_ftr, tr("Actualización lista. Reiniciando...", "Update ready. Restarting..."), c_green, UX, 100.0f);
+                draw_text(ren, f_ftr, tr("Actualización lista. Reiniciando...", "Update ready. Restarting..."), c_green, UX, 110.0f);
                 /* Reiniciar automáticamente */
                 SDL_Delay(2000);
                 exec_req = EXEC_REBOOT;
                 running  = false;
 
             } else if (update_phase == UPD_ERROR) {
-                { SDL_Color _c_red = g_theme.alert; draw_text(ren, f_ftr, "Error:", _c_red, UX, 100.0f); }
-                draw_text(ren, f_ftr, upd_msg,  c_gray, UX, 118.0f);
+                { SDL_Color _c_red = g_theme.alert; draw_text(ren, f_ftr, "Error:", _c_red, UX, 110.0f); }
+                draw_text(ren, f_ftr, upd_msg,  c_gray, UX, 128.0f);
             }
 
             draw_line(ren, UX, 438.0f, SCREEN_W - 20.0f, 438.0f, c_selbg);
