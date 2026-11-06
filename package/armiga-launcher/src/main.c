@@ -6856,7 +6856,7 @@ int main(void)
 
         /* Barra inferior */
         draw_line(ren, mx, 438.0f, SCREEN_W - 20.0f, 438.0f, c_selbg);
-        draw_footer(ren, f_ftr, tr("[B] Seleccionar  [DPAD] Navegar  [L1] Idioma  [MODE+A] Sonido y vibración", "[B] Select  [DPAD] Navigate  [L1] Language  [MODE+A] Sound and vibration"), s_version);
+        draw_footer(ren, f_ftr, tr("[B] Seleccionar  [DPAD] Navegar  [L1] Idioma  [MODE+A] Feedback", "[B] Select  [DPAD] Navigate  [L1] Language  [MODE+A] Feedback"), s_version);
 
         /* Barra de progreso del hold de modo dev (si se está manteniendo) */
         if (devmode_combo_held && devmode_hold_start != 0) {
