@@ -5023,7 +5023,10 @@ int main(void)
         c_dkgreen = g_theme.text_light;
         c_gray    = g_theme.text_light;
         c_selbg   = g_theme.accent;
+        bool back_pressed = false;
         while (SDL_PollEvent(&ev)) {
+            if (ev.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN && ev.jbutton.button == BTN_SDL_B)
+                back_pressed = true;
             if (ev.type == SDL_EVENT_KEY_DOWN || ev.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN ||
                 ev.type == SDL_EVENT_JOYSTICK_HAT_MOTION || ev.type == SDL_EVENT_JOYSTICK_AXIS_MOTION) {
                 last_input_ticks = SDL_GetTicks();
@@ -6122,6 +6125,9 @@ int main(void)
 
         if (state == STATE_MENU && prev_state != STATE_MENU)
             menu_axis_prev = 0; /* evita movimiento fantasma al volver de un submenu (B05) */
+        /* Vibracion corta al volver atras (boton de volver y cambio de pantalla) */
+        if (back_pressed && state != prev_state && joy && s_click_sound_enabled)
+            SDL_RumbleJoystick(joy, 0xFFFF, 0, 60);
         prev_state = state;
 
         /* Deteccion de combo SELECT+START+L1 mantenido 3s (solo desde STATE_MENU) */
@@ -6850,7 +6856,7 @@ int main(void)
 
         /* Barra inferior */
         draw_line(ren, mx, 438.0f, SCREEN_W - 20.0f, 438.0f, c_selbg);
-        draw_footer(ren, f_ftr, tr("[B] Seleccionar  [DPAD] Navegar  [L1] Idioma  [MODE+A] Sonido", "[B] Select  [DPAD] Navigate  [L1] Language  [MODE+A] Sound"), s_version);
+        draw_footer(ren, f_ftr, tr("[B] Seleccionar  [DPAD] Navegar  [L1] Idioma  [MODE+A] Sonido y vibración", "[B] Select  [DPAD] Navigate  [L1] Language  [MODE+A] Sound and vibration"), s_version);
 
         /* Barra de progreso del hold de modo dev (si se está manteniendo) */
         if (devmode_combo_held && devmode_hold_start != 0) {
