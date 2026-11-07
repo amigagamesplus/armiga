@@ -9570,12 +9570,14 @@ draw_text(ren, f_ftr, "WIFI", labelc, mx + 8.0f, wty);
             return 1;
         case EXEC_REBOOT:
             redirect_stdio_to_local_console();
+            write(STDOUT_FILENO, "\033[?25l", 6); /* sin cursor parpadeando al apagar/reiniciar */
             execl("/sbin/reboot", "reboot", (char *)NULL);
             fprintf(stderr, "armiga-launcher: no se pudo ejecutar reboot: %s\n",
                     strerror(errno));
             return 1;
         case EXEC_SHUTDOWN:
             redirect_stdio_to_local_console();
+            write(STDOUT_FILENO, "\033[?25l", 6); /* sin cursor parpadeando al apagar/reiniciar */
             system("amixer sset 'Speaker' off >/dev/null 2>&1");
             execl("/sbin/poweroff", "poweroff", (char *)NULL);
             fprintf(stderr, "armiga-launcher: no se pudo ejecutar poweroff: %s\n",
