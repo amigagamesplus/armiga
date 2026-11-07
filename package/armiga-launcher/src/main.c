@@ -9462,6 +9462,12 @@ draw_text(ren, f_ftr, "WIFI", labelc, mx + 8.0f, wty);
             draw_text_right(ren, f_sm, fps_buf, c_fps_white, SCREEN_W - 20.0f, 70.0f);
         }
         SDL_RenderPresent(ren);
+        {
+            /* El splash de arranque sigue en fb0: borrarlo una vez, ya tapado por el primer
+             * fotograma, para que no reaparezca al soltar el DRM master (apagar/reiniciar). */
+            static bool s_fb0_cleared = false;
+            if (!s_fb0_cleared) { s_fb0_cleared = true; clear_fb0(); }
+        }
         /* VSync activo (SDL_SetRenderVSync) sustituye al SDL_Delay(16):
          * RenderPresent bloquea hasta el siguiente VBlank, 0% CPU en espera. */
         /* Con la pantalla atenuada por inactividad (dim_active), el
