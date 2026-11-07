@@ -187,7 +187,8 @@ typedef enum {
     STATE_BLUETOOTH_CONFIG,
     STATE_AREXX_LIST,
     STATE_AREXX_RUN,
-    STATE_CONTROLLER_TEST
+    STATE_CONTROLLER_TEST,
+    STATE_SHOTS
 } AppState;
 
 typedef enum {
@@ -208,6 +209,7 @@ typedef enum {
 #define ACTION_SHELL   6
 #define ACTION_REBOOT  7
 #define ACTION_GAMES   8
+#define ACTION_SHOTS   9
 
 #define KB_ROWS 4
 #define KB_MAX_COLS 10
@@ -261,6 +263,7 @@ static const char *MENU_ICONS[] = {
 static const char *MENU_ITEMS[][2] = {
     {"Catálogo Amiga", "Amiga Catalog"},
     {"RetroArch", "RetroArch"},
+    {"Capturas", "Screenshots"},
     {"Actualización",    "System Update"},
     {"Diagnóstico del sistema",     "System Diagnostics"},
     {"ARexx Scripts",               "ARexx Scripts"},
@@ -272,6 +275,8 @@ static const char *MENU_DESC[][2] = {
      "Your library with names,\n" "details and cover art."},
     {"Abre RetroArch directamente\n" "con su menu completo.",
      "Open RetroArch directly\n" "with its full menu."},
+    {"Revisa las capturas de\n" "pantalla de RetroArch.",
+     "Browse your RetroArch\n" "screenshots."},
     {"Descarga e instala la\n" "ultima version de armiga.",
      "Download and install the\n" "latest version of armiga."},
     {"Revisa el estado del\n" "hardware y el sistema.",
@@ -283,14 +288,14 @@ static const char *MENU_DESC[][2] = {
     {"Apaga o reinicia el\n" "dispositivo de forma segura.",
      "Shut down or restart the\n" "device safely."},
 };
-#define MENU_COUNT 7
+#define MENU_COUNT 8
 /* Accion e icono (indice en menu_icon_tex) por entrada del menu principal.
  * Desacopla el orden visual del menu de los numeros de accion/icono. */
 static const int MENU_ACTIONS[MENU_COUNT] = {
-    ACTION_GAMES, ACTION_ROMS, ACTION_UPDATE, ACTION_INFO,
+    ACTION_GAMES, ACTION_ROMS, ACTION_SHOTS, ACTION_UPDATE, ACTION_INFO,
     ACTION_AREXX, ACTION_SETTINGS, ACTION_SHELL
 };
-static const int MENU_ICON_IDX[MENU_COUNT] = { 7, 0, 1, 2, 3, 4, 5 };
+static const int MENU_ICON_IDX[MENU_COUNT] = { 7, 0, 8, 1, 2, 3, 4, 5 };
 
 static const char *SETTINGS_MENU_ITEMS[][2] = {
     {"Red inalámbrica",             "Wireless Network"},
@@ -4266,6 +4271,154 @@ static bool cover_process_download(unsigned crc)
 
 static void cover_reset(void) { s_cover_sel = -1; }
 
+/* ===== Galeria de capturas de RetroArch (STATE_SHOTS) ===== */
+#define SHOTS_DIR "/media/amiga_data/retroarch/screenshots"
+#define SHOTS_MAX 1500
+#define SHOTS_ANIM_MS 180
+typedef struct {
+    char name[128];
+    time_t mtime;
+    long long size;
+} ShotEntry;
+static ShotEntry s_shots[SHOTS_MAX];
+static int s_shots_n = 0;
+static int s_shots_cur = 0;
+static bool s_shots_full = false;
+static bool s_shots_confirm = false;
+static Uint64 s_shots_hud_until = 0;
+/* Cache de 3 texturas: la actual y sus vecinas */
+static SDL_Texture *s_shots_tex[3] = { NULL, NULL, NULL };
+static int s_shots_tex_idx[3] = { -1, -1, -1 };
+/* Transicion de deslizamiento */
+static bool s_shots_anim = false;
+static int s_shots_anim_from = 0;
+static int s_shots_anim_dir = 1;
+static Uint64 s_shots_anim_t0 = 0;
+
+static int shots_cmp(const void *a, const void *b)
+{
+    const ShotEntry *x = (const ShotEntry *)a;
+    const ShotEntry *y = (const ShotEntry *)b;
+    if (x->mtime != y->mtime) return (y->mtime > x->mtime) ? 1 : -1;
+    return strcmp(y->name, x->name);
+}
+
+static void shots_release(void)
+{
+    for (int i = 0; i < 3; i++) {
+        if (s_shots_tex[i]) SDL_DestroyTexture(s_shots_tex[i]);
+        s_shots_tex[i] = NULL;
+        s_shots_tex_idx[i] = -1;
+    }
+    s_shots_anim = false;
+}
+
+static void shots_scan(void)
+{
+    shots_release();
+    s_shots_n = 0;
+    s_shots_cur = 0;
+    DIR *d = opendir(SHOTS_DIR);
+    if (!d) return;
+    struct dirent *de;
+    while ((de = readdir(d)) != NULL && s_shots_n < SHOTS_MAX) {
+        size_t l = strlen(de->d_name);
+        if (l < 5 || l >= sizeof(s_shots[0].name)) continue;
+        if (SDL_strcasecmp(de->d_name + l - 4, ".png") != 0) continue;
+        char p[256];
+        snprintf(p, sizeof(p), SHOTS_DIR "/%s", de->d_name);
+        struct stat st;
+        if (stat(p, &st) != 0 || !S_ISREG(st.st_mode)) continue;
+        ShotEntry *e = &s_shots[s_shots_n++];
+        safe_copy(e->name, de->d_name, sizeof(e->name));
+        e->mtime = st.st_mtime;
+        e->size = (long long)st.st_size;
+    }
+    closedir(d);
+    if (s_shots_n > 1) qsort(s_shots, (size_t)s_shots_n, sizeof(s_shots[0]), shots_cmp);
+}
+
+static bool shots_cached(int idx)
+{
+    for (int i = 0; i < 3; i++)
+        if (s_shots_tex_idx[i] == idx) return true;
+    return false;
+}
+
+/* Textura de la captura idx (la carga y la cachea; NULL si falla) */
+static SDL_Texture *shots_tex(SDL_Renderer *ren, int idx)
+{
+    if (idx < 0 || idx >= s_shots_n) return NULL;
+    for (int i = 0; i < 3; i++)
+        if (s_shots_tex_idx[i] == idx) return s_shots_tex[i];
+    int slot = -1;
+    for (int i = 0; i < 3 && slot < 0; i++)
+        if (s_shots_tex_idx[i] < 0) slot = i;
+    for (int i = 0; i < 3 && slot < 0; i++)
+        if (s_shots_tex_idx[i] < s_shots_cur - 1 || s_shots_tex_idx[i] > s_shots_cur + 1) slot = i;
+    if (slot < 0) slot = 0;
+    if (s_shots_tex[slot]) SDL_DestroyTexture(s_shots_tex[slot]);
+    char p[256];
+    snprintf(p, sizeof(p), SHOTS_DIR "/%s", s_shots[idx].name);
+    SDL_Texture *t = IMG_LoadTexture(ren, p);
+    if (t) SDL_SetTextureScaleMode(t, SDL_SCALEMODE_LINEAR);
+    s_shots_tex[slot] = t;
+    s_shots_tex_idx[slot] = idx;
+    return t;
+}
+
+/* Dibuja la textura escalada sin deformar y centrada en (x,y,w,h), desplazada dx */
+static void shots_blit(SDL_Renderer *ren, SDL_Texture *t, float x, float y, float w, float h, float dx)
+{
+    if (!t) return;
+    float tw = 0.0f, th = 0.0f;
+    SDL_GetTextureSize(t, &tw, &th);
+    if (tw <= 0.0f || th <= 0.0f) return;
+    float s = w / tw;
+    if (th * s > h) s = h / th;
+    SDL_FRect r = { x + (w - tw * s) / 2.0f + dx, y + (h - th * s) / 2.0f, tw * s, th * s };
+    SDL_Rect clip = { (int)x, (int)y, (int)w, (int)h };
+    SDL_SetRenderClipRect(ren, &clip);
+    SDL_RenderTexture(ren, t, NULL, &r);
+    SDL_SetRenderClipRect(ren, NULL);
+}
+
+/* delta: +-1 (con vuelta) o +-10 (sin vuelta). Solo anima los pasos de 1 */
+static void shots_move(int delta, Uint64 now)
+{
+    if (s_shots_n < 2) return;
+    int from = s_shots_cur;
+    int to = from + delta;
+    if (delta == 1 || delta == -1) to = (to + s_shots_n) % s_shots_n;
+    else if (to < 0) to = 0;
+    else if (to > s_shots_n - 1) to = s_shots_n - 1;
+    if (to == from) return;
+    s_shots_cur = to;
+    s_shots_hud_until = now + 2000;
+    int d = to - from;
+    s_shots_anim = (d == 1 || d == -1);
+    if (s_shots_anim) {
+        s_shots_anim_from = from;
+        s_shots_anim_dir = d;
+        s_shots_anim_t0 = now;
+    }
+}
+
+static void shots_delete_current(void)
+{
+    if (s_shots_cur < 0 || s_shots_cur >= s_shots_n) return;
+    char p[256];
+    snprintf(p, sizeof(p), SHOTS_DIR "/%s", s_shots[s_shots_cur].name);
+    if (unlink(p) != 0) return;
+    memmove(&s_shots[s_shots_cur], &s_shots[s_shots_cur + 1],
+            (size_t)(s_shots_n - s_shots_cur - 1) * sizeof(s_shots[0]));
+    s_shots_n--;
+    if (s_shots_cur >= s_shots_n) s_shots_cur = s_shots_n - 1;
+    if (s_shots_cur < 0) s_shots_cur = 0;
+    if (s_shots_n == 0) s_shots_full = false;
+    shots_release();
+}
+
 /* Libera la textura (hay que llamarla antes de destruir el renderer). */
 static void cover_release(void)
 {
@@ -4653,7 +4806,7 @@ int main(void)
     }
     /* Iconos monocromos del menu principal (PNG blanco+alfa, recoloreados
      * en tiempo real via SDL_SetTextureColorMod segun seleccion). */
-    #define MENU_ICON_COUNT 8
+    #define MENU_ICON_COUNT 9
     static const char *MENU_ICON_PATHS[MENU_ICON_COUNT] = {
         "/usr/share/armiga/icons/device-gamepad-2.png",
         "/usr/share/armiga/icons/cloud-download.png",
@@ -4663,6 +4816,7 @@ int main(void)
         "/usr/share/armiga/icons/power.png",
         "/usr/share/armiga/icons/reboot.png",
         "/usr/share/armiga/icons/device-floppy.png",
+        "/usr/share/armiga/icons/photo.png",
     };
     SDL_Texture *menu_icon_tex[MENU_ICON_COUNT] = {0};
     for (int mi = 0; mi < MENU_ICON_COUNT; mi++) {
@@ -5510,6 +5664,58 @@ int main(void)
                     running = false;
                 }
             }
+            else if (state == STATE_SHOTS) {
+                Uint64 sh_now = SDL_GetTicks();
+                if (ev.type == SDL_EVENT_KEY_DOWN && ev.key.key == SDLK_ESCAPE) {
+                    shots_release();
+                    s_shots_confirm = false;
+                    s_shots_full = false;
+                    state = STATE_MENU;
+                } else if (s_shots_confirm) {
+                    if (ev.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN) {
+                        if (ev.jbutton.button == BTN_SDL_A) {
+                            shots_delete_current();
+                            s_shots_confirm = false;
+                            s_shots_hud_until = sh_now + 2000;
+                            play_ui_click();
+                        } else if (ev.jbutton.button == BTN_SDL_B) {
+                            s_shots_confirm = false;
+                        }
+                    }
+                } else {
+                    if (ev.type == SDL_EVENT_JOYSTICK_HAT_MOTION && s_shots_n > 1) {
+                        if (ev.jhat.value == SDL_HAT_LEFT) {
+                            shots_move(-1, sh_now);
+                            play_ui_click();
+                        } else if (ev.jhat.value == SDL_HAT_RIGHT) {
+                            shots_move(1, sh_now);
+                            play_ui_click();
+                        }
+                    }
+                    if (ev.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN) {
+                        if (ev.jbutton.button == BTN_SDL_L1 && s_shots_n > 1) {
+                            shots_move(-10, sh_now);
+                            play_ui_click();
+                        } else if (ev.jbutton.button == BTN_SDL_R1 && s_shots_n > 1) {
+                            shots_move(10, sh_now);
+                            play_ui_click();
+                        } else if (ev.jbutton.button == BTN_SDL_A && s_shots_n > 0) {
+                            s_shots_full = !s_shots_full;
+                            s_shots_hud_until = sh_now + 2000;
+                            play_ui_click();
+                        } else if (ev.jbutton.button == BTN_SDL_X && s_shots_n > 0) {
+                            s_shots_confirm = true;
+                        } else if (ev.jbutton.button == BTN_SDL_B) {
+                            if (s_shots_full) {
+                                s_shots_full = false;
+                            } else {
+                                shots_release();
+                                state = STATE_MENU;
+                            }
+                        }
+                    }
+                }
+            }
             else if (state == STATE_BLUETOOTH_CONFIG) {
                 if (ev.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN &&
                     ev.jbutton.button == BTN_SDL_SELECT) {
@@ -6221,6 +6427,12 @@ int main(void)
             } else if (action == ACTION_SETTINGS) {
                 state = STATE_SETTINGS;
                 settings_selected = 0;
+            } else if (action == ACTION_SHOTS) {
+                state = STATE_SHOTS;
+                shots_scan();
+                s_shots_full = false;
+                s_shots_confirm = false;
+                s_shots_hud_until = SDL_GetTicks() + 2000;
             } else if (action == ACTION_GAMES) {
                 state = STATE_GAME_LIST;
                 games_selected = 0;
@@ -6850,7 +7062,10 @@ int main(void)
                 lg_tim[lk] = '\0';
                 float lg_w = 0.0f, lg_h = 0.0f;
                 chip_size(f_gsm, lg_src, &lg_w, &lg_h);
-                float lg_x = pill_x, lg_y = pill_y - lg_h - 4.0f;
+                float lg_w2 = 0.0f, lg_h2 = 0.0f;
+                if (lg_tim[0]) chip_size(f_gsm, lg_tim, &lg_w2, &lg_h2);
+                float lg_tot = lg_w + (lg_tim[0] ? 5.0f + lg_w2 : 0.0f);
+                float lg_x = pill_x + pill_w - lg_tot, lg_y = pill_y - lg_h - 4.0f;
                 lg_x += draw_chip(ren, f_gsm, lg_src, lg_x, lg_y, g_theme.text_light, lg_bg) + 5.0f;
                 if (lg_tim[0])
                     draw_chip(ren, f_gsm, lg_tim, lg_x, lg_y, g_theme.text_light, lg_bg);
@@ -8845,6 +9060,123 @@ draw_text(ren, f_ftr, "WIFI", labelc, mx + 8.0f, wty);
                 draw_footer(ren, f_ftr, "", s_version);
 
         } /* end STATE_UPDATE */
+        else if (state == STATE_SHOTS) {
+            const float SX = 20.0f;
+            const bool sh_has = (s_shots_n > 0);
+            SDL_Texture *sh_cur = sh_has ? shots_tex(ren, s_shots_cur) : NULL;
+            SDL_Texture *sh_old = NULL;
+            float sh_p = 1.0f;
+            const float sh_dir = (float)s_shots_anim_dir;
+            if (s_shots_anim) {
+                float lin = (float)(now_ticks - s_shots_anim_t0) / (float)SHOTS_ANIM_MS;
+                if (lin >= 1.0f) {
+                    s_shots_anim = false;
+                } else {
+                    float inv = 1.0f - (lin < 0.0f ? 0.0f : lin);
+                    sh_p = 1.0f - inv * inv * inv;
+                    sh_old = shots_tex(ren, s_shots_anim_from);
+                }
+            }
+            /* Precarga de las vecinas con la pantalla quieta (una por fotograma) */
+            if (sh_has && !s_shots_anim && !s_shots_confirm) {
+                if (s_shots_cur + 1 < s_shots_n && !shots_cached(s_shots_cur + 1))
+                    (void)shots_tex(ren, s_shots_cur + 1);
+                else if (s_shots_cur > 0 && !shots_cached(s_shots_cur - 1))
+                    (void)shots_tex(ren, s_shots_cur - 1);
+            }
+
+            if (!s_shots_full) {
+                const float IX = 120.0f, IY = 55.0f, IW = 400.0f, IH = 300.0f;
+                const float TY = 372.0f, TH = 50.0f, TW = 600.0f;
+                draw_statusbar(ren, f_status_bold, status_time, status_wifi_up, status_battery, status_bt_up, bg_update_available, wifi_icon_tex, battery_icon_tex, bt_icon_tex, ssh_icon_tex, update_badge_tex);
+                draw_active_dash_breadcrumbs(ren, f_gcr, SX, 25.0f, 2, tr("Capturas", "Screenshots"));
+                draw_rounded_rect_filled(ren, IX - 4.0f, IY - 4.0f, IW + 8.0f, IH + 8.0f, 8.0f, g_theme.row_bg);
+                if (sh_has) {
+                    if (sh_old) {
+                        shots_blit(ren, sh_old, IX, IY, IW, IH, -sh_dir * IW * sh_p);
+                        shots_blit(ren, sh_cur, IX, IY, IW, IH, sh_dir * IW * (1.0f - sh_p));
+                    } else {
+                        shots_blit(ren, sh_cur, IX, IY, IW, IH, 0.0f);
+                    }
+                    if (!sh_cur && !sh_old)
+                        draw_text(ren, f_ftr, tr("No se pudo abrir la imagen.", "Could not open the image."), c_gray, IX + 12.0f, IY + 12.0f);
+                    if (s_shots_n > 1) {
+                        draw_text(ren, f_title, "<", g_theme.accent, 84.0f, IY + IH / 2.0f - 14.0f);
+                        draw_text(ren, f_title, ">", g_theme.accent, 544.0f, IY + IH / 2.0f - 14.0f);
+                    }
+                } else {
+                    draw_text(ren, f_ftr, tr("No hay capturas de RetroArch.", "No RetroArch screenshots."), c_gray, IX + 12.0f, IY + 12.0f);
+                }
+
+                draw_rounded_rect_filled(ren, SX, TY, TW, TH, 12.0f, g_theme.row_bg);
+                if (sh_has && s_shots_confirm) {
+                    const char *q = tr("¿Borrar esta captura?", "Delete this screenshot?");
+                    int qw = 0, qh = 0;
+                    TTF_GetStringSize(f_ftr, q, 0, &qw, &qh);
+                    draw_text(ren, f_ftr, q, g_theme.accent, SX + (TW - (float)qw) / 2.0f, TY + 11.0f);
+                    draw_text_truncated(ren, f_ftr, s_shots[s_shots_cur].name, c_gray, SX + 14.0f, TY + 29.0f, TW - 28.0f);
+                } else if (sh_has) {
+                    static const char *const mes_es[12] = { "ene","feb","mar","abr","may","jun","jul","ago","sep","oct","nov","dic" };
+                    static const char *const mes_en[12] = { "Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec" };
+                    const ShotEntry *e = &s_shots[s_shots_cur];
+                    char pos[24], info[200], dim[40] = "", sz[24], date[48] = "";
+                    snprintf(pos, sizeof(pos), "%d / %d", s_shots_cur + 1, s_shots_n);
+                    if (e->size >= 1048576)
+                        snprintf(sz, sizeof(sz), "%.1f MB", (double)e->size / 1048576.0);
+                    else
+                        snprintf(sz, sizeof(sz), "%lld KB", (e->size + 512) / 1024);
+                    if (sh_cur) {
+                        float tw = 0.0f, th = 0.0f;
+                        SDL_GetTextureSize(sh_cur, &tw, &th);
+                        snprintf(dim, sizeof(dim), "%d x %d  ·  ", (int)tw, (int)th);
+                    }
+                    time_t mt = e->mtime;
+                    struct tm *lt = localtime(&mt);
+                    if (lt)
+                        snprintf(date, sizeof(date), "%d %s %d  ·  %02d:%02d  ·  ", lt->tm_mday,
+                                 (current_lang == LANG_EN) ? mes_en[lt->tm_mon % 12] : mes_es[lt->tm_mon % 12],
+                                 lt->tm_year + 1900, lt->tm_hour, lt->tm_min);
+                    snprintf(info, sizeof(info), "%s%s%s", date, dim, sz);
+                    draw_text_truncated(ren, f_ftr, e->name, g_theme.accent, SX + 14.0f, TY + 11.0f, TW - 120.0f);
+                    draw_text_right(ren, f_ftr, pos, g_theme.accent, SX + TW - 14.0f, TY + 11.0f);
+                    draw_text(ren, f_ftr, info, c_gray, SX + 14.0f, TY + 29.0f);
+                }
+
+                draw_line(ren, SX, 438.0f, SCREEN_W - 20.0f, 438.0f, c_selbg);
+                if (sh_has && s_shots_confirm)
+                    draw_footer(ren, f_ftr, tr("[B] Borrar  [A] Cancelar", "[B] Delete  [A] Cancel"), s_version);
+                else if (sh_has)
+                    draw_footer(ren, f_ftr, tr("[DPAD] Mover  [B] Pantalla completa  [X] Borrar  [A] Volver", "[DPAD] Browse  [B] Fullscreen  [X] Delete  [A] Back"), s_version);
+                else
+                    draw_footer(ren, f_ftr, tr("[A] Volver", "[A] Back"), s_version);
+            } else {
+                SDL_FRect sh_full = { 0.0f, 0.0f, (float)SCREEN_W, 480.0f };
+                SDL_SetRenderDrawColor(ren, 0, 0, 0, 255);
+                SDL_RenderFillRect(ren, &sh_full);
+                if (sh_old) {
+                    shots_blit(ren, sh_old, 0.0f, 0.0f, (float)SCREEN_W, 480.0f, -sh_dir * (float)SCREEN_W * sh_p);
+                    shots_blit(ren, sh_cur, 0.0f, 0.0f, (float)SCREEN_W, 480.0f, sh_dir * (float)SCREEN_W * (1.0f - sh_p));
+                } else {
+                    shots_blit(ren, sh_cur, 0.0f, 0.0f, (float)SCREEN_W, 480.0f, 0.0f);
+                }
+                if (sh_has && now_ticks < s_shots_hud_until) {
+                    char pos[24];
+                    snprintf(pos, sizeof(pos), "%d / %d", s_shots_cur + 1, s_shots_n);
+                    draw_rounded_rect_filled(ren, (float)SCREEN_W - 104.0f, 10.0f, 94.0f, 26.0f, 13.0f, g_theme.row_bg);
+                    draw_text_right(ren, f_ftr, pos, g_theme.accent, (float)SCREEN_W - 20.0f, 15.0f);
+                }
+                if (sh_has && s_shots_confirm) {
+                    const char *q = tr("¿Borrar esta captura?", "Delete this screenshot?");
+                    const char *k = tr("[B] Borrar  [A] Cancelar", "[B] Delete  [A] Cancel");
+                    int qw = 0, qh = 0, kw = 0, kh = 0;
+                    TTF_GetStringSize(f_ftr, q, 0, &qw, &qh);
+                    TTF_GetStringSize(f_ftr, k, 0, &kw, &kh);
+                    draw_rounded_rect_filled(ren, 120.0f, 200.0f, 400.0f, 80.0f, 12.0f, g_theme.row_bg);
+                    draw_text(ren, f_ftr, q, g_theme.accent, 120.0f + (400.0f - (float)qw) / 2.0f, 218.0f);
+                    draw_text(ren, f_ftr, k, c_gray, 120.0f + (400.0f - (float)kw) / 2.0f, 244.0f);
+                }
+            }
+        }
         else if (state == STATE_CONTROLLER_TEST) {
             const float CX = 20.0f;
             draw_statusbar(ren, f_status_bold, status_time, status_wifi_up, status_battery, status_bt_up, bg_update_available, wifi_icon_tex, battery_icon_tex, bt_icon_tex, ssh_icon_tex, update_badge_tex);
