@@ -5167,7 +5167,7 @@ int main(void)
     float sep_x  = 440.0f;
     float rx      = 400.0f;
     float rx_max_w = SCREEN_W - rx - 15.0f;
-    float menu_y0 = 130.0f;
+    float menu_y0 = 122.0f;
     float item_h  = 34.0f;
 
     while (running) {
