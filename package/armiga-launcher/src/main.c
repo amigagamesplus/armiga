@@ -5167,7 +5167,7 @@ int main(void)
     float sep_x  = 440.0f;
     float rx      = 400.0f;
     float rx_max_w = SCREEN_W - rx - 15.0f;
-    float menu_y0 = 122.0f;
+    float menu_y0 = 130.0f;
     float item_h  = 34.0f;
 
     while (running) {
@@ -6912,7 +6912,8 @@ int main(void)
         if (state == STATE_MENU || (state == STATE_CONFIRM && confirm_target == MENU_ACTION_POWER)) {
         /* Logo */
         if (logo_tex) {
-            SDL_FRect logo_dst = {mx, 14.0f, (float)LOGO_W, (float)LOGO_H};
+            SDL_FRect logo_dst = {mx, 10.0f, (float)LOGO_W, (float)LOGO_H};
+            SDL_SetTextureColorMod(logo_tex, g_theme.text_light.r, g_theme.text_light.g, g_theme.text_light.b);
             SDL_RenderTexture(ren, logo_tex, NULL, &logo_dst);
         }
 
