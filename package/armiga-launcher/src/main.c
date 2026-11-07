@@ -6243,6 +6243,10 @@ int main(void)
                     if ((ev.type == SDL_EVENT_KEY_DOWN && ev.key.key == SDLK_RETURN) ||
                         (ev.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN &&
                          ev.jbutton.button == BTN_SDL_A)) {
+                        if (joy && s_click_sound_enabled) {
+                            SDL_RumbleJoystick(joy, 0xFFFF, 0, 60);
+                            SDL_Delay(70); /* el apagado cierra el mando: dejar terminar la vibracion */
+                        }
                         running = false;
                         exec_req = (power_popup_selected == 1) ? EXEC_REBOOT : EXEC_SHUTDOWN;
                     }
