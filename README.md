@@ -15,9 +15,10 @@
 ARMIGA is a minimal Linux distribution based on **Buildroot** for the **Anbernic RG40XX H** and **RG40XX V**, with experimental support for the **RG35XX H**, developed by retro-gaming enthusiasts. Our goal is to craft a highly focused operating system dedicated to Commodore Amiga emulation via **RetroArch** and the **PUAE core**, creating exactly the retro experience we want while having fun developing it.
 
 <p align="center">
-  <img src="docs/assets/screenshot-main-menu.png" width="270">
-  <img src="docs/assets/screenshot-amiga-catalog.png" width="270">
-  <img src="docs/assets/screenshot-time-zone.png" width="270">
+  <img src="docs/assets/screenshot-main-menu.png" width="210">
+  <img src="docs/assets/screenshot-screenshots.png" width="210">
+  <img src="docs/assets/screenshot-running-script.png" width="210">
+  <img src="docs/assets/screenshot-diagnostics.png" width="210">
 </p>
 
 ## Hardware
