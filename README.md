@@ -63,7 +63,7 @@ ARMIGA is a minimal Linux distribution based on **Buildroot** for the **Anbernic
 - ✅ Last played game indicator on the main menu (reads RetroArch's history playlist): shows the title above the footer, `[X]` resumes it directly without going through the RetroArch menu
 - ✅ **Amiga Catalog** (native list of your WHDLoad `.lha` games): games are identified by CRC32 against a bundled index (`games.idx`), not by file name, so renaming a file doesn't matter; box art / screenshot downloaded on demand over WiFi and cached in `amiga_data`; per-game play time; jump by letter with D-pad left/right; release year, developer, genre and publisher metadata
 - ✅ Optional Samba share of `amiga_data` (`\\armiga`) — see `USER-GUIDE.md`
-- ✅ **Screenshots gallery** for RetroArch captures: browse, full screen view and delete
+- ✅ **Screenshots gallery** for RetroArch captures (taken in game with `MODE+L1`): browse, full screen view and delete
 - ✅ **System Diagnostics** screen (hardware, emulation engine versions, connectivity) with a diagnostic report
 - ✅ 12 selectable color themes in Settings; the launcher logo and interface follow the selected theme
 - ✅ Optional haptic feedback (vibration when going back and on power off) and click sound, toggled with `MODE+A`
