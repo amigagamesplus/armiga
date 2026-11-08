@@ -3895,16 +3895,23 @@ static float draw_statusbar(SDL_Renderer *ren, TTF_Font *f_status,
     SDL_Color c_cream     = g_theme.text_light;
     SDL_Color c_lime      = g_theme.accent;
     SDL_Color c_red       = g_theme.alert;
-    SDL_Color c_pill_off  = g_theme.row_bg;
-    /* Iconos apagados: 28 % del camino entre el fondo y el texto claro del tema
-     * (misma ecuacion para todos los temas). */
+    /* Capsula exterior = row_bg; capsula interior (hora y bateria) = row_bg
+     * aclarado un 12 % hacia el texto claro (misma ecuacion en todos los temas). */
+    SDL_Color c_capsule   = g_theme.row_bg;
+    SDL_Color c_pill_off  = {
+        (Uint8)((float)g_theme.row_bg.r + ((float)g_theme.text_light.r - (float)g_theme.row_bg.r) * 0.12f),
+        (Uint8)((float)g_theme.row_bg.g + ((float)g_theme.text_light.g - (float)g_theme.row_bg.g) * 0.12f),
+        (Uint8)((float)g_theme.row_bg.b + ((float)g_theme.text_light.b - (float)g_theme.row_bg.b) * 0.12f),
+        255 };
+    /* Iconos apagados: 28 % del camino entre el color de la capsula exterior
+     * (row_bg) y el texto claro del tema (misma ecuacion para todos los temas). */
     SDL_Color c_dim_fg    = {
-        (Uint8)((float)g_theme.bg.r + ((float)g_theme.text_light.r - (float)g_theme.bg.r) * 0.28f),
-        (Uint8)((float)g_theme.bg.g + ((float)g_theme.text_light.g - (float)g_theme.bg.g) * 0.28f),
-        (Uint8)((float)g_theme.bg.b + ((float)g_theme.text_light.b - (float)g_theme.bg.b) * 0.28f),
+        (Uint8)((float)g_theme.row_bg.r + ((float)g_theme.text_light.r - (float)g_theme.row_bg.r) * 0.28f),
+        (Uint8)((float)g_theme.row_bg.g + ((float)g_theme.text_light.g - (float)g_theme.row_bg.g) * 0.28f),
+        (Uint8)((float)g_theme.row_bg.b + ((float)g_theme.text_light.b - (float)g_theme.row_bg.b) * 0.28f),
         255 };
     SDL_Color c_white_lit = COL_KEY_BG;
-    float right = SCREEN_W - 20.0f;
+    float right = SCREEN_W - 24.0f; /* 4 px de capsula exterior hasta el margen de 20 */
     float y     = 25.0f;
     float gap   = 10.0f;
     float bare_icon_sz = 26.0f;
@@ -3950,6 +3957,15 @@ static float draw_statusbar(SDL_Renderer *ren, TTF_Font *f_status,
         float pill_x = right - pill_w;
         float pill_y = y - pill_h / 2.0f;
 
+        {
+            /* Capsula exterior: abarca iconos + capsula interior de hora y bateria */
+            float icons_span = (gap + 3.0f) + bare_icon_sz + gap + bare_icon_sz + gap
+                               + bare_icon_sz + (gap + 4.0f) + bare_icon_sz;
+            float cap_h = pill_h + 8.0f;
+            float cap_x = pill_x - icons_span - 5.0f;
+            float cap_w = (pill_x + pill_w + 4.0f) - cap_x;
+            draw_rounded_rect_filled(ren, cap_x, y - cap_h / 2.0f, cap_w, cap_h, cap_h / 2.0f, c_capsule);
+        }
         draw_rounded_rect_filled(ren, pill_x, pill_y, pill_w, pill_h, pill_h / 2.0f, pill_bg);
 
         float cx = pill_x + pad_x;
