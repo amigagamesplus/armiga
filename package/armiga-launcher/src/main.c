@@ -3896,7 +3896,13 @@ static float draw_statusbar(SDL_Renderer *ren, TTF_Font *f_status,
     SDL_Color c_lime      = g_theme.accent;
     SDL_Color c_red       = g_theme.alert;
     SDL_Color c_pill_off  = g_theme.row_bg;
-    SDL_Color c_dim_fg    = {70, 90, 80, 255};
+    /* Iconos apagados: 28 % del camino entre el fondo y el texto claro del tema
+     * (misma ecuacion para todos los temas). */
+    SDL_Color c_dim_fg    = {
+        (Uint8)((float)g_theme.bg.r + ((float)g_theme.text_light.r - (float)g_theme.bg.r) * 0.28f),
+        (Uint8)((float)g_theme.bg.g + ((float)g_theme.text_light.g - (float)g_theme.bg.g) * 0.28f),
+        (Uint8)((float)g_theme.bg.b + ((float)g_theme.text_light.b - (float)g_theme.bg.b) * 0.28f),
+        255 };
     SDL_Color c_white_lit = COL_KEY_BG;
     float right = SCREEN_W - 20.0f;
     float y     = 25.0f;
