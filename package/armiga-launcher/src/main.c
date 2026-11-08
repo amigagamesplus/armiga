@@ -303,7 +303,7 @@ static const char *SETTINGS_MENU_ITEMS[][2] = {
     {"LED RGB analógicos",          "Analog Stick LEDs"},
     {"Zona horaria",                "Time Zone"},
     {"Ahorro de pantalla",          "Screen Dimming"},
-    {"Brillo de pantalla",          "Screen Brightness"},
+    {"Calibrado de pantalla",       "Screen Calibration"},
     {"SSH",                         "SSH"},
     {"Samba (\\\\armiga)",           "Samba (\\\\armiga)"},
     {"Rendimiento",                 "Performance"},
@@ -412,6 +412,9 @@ static const char *tr(const char *es, const char *en)
  * (PERF_PROFILE, SSH_ENABLED). Poblada una vez al arrancar via config_load();
  * los save_* existentes deben actualizar los campos correspondientes tras
  * escribir a disco, para no depender de releer. */
+#define GAMMA_STEP 4
+#define GAMMA_MAX 24
+#define PANEL_CMD_PATH "/sys/kernel/debug/panel-mipi/spi0.0/commands"
 typedef struct {
     int perf_profile;
     int ssh_enabled;
@@ -425,6 +428,7 @@ typedef struct {
     int samba_enabled;
     int theme_index;
     int click_sound_enabled;
+    int gamma_offset;
 } AppConfigCache;
 static AppConfigCache g_cfg = {
     .perf_profile = 1, .ssh_enabled = 1,
@@ -461,6 +465,7 @@ static void config_load(void)
             else if (!strcmp(key, "SAMBA_ENABLED")) g_cfg.samba_enabled = atoi(val);
             else if (!strcmp(key, "THEME_INDEX")) g_cfg.theme_index = atoi(val);
             else if (!strcmp(key, "CLICK_SOUND_ENABLED")) g_cfg.click_sound_enabled = atoi(val);
+            else if (!strcmp(key, "GAMMA_OFFSET")) g_cfg.gamma_offset = atoi(val);
         }
     }
     fclose(f);
@@ -474,6 +479,9 @@ static void config_load(void)
     g_cfg.bt_enabled = g_cfg.bt_enabled ? 1 : 0;
     g_cfg.wifi_enabled = g_cfg.wifi_enabled ? 1 : 0;
     g_cfg.samba_enabled = g_cfg.samba_enabled ? 1 : 0;
+    if (g_cfg.gamma_offset < -GAMMA_MAX) g_cfg.gamma_offset = -GAMMA_MAX;
+    if (g_cfg.gamma_offset > GAMMA_MAX) g_cfg.gamma_offset = GAMMA_MAX;
+    g_cfg.gamma_offset = (g_cfg.gamma_offset / GAMMA_STEP) * GAMMA_STEP;
     if (g_cfg.theme_index < 0 || g_cfg.theme_index >= THEME_COUNT) g_cfg.theme_index = 0;
     g_cfg.click_sound_enabled = g_cfg.click_sound_enabled ? 1 : 0;
 }
@@ -1440,6 +1448,65 @@ static void save_brightness_config(int pct)
     snprintf(v, sizeof(v), "%d", pct);
     config_set_kv("BRIGHTNESS_PCT", v);
     g_cfg.brightness_pct = pct;
+}
+/* ===== Gamma del panel (solo RG40XX H) ===== */
+/* El panel (SPI, familia NV3051D) tiene dos tablas de gamma en el banco 2;
+ * el punto 7 de cada una (registros B7 y D7) actua como mando de gamma:
+ * + oscurece, - aclara. Valores de fabrica: B7=0x42, D7=0x40. Se escribe
+ * por debugfs (panel-mipi/<dev>/commands). Al reiniciar el panel recupera
+ * el init del firmware, asi que se reaplica al arrancar el launcher. */
+static int s_gamma_supported = -1;
+static bool panel_gamma_supported(void)
+{
+    if (s_gamma_supported < 0) {
+        char buf[64] = "";
+        FILE *f = fopen("/proc/device-tree/spi/panel@0/compatible", "r");
+        if (f) {
+            size_t n = fread(buf, 1, sizeof(buf) - 1, f);
+            buf[n] = '\0';
+            fclose(f);
+        }
+        s_gamma_supported = (strcmp(buf, "anbernic,rg40xx-panel") == 0) ? 1 : 0;
+    }
+    return s_gamma_supported == 1;
+}
+static void panel_gamma_apply(int off)
+{
+    if (!panel_gamma_supported()) return;
+    if (off < -GAMMA_MAX) off = -GAMMA_MAX;
+    if (off > GAMMA_MAX) off = GAMMA_MAX;
+    unsigned char s[24] = {
+        2, 0xff, 0x30, 2, 0xff, 0x52, 2, 0xff, 0x02,
+        2, 0xb7, (unsigned char)(0x42 + off),
+        2, 0xd7, (unsigned char)(0x40 + off),
+        2, 0xff, 0x30, 2, 0xff, 0x52, 2, 0xff, 0x00
+    };
+    int fd = open(PANEL_CMD_PATH, O_WRONLY);
+    if (fd < 0) {
+        int rc = system("mount -t debugfs none /sys/kernel/debug >/dev/null 2>&1");
+        (void)rc;
+        fd = open(PANEL_CMD_PATH, O_WRONLY);
+        if (fd < 0) return;
+    }
+    ssize_t w = write(fd, s, sizeof(s));
+    (void)w;
+    close(fd);
+}
+static void save_gamma_config(int off)
+{
+    if (off < -GAMMA_MAX) off = -GAMMA_MAX;
+    if (off > GAMMA_MAX) off = GAMMA_MAX;
+    char v[16];
+    snprintf(v, sizeof(v), "%d", off);
+    config_set_kv("GAMMA_OFFSET", v);
+    g_cfg.gamma_offset = off;
+}
+static void calib_fill(SDL_Renderer *ren, float x, float y, float w, float h,
+                       Uint8 r, Uint8 g, Uint8 b)
+{
+    SDL_SetRenderDrawColor(ren, r, g, b, 255);
+    SDL_FRect fr = { x, y, w, h };
+    SDL_RenderFillRect(ren, &fr);
 }
 /* Lee VOLUME_PCT de armiga.cfg. Default: 80%. ALSA no persiste el estado
  * del mixer entre reboots por si solo (siempre vuelve a 100% de fabrica),
@@ -5010,6 +5077,9 @@ int main(void)
     int dim_field_selected = 0; /* 0 = tiempo, 1 = porcentaje */
     int brightness_pct = read_brightness_config();
     write_brightness((int)((int64_t)2499 * brightness_pct / 100));
+    int gamma_off = g_cfg.gamma_offset;
+    int calib_row = 0;
+    if (gamma_off != 0) panel_gamma_apply(gamma_off);
     apply_perf_profile(perf_selected);
     int dim_max_brightness = read_max_brightness();
     int ssh_enabled = g_cfg.ssh_enabled; /* aplicado ya por S51ssh-toggle en boot, solo reflejar estado en UI */
@@ -5428,6 +5498,7 @@ int main(void)
                             state = STATE_SCREENDIM_CONFIG;
                             break;
                         case 5:
+                            calib_row = 0;
                             state = STATE_BRIGHTNESS_CONFIG;
                             break;
                         case 6:
@@ -5482,47 +5553,60 @@ int main(void)
             }
             else if (state == STATE_BRIGHTNESS_CONFIG) {
                 int brightness_pct_prev = brightness_pct;
+                int gamma_prev = gamma_off;
+                const bool gam_ok = panel_gamma_supported();
+                int adj = 0, rowmv = 0;
+                bool do_apply = false, do_cancel = false, do_reset = false;
                 if (ev.type == SDL_EVENT_KEY_DOWN) {
-                    if (ev.key.key == SDLK_LEFT) {
-                        brightness_pct -= 5;
-                        if (brightness_pct < 5) brightness_pct = 5;
-                    }
-                    if (ev.key.key == SDLK_RIGHT) {
-                        brightness_pct += 5;
-                        if (brightness_pct > 100) brightness_pct = 100;
-                    }
-                    if (ev.key.key == SDLK_RETURN) {
-                        save_brightness_config(brightness_pct);
-                        state = STATE_SETTINGS;
-                    }
-                    if (ev.key.key == SDLK_ESCAPE) {
-                        brightness_pct = read_brightness_config();
-                        write_brightness((int)((int64_t)2499 * brightness_pct / 100));
-                        state = STATE_SETTINGS;
-                    }
+                    if (ev.key.key == SDLK_LEFT) adj = -1;
+                    if (ev.key.key == SDLK_RIGHT) adj = 1;
+                    if (ev.key.key == SDLK_UP) rowmv = -1;
+                    if (ev.key.key == SDLK_DOWN) rowmv = 1;
+                    if (ev.key.key == SDLK_RETURN) do_apply = true;
+                    if (ev.key.key == SDLK_ESCAPE) do_cancel = true;
                 }
                 if (ev.type == SDL_EVENT_JOYSTICK_HAT_MOTION) {
-                    if (ev.jhat.value == SDL_HAT_LEFT) {
-                        brightness_pct -= 5;
+                    if (ev.jhat.value == SDL_HAT_LEFT) adj = -1;
+                    else if (ev.jhat.value == SDL_HAT_RIGHT) adj = 1;
+                    else if (ev.jhat.value == SDL_HAT_UP) rowmv = -1;
+                    else if (ev.jhat.value == SDL_HAT_DOWN) rowmv = 1;
+                }
+                if (ev.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN) {
+                    if (ev.jbutton.button == BTN_SDL_A) do_apply = true;
+                    if (ev.jbutton.button == BTN_SDL_B) do_cancel = true;
+                    if (ev.jbutton.button == BTN_SDL_X) do_reset = true;
+                }
+                if (rowmv != 0 && gam_ok) calib_row = 1 - calib_row;
+                if (!gam_ok) calib_row = 0;
+                if (adj != 0) {
+                    if (calib_row == 0) {
+                        brightness_pct += adj * 5;
                         if (brightness_pct < 5) brightness_pct = 5;
-                    } else if (ev.jhat.value == SDL_HAT_RIGHT) {
-                        brightness_pct += 5;
                         if (brightness_pct > 100) brightness_pct = 100;
+                    } else {
+                        gamma_off += adj * GAMMA_STEP;
+                        if (gamma_off < -GAMMA_MAX) gamma_off = -GAMMA_MAX;
+                        if (gamma_off > GAMMA_MAX) gamma_off = GAMMA_MAX;
                     }
                 }
-                if (ev.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN &&
-                    ev.jbutton.button == BTN_SDL_A) {
+                if (do_reset) {
+                    if (calib_row == 0) brightness_pct = 80;
+                    else gamma_off = 0;
+                }
+                if (do_apply) {
                     save_brightness_config(brightness_pct);
+                    save_gamma_config(gamma_off);
                     state = STATE_SETTINGS;
                 }
-                if (ev.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN &&
-                    ev.jbutton.button == BTN_SDL_B) {
+                if (do_cancel) {
                     brightness_pct = read_brightness_config();
-                    write_brightness((int)((int64_t)2499 * brightness_pct / 100));
+                    gamma_off = g_cfg.gamma_offset;
                     state = STATE_SETTINGS;
                 }
                 if (brightness_pct != brightness_pct_prev)
                     write_brightness((int)((int64_t)2499 * brightness_pct / 100));
+                if (gamma_off != gamma_prev)
+                    panel_gamma_apply(gamma_off);
             }
             else if (state == STATE_PERF_CONFIG) {
                 if (ev.type == SDL_EVENT_KEY_DOWN) {
@@ -7375,23 +7459,75 @@ int main(void)
 
         } else if (state == STATE_BRIGHTNESS_CONFIG) {
             draw_statusbar(ren, f_status_bold, status_time, status_wifi_up, status_battery, status_bt_up, bg_update_available, wifi_icon_tex, battery_icon_tex, bt_icon_tex, ssh_icon_tex, update_badge_tex);
-            draw_active_dash_breadcrumbs(ren, f_gcr, mx, 25.0f, 3, tr("Brillo de pantalla", "Screen Brightness"));
+            draw_active_dash_breadcrumbs(ren, f_gcr, mx, 25.0f, 3, tr("Calibrado de pantalla", "Screen Calibration"));
 
             {
-                float iy = 90.0f;
-                float bar_w = 220.0f, bar_h = 10.0f;
-                char valbuf[8];
-                snprintf(valbuf, sizeof(valbuf), "%d%%", brightness_pct);
-                draw_text(ren, f_gsm, tr("Brillo", "Brightness"), c_green, mx + 8.0f, iy);
-                draw_text(ren, f_ftr, valbuf, c_white, mx + 8.0f, iy + 16.0f);
-                float frac = brightness_pct / 100.0f;
-                SDL_Color c_bar_lime = c_selbg;
-                draw_bar_rounded(ren, mx + 8.0f, iy + 44.0f, bar_w, bar_h, frac, c_bar_lime, c_white);
+                const bool gam_ok = panel_gamma_supported();
+                const float RX = mx, RW = (float)SCREEN_W - 2.0f * mx;
+                const float bw = RW - 32.0f;
+                for (int r = 0; r < (gam_ok ? 2 : 1); r++) {
+                    float ry = 60.0f + (float)r * 74.0f;
+                    bool sel = (calib_row == r);
+                    if (sel)
+                        draw_rounded_rect_filled(ren, RX, ry, RW, 64.0f, 12.0f, g_theme.accent);
+                    draw_rounded_rect_filled(ren, RX + (sel ? 2.0f : 0.0f), ry + (sel ? 2.0f : 0.0f),
+                                             RW - (sel ? 4.0f : 0.0f), 64.0f - (sel ? 4.0f : 0.0f),
+                                             sel ? 10.0f : 12.0f, g_theme.row_bg);
+                    char vb[32];
+                    const char *lbl;
+                    float frac;
+                    if (r == 0) {
+                        lbl = tr("Brillo", "Brightness");
+                        snprintf(vb, sizeof(vb), "%d%%", brightness_pct);
+                        frac = brightness_pct / 100.0f;
+                    } else {
+                        lbl = "Gamma";
+                        if (gamma_off == 0)
+                            snprintf(vb, sizeof(vb), "%s", tr("0 (por defecto)", "0 (default)"));
+                        else
+                            snprintf(vb, sizeof(vb), "%+d", gamma_off / GAMMA_STEP);
+                        frac = (float)(gamma_off + GAMMA_MAX) / (2.0f * (float)GAMMA_MAX);
+                    }
+                    draw_text(ren, f_gsm, lbl, sel ? g_theme.accent : g_theme.text_light, RX + 16.0f, ry + 9.0f);
+                    draw_text_right(ren, f_ftr, vb, g_theme.text_light, RX + RW - 16.0f, ry + 8.0f);
+                    draw_bar_rounded(ren, RX + 16.0f, ry + 36.0f, bw, 10.0f, frac, g_theme.accent, g_theme.text_light);
+                    if (r == 1) {
+                        draw_line(ren, RX + 16.0f + bw / 2.0f, ry + 32.0f, RX + 16.0f + bw / 2.0f, ry + 50.0f, g_theme.text_light);
+                        draw_text(ren, f_gxs, tr("Más claro", "Lighter"), c_gray, RX + 16.0f, ry + 49.0f);
+                        draw_text_right(ren, f_gxs, tr("Más oscuro", "Darker"), c_gray, RX + RW - 16.0f, ry + 49.0f);
+                    }
+                }
+
+                /* Carta de ajuste: degradado, 16 escalones de gris y barras de color */
+                draw_text(ren, f_gsm, tr("Carta de ajuste", "Test chart"), c_gray, RX, 216.0f);
+                for (int i = 0; i < 150; i++) {
+                    Uint8 v = (Uint8)(i * 255 / 149);
+                    calib_fill(ren, RX + (float)i * 4.0f, 236.0f, 4.0f, 30.0f, v, v, v);
+                }
+                for (int i = 0; i < 16; i++) {
+                    Uint8 v = (Uint8)(i * 17);
+                    calib_fill(ren, RX + (float)i * 37.5f, 274.0f, 37.5f, 30.0f, v, v, v);
+                }
+                static const Uint8 bars[8][3] = {
+                    {255, 0, 0}, {0, 255, 0}, {0, 0, 255}, {0, 255, 255},
+                    {255, 0, 255}, {255, 255, 0}, {255, 255, 255}, {0, 0, 0}
+                };
+                for (int i = 0; i < 8; i++)
+                    calib_fill(ren, RX + (float)i * 75.0f, 312.0f, 75.0f, 30.0f, bars[i][0], bars[i][1], bars[i][2]);
+                draw_text(ren, f_ftr, tr("Elige el aspecto que prefieras. Los cambios se aplican al instante.",
+                                         "Choose the look you like best. Changes apply instantly."),
+                          c_gray, RX, 356.0f);
             }
 
             draw_line(ren, mx, 438.0f, SCREEN_W - 20.0f, 438.0f, c_selbg);
-            draw_footer(ren, f_ftr,
-                tr("[<>] Ajustar  [B] Aplicar  [A] Volver", "[<>] Adjust  [B] Apply  [A] Back"), s_version);
+            if (panel_gamma_supported())
+                draw_footer(ren, f_ftr,
+                    tr("[ARR/ABA] Elegir  [<>] Ajustar  [X] Restablecer  [B] Aplicar  [A] Volver",
+                       "[UP/DOWN] Select  [<>] Adjust  [X] Reset  [B] Apply  [A] Back"), s_version);
+            else
+                draw_footer(ren, f_ftr,
+                    tr("[<>] Ajustar  [X] Restablecer  [B] Aplicar  [A] Volver",
+                       "[<>] Adjust  [X] Reset  [B] Apply  [A] Back"), s_version);
 
         } else if (state == STATE_PERF_CONFIG) {
             draw_statusbar(ren, f_status_bold, status_time, status_wifi_up, status_battery, status_bt_up, bg_update_available, wifi_icon_tex, battery_icon_tex, bt_icon_tex, ssh_icon_tex, update_badge_tex);
