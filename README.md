@@ -55,7 +55,7 @@ ARMIGA is a minimal Linux distribution based on **Buildroot** for the **Anbernic
 - ✅ RetroArch 1.22.2-nightly (2242d04) + PUAE 2021 core (`puae2021_libretro.so`, 2.6.1 008d035)
 - ✅ OTA update system (GitHub Releases → download → SHA256 verification → flash inactive slot, all async without blocking the UI)
 - ✅ Automatic A/B rollback on boot failure (attempt counter + slot reversion)
-- ✅ Settings menu: wireless network, backup (create/restore/delete), analog stick RGB LEDs, timezone, screensaver, brightness, performance profiles (maximum/balanced/power saving), SSH, factory reset
+- ✅ Settings menu: wireless network, backup (create/restore/delete), analog stick RGB LEDs, timezone, screensaver, screen calibration (brightness and gamma), performance profiles (maximum/balanced/power saving), SSH, factory reset
 - ✅ Redesigned "Workbench" interface (beige/gold palette on black, monochrome Tabler Icons iconography)
 - ✅ Developer mode (terminal, btop, CPU temperature graph + throttling detection) accessible with `SELECT+START+L1` combo
 - ✅ ARexx scripts: kickstart checker (MD5 verification, color-coded pass/fail), disk/partition integrity check with verdict (OK/WARNING/CRITICAL); script output view supports line wrapping (no truncation) and continuous D-pad/stick hold-to-scroll
@@ -68,6 +68,7 @@ ARMIGA is a minimal Linux distribution based on **Buildroot** for the **Anbernic
 - ✅ 12 selectable color themes in Settings; the launcher logo and interface follow the selected theme
 - ✅ Optional haptic feedback (vibration when going back and on power off) and click sound, toggled with `MODE+A`
 - ✅ Boot splash with progress bar; change the image by replacing `splash.png`
+- ✅ **Screen Calibration** (Settings): brightness plus a panel gamma adjustment (RG40XX H only), with a built-in test chart
 
 ### Partitions (MBR, never GPT) — A/B scheme
 
