@@ -1,7 +1,9 @@
+<p align="center">
 <picture>
   <source media="(prefers-color-scheme: light)" srcset="docs/assets/logo-armiga-light.png">
   <img src="docs/assets/logo-armiga.png" alt="armiga" width="400">
 </picture>
+</p>
 
 <p align="left">
   <a href="https://github.com/amigagamesplus/armiga/releases"><img alt="release" src="https://img.shields.io/github/v/release/amigagamesplus/armiga?color=B7DD5B&labelColor=0F1F18&cacheSeconds=3600"></a>
