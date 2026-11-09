@@ -59,14 +59,6 @@ jobs:
             if [ -f "$patch" ]; then
               name="$(basename "$patch")"
               case "$name" in
-                0005-h616-sram-c-de3-alias-legacy.patch|0006-h616-sram-c-de3-alias-new.patch)
-                  if patch -p1 -N --dry-run < "$patch" > /dev/null 2>&1; then
-                    echo "Applying $name..."
-                    patch -p1 < "$patch"
-                  else
-                    echo "Skipping $name (not applicable to this kernel version)"
-                  fi
-                  ;;
                 0003-Update-sun8i_tcon_top.c.patch)
                   echo "Applying $name (fuzz 3, context shifted in newer kernels)..."
                   if ! patch -p1 --fuzz=3 < "$patch"; then
