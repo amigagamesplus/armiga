@@ -3911,8 +3911,8 @@ static float draw_statusbar(SDL_Renderer *ren, TTF_Font *f_status,
         (Uint8)((float)g_theme.row_bg.b + ((float)g_theme.text_light.b - (float)g_theme.row_bg.b) * 0.28f),
         255 };
     SDL_Color c_white_lit = COL_KEY_BG;
-    float right = SCREEN_W - 24.0f; /* 4 px de capsula exterior hasta el margen de 20 */
-    float y     = 25.0f;
+    float right = SCREEN_W - 19.0f; /* la capsula exterior (+4 px) acaba en SCREEN_W - 15, como las tarjetas del menu */
+    float y     = 28.0f;
     float gap   = 10.0f;
     float bare_icon_sz = 26.0f;
 
@@ -4061,6 +4061,7 @@ static void draw_active_dash_breadcrumbs(SDL_Renderer *ren, TTF_Font *font,
                                          int depth, const char *title)
 {
     if (depth <= 0) return;
+    y_center += 3.0f; /* alineado con la barra de estado */
 
     const SDL_Color c_prev_dot    = g_theme.row_bg;
     const SDL_Color c_active_dash = g_theme.accent;
