@@ -1,0 +1,19 @@
+diff --git a/sound/soc/soc-core.c b/sound/soc/soc-core.c
+index 68b54e509b6554..97269b4ee4ca5c 100644
+--- a/sound/soc/soc-core.c
++++ b/sound/soc/soc-core.c
+@@ -381,8 +381,12 @@ static struct snd_soc_pcm_runtime *soc_new_pcm_runtime(
+ 	/*
+ 	 * for rtd
+ 	 */
+-	rtd = devm_kzalloc_flex(dev, *rtd, components,
+-				dai_link->num_cpus + dai_link->num_codecs + dai_link->num_platforms);
++	rtd = devm_kzalloc(dev,
++			   struct_size(rtd, components,
++				       dai_link->num_cpus +
++				       dai_link->num_codecs +
++				       dai_link->num_platforms),
++			   GFP_KERNEL);
+ 	if (!rtd) {
+ 		device_unregister(dev);
+ 		return NULL;
