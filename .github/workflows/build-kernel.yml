@@ -127,6 +127,7 @@ jobs:
           cd "${GITHUB_WORKSPACE}/armiga-joypad"
           git log --oneline -1
           make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- KDIR="${KERNEL_SRC}"
+          aarch64-linux-gnu-strip --strip-debug armiga-joypad.ko
           ls -la armiga-joypad.ko
 
       - name: Collect artifacts
