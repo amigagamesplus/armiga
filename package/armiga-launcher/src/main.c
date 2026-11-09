@@ -7309,7 +7309,7 @@ int main(void)
             }
             /* Panel de detalle (derecha): estado y descripcion del ajuste seleccionado. */
             {
-                const float pn_x = 340.0f, pn_y = 60.0f, pn_w = SCREEN_W - 20.0f - 340.0f, pn_h = 352.0f;
+                const float pn_x = 340.0f, pn_y = 68.0f, pn_w = SCREEN_W - 20.0f - 340.0f, pn_h = 352.0f;
                 const float pn_ix = pn_x + 16.0f, pn_iw = pn_w - 32.0f;
                 const SDL_Color pn_val = g_theme.text_light;
                 const SDL_Color pn_dim = { (Uint8)((g_theme.row_bg.r * 45 + g_theme.text_light.r * 55) / 100),
