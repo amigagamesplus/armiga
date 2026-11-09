@@ -3911,8 +3911,8 @@ static float draw_statusbar(SDL_Renderer *ren, TTF_Font *f_status,
         (Uint8)((float)g_theme.row_bg.b + ((float)g_theme.text_light.b - (float)g_theme.row_bg.b) * 0.28f),
         255 };
     SDL_Color c_white_lit = COL_KEY_BG;
-    float right = SCREEN_W - 19.0f; /* la capsula exterior (+4 px) acaba en SCREEN_W - 15, como las tarjetas del menu */
-    float y     = 28.0f;
+    float right = SCREEN_W - 24.0f; /* la capsula exterior (+4 px) acaba en SCREEN_W - 20, como paneles y linea del pie */
+    float y     = 29.0f;
     float gap   = 10.0f;
     float bare_icon_sz = 26.0f;
 
@@ -4061,7 +4061,7 @@ static void draw_active_dash_breadcrumbs(SDL_Renderer *ren, TTF_Font *font,
                                          int depth, const char *title)
 {
     if (depth <= 0) return;
-    y_center += 3.0f; /* alineado con la barra de estado */
+    y_center += 4.0f; /* alineado con la barra de estado */
 
     const SDL_Color c_prev_dot    = g_theme.row_bg;
     const SDL_Color c_active_dash = g_theme.accent;
@@ -7089,7 +7089,7 @@ int main(void)
             /* Loseta de la opcion seleccionada: altura adaptada al texto */
             float d_tile_x = rx - 10.0f;
             float d_tile_y = menu_y0 - 8.0f;
-            float d_tile_w = (SCREEN_W - 15.0f) - d_tile_x;
+            float d_tile_w = (SCREEN_W - 20.0f) - d_tile_x;
             float d_txt_w = d_tile_w - 20.0f;
             int n_lines = count_text_wrapped(f_ftr, desc_flat, d_txt_w);
             float d_tile_h = 34.0f + (float)n_lines * 16.0f;
@@ -7103,7 +7103,7 @@ int main(void)
                 const char *t_src[4] = { dash_cpu_temp, dash_cpu_load, dash_ram, menu_disk_free };
                 const float t_gap = 8.0f, t_pad = 10.0f;
                 float t_x0 = rx - 10.0f;
-                float t_w = ((SCREEN_W - 15.0f) - t_x0 - t_gap) / 2.0f;
+                float t_w = ((SCREEN_W - 20.0f) - t_x0 - t_gap) / 2.0f;
                 float t_h = 54.0f;
                 float t_y0 = d_tile_y + d_tile_h + t_gap;
                 SDL_Color t_lblc = cat_mix(g_theme.row_bg, g_theme.text_light, 0.60f);
