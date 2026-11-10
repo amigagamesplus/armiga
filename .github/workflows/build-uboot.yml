@@ -1,0 +1,152 @@
+# =============================================================================
+# U-Boot CI – Build u-boot-sunxi-with-spl.bin for Allwinner H700 (aarch64)
+# =============================================================================
+# Manual trigger.  Provide the U-Boot version tag (e.g. v2026.10) and,
+# optionally, the ARM Trusted Firmware tag and the board defconfig.
+# The workflow cross-compiles TF-A (bl31), then U-Boot, and uploads the
+# resulting binary as a GitHub Actions artifact.
+#
+# NOTE: Mainline U-Boot only ships the RG35XX-2024 device tree for the H700.
+#       The RG40XX-H shares the same SoC / PMIC / DRAM, so the resulting
+#       u-boot-sunxi-with-spl.bin boots on both devices.  The kernel (not
+#       U-Boot) handles panel, joystick, and Wi-Fi differences via its own DTB.
+#       If you build from a fork that includes the RG40XX-H DTS, you can
+#       override the device tree via the "device_tree" input.
+# =============================================================================
+
+name: Build U-Boot (H700)
+
+on:
+  workflow_dispatch:
+    inputs:
+      uboot_version:
+        description: 'U-Boot version / tag / branch (e.g. v2026.10, v2027.01-rc2)'
+        required: true
+        default: 'v2026.01'
+      tfa_version:
+        description: 'ARM Trusted Firmware version / tag (e.g. v2.11.0)'
+        required: false
+        default: 'v2.11.0'
+      uboot_defconfig:
+        description: 'U-Boot defconfig for the board'
+        required: false
+        default: 'anbernic_rg35xx_h700_defconfig'
+      device_tree:
+        description: 'Override DEFAULT_DEVICE_TREE (leave empty to use defconfig default)'
+        required: false
+        default: ''
+
+jobs:
+  build:
+    name: U-Boot ${{ github.event.inputs.uboot_version }} – H700
+    runs-on: ubuntu-24.04
+
+    env:
+      CROSS_COMPILE: aarch64-linux-gnu-
+
+    steps:
+      # ---------------------------------------------------------------
+      # 1. Install build dependencies & cross-compiler
+      # ---------------------------------------------------------------
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential gcc-aarch64-linux-gnu g++-aarch64-linux-gnu \
+            bison flex libssl-dev bc swig \
+            python3 python3-dev python3-setuptools python3-pyelftools \
+            device-tree-compiler u-boot-tools
+
+      # ---------------------------------------------------------------
+      # 2. Clone & build ARM Trusted Firmware (BL31)
+      # ---------------------------------------------------------------
+      - name: Clone ARM Trusted Firmware
+        run: |
+          git clone --depth 1 --branch ${{ github.event.inputs.tfa_version }} \
+            https://github.com/ARM-software/arm-trusted-firmware.git
+
+      - name: Build TF-A (bl31.bin) for sun50i_h616
+        run: |
+          cd arm-trusted-firmware
+          make PLAT=sun50i_h616 CROSS_COMPILE=${CROSS_COMPILE} DEBUG=0 bl31
+          echo "BL31 built successfully"
+          ls -lh build/sun50i_h616/release/bl31.bin
+
+      # ---------------------------------------------------------------
+      # 3. Clone & build U-Boot
+      # ---------------------------------------------------------------
+      - name: Clone U-Boot
+        run: |
+          git clone --depth 1 --branch ${{ github.event.inputs.uboot_version }} \
+            https://source.denx.de/u-boot/u-boot.git
+
+      - name: Configure U-Boot (${{ github.event.inputs.uboot_defconfig }})
+        run: |
+          cd u-boot
+          make ${{ github.event.inputs.uboot_defconfig }}
+
+      - name: Override DEFAULT_DEVICE_TREE (optional)
+        if: ${{ github.event.inputs.device_tree != '' }}
+        run: |
+          cd u-boot
+          sed -i 's|^CONFIG_DEFAULT_DEVICE_TREE=.*|CONFIG_DEFAULT_DEVICE_TREE="${{ github.event.inputs.device_tree }}"|' .config
+          echo "Device tree overridden to:"
+          grep CONFIG_DEFAULT_DEVICE_TREE .config
+
+      - name: Show active device tree
+        run: |
+          cd u-boot
+          echo "CONFIG_DEFAULT_DEVICE_TREE in use:"
+          grep CONFIG_DEFAULT_DEVICE_TREE .config
+
+      - name: Build U-Boot
+        run: |
+          cd u-boot
+          make BL31=${{ github.workspace }}/arm-trusted-firmware/build/sun50i_h616/release/bl31.bin \
+               -j$(nproc)
+          echo "U-Boot built successfully"
+          ls -lh u-boot-sunxi-with-spl.bin
+
+      # ---------------------------------------------------------------
+      # 4. Upload artefacts
+      # ---------------------------------------------------------------
+      - name: Upload u-boot-sunxi-with-spl.bin
+        uses: actions/upload-artifact@v4
+        with:
+          name: u-boot-sunxi-with-spl-${{ github.event.inputs.uboot_version }}
+          path: u-boot/u-boot-sunxi-with-spl.bin
+          retention-days: 90
+
+      - name: Upload full U-Boot build directory (optional extras)
+        uses: actions/upload-artifact@v4
+        with:
+          name: u-boot-build-extras-${{ github.event.inputs.uboot_version }}
+          path: |
+            u-boot/u-boot.bin
+            u-boot/u-boot.dtb
+            u-boot/spl/sunxi-spl.bin
+            u-boot/.config
+          retention-days: 30
+          if-no-files-found: ignore
+
+      # ---------------------------------------------------------------
+      # 5. Summary
+      # ---------------------------------------------------------------
+      - name: Build summary
+        run: |
+          DT_USED=$(grep CONFIG_DEFAULT_DEVICE_TREE u-boot/.config | cut -d'"' -f2)
+          echo "## 🔧 U-Boot Build Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Parameter | Value |" >> $GITHUB_STEP_SUMMARY
+          echo "|-----------|-------|" >> $GITHUB_STEP_SUMMARY
+          echo "| U-Boot version | \`${{ github.event.inputs.uboot_version }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| TF-A version | \`${{ github.event.inputs.tfa_version }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| Defconfig | \`${{ github.event.inputs.uboot_defconfig }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| Device tree | \`${DT_USED}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| Cross compiler | \`${CROSS_COMPILE}gcc\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| TF-A platform | \`sun50i_h616\` |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Output" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          ls -lh u-boot/u-boot-sunxi-with-spl.bin >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
