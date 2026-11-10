@@ -1617,6 +1617,7 @@ static void patch_cfg_line(const char *path, const char *key, const char *new_li
         }
     }
     fclose(f);
+    if (n == 0) { free(lines); return; }
     if (!replaced) {
         if (n == cap) {
             cap = cap ? cap * 2 : 512;
@@ -1625,10 +1626,18 @@ static void patch_cfg_line(const char *path, const char *key, const char *new_li
         lines[n++] = strdup(new_line);
     }
 
-    f = fopen(path, "w");
+    char tmp_path[600];
+    snprintf(tmp_path, sizeof(tmp_path), "%s.tmp", path);
+    f = fopen(tmp_path, "w");
     if (f) {
-        for (int i = 0; i < n; i++) fputs(lines[i], f);
-        fclose(f);
+        bool ok = true;
+        for (int i = 0; i < n; i++) {
+            if (fputs(lines[i], f) == EOF) { ok = false; break; }
+        }
+        if (fflush(f) != 0) ok = false;
+        if (fsync(fileno(f)) != 0) ok = false;
+        if (fclose(f) != 0) ok = false;
+        if (ok) rename(tmp_path, path); else unlink(tmp_path);
     }
     for (int i = 0; i < n; i++) free(lines[i]);
     free(lines);
