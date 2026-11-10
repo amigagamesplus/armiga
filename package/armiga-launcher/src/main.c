@@ -9259,8 +9259,8 @@ draw_text(ren, f_ftr, "WIFI", labelc, mx + 8.0f, wty);
             }
 
             if (!s_shots_full) {
-                const float IX = 120.0f, IY = 55.0f, IW = 400.0f, IH = 300.0f;
-                const float TY = 372.0f, TH = 50.0f, TW = 600.0f;
+                const float IX = 120.0f, IY = 63.0f, IW = 400.0f, IH = 300.0f;
+                const float TY = 377.0f, TH = 50.0f, TW = 600.0f;
                 draw_statusbar(ren, f_status_bold, status_time, status_wifi_up, status_battery, status_bt_up, bg_update_available, wifi_icon_tex, battery_icon_tex, bt_icon_tex, ssh_icon_tex, update_badge_tex);
                 draw_active_dash_breadcrumbs(ren, f_gcr, SX, 25.0f, 2, tr("Capturas", "Screenshots"));
                 draw_rounded_rect_filled(ren, IX - 4.0f, IY - 4.0f, IW + 8.0f, IH + 8.0f, 8.0f, g_theme.row_bg);
