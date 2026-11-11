@@ -30,7 +30,7 @@ on:
       uboot_defconfig:
         description: 'U-Boot defconfig for the board'
         required: false
-        default: 'anbernic_rg35xx_h700_defconfig'
+        default: 'anbernic_rg35xx_h700_lpddr4_defconfig'
       device_tree:
         description: 'Override DEFAULT_DEVICE_TREE (leave empty to use defconfig default)'
         required: false
@@ -45,6 +45,9 @@ jobs:
       CROSS_COMPILE: aarch64-linux-gnu-
 
     steps:
+      - name: Checkout Armiga repo (U-Boot defconfig and patches)
+        uses: actions/checkout@v4
+
       # ---------------------------------------------------------------
       # 1. Install build dependencies & cross-compiler
       # ---------------------------------------------------------------
@@ -80,6 +83,15 @@ jobs:
         run: |
           git clone --depth 1 --branch ${{ github.event.inputs.uboot_version }} \
             https://source.denx.de/u-boot/u-boot.git
+
+      - name: Apply Armiga U-Boot defconfig and patches
+        run: |
+          cd u-boot
+          cp "${GITHUB_WORKSPACE}"/board/armiga/uboot/configs/*_defconfig configs/
+          for patch in "${GITHUB_WORKSPACE}"/board/armiga/uboot/patches/*.patch; do
+            echo "Applying $(basename "$patch")..."
+            patch -p1 < "$patch"
+          done
 
       - name: Configure U-Boot (${{ github.event.inputs.uboot_defconfig }})
         run: |
