@@ -47,10 +47,13 @@ do_expand_if_needed() {
             # montando en modo lectura para no arriesgar nada.
             mkdir -p "$AMIGA_DATA_MNT"
             FS_SIZE_BYTES=0
+            FS_USED_KB=0
             if mount -t exfat -o ro "$AMIGA_DATA_DEV" "$AMIGA_DATA_MNT" 2>/dev/null; then
                 FS_SIZE_KB=$(df -k "$AMIGA_DATA_MNT" 2>/dev/null | awk 'NR==2{print $2}')
                 FS_SIZE_KB=${FS_SIZE_KB:-0}
                 FS_SIZE_BYTES=$(( FS_SIZE_KB * 1024 ))
+                FS_USED_KB=$(df -k "$AMIGA_DATA_MNT" 2>/dev/null | awk 'NR==2{print $3}')
+                FS_USED_KB=${FS_USED_KB:-0}
                 umount "$AMIGA_DATA_MNT" 2>/dev/null
             fi
 
@@ -59,8 +62,16 @@ do_expand_if_needed() {
             # expandir todavia (caso SD recien flasheada por genimage).
             IS_REAL_USER_DATA=0
             if [ "$PART_SIZE" -gt 0 ] 2>/dev/null; then
-                HALF_PART=$(( PART_SIZE / 2 ))
-                if [ "$FS_SIZE_BYTES" -ge "$HALF_PART" ] 2>/dev/null; then
+                # Referencia: el mayor entre la particion y el espacio util
+                # del disco (disco - inicio de p4). Tras flashear, la particion
+                # mide lo mismo que el placeholder (256M) y no sirve sola.
+                # Con 4 MiB o mas usados se considera siempre dato real.
+                P4_START=$(cat /sys/block/mmcblk0/mmcblk0p4/start 2>/dev/null || echo 0)
+                USABLE=$(( DISK_SIZE - P4_START * 512 ))
+                REF_SIZE=$PART_SIZE
+                [ "$USABLE" -gt "$REF_SIZE" ] 2>/dev/null && REF_SIZE=$USABLE
+                HALF_PART=$(( REF_SIZE / 2 ))
+                if [ "$FS_SIZE_BYTES" -ge "$HALF_PART" ] 2>/dev/null || [ "$FS_USED_KB" -ge 4096 ] 2>/dev/null; then
                     IS_REAL_USER_DATA=1
                 fi
             fi
