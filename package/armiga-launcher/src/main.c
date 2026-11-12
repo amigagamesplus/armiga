@@ -8802,8 +8802,8 @@ draw_text(ren, f_ftr, "WIFI", labelc, mx + 8.0f, wty);
 
             /* Panel derecho: info tecnica, agrupada en 2 columnas */
             {
-                float ry0 = 64.0f;
-                float row_h = 40.0f;
+                float ry0 = 68.0f;
+                float row_h = 48.0f;
                 char batt_buf[8];
                 if (status_battery >= 0)
                     snprintf(batt_buf, sizeof(batt_buf), "%d%%", status_battery);
@@ -8822,19 +8822,31 @@ draw_text(ren, f_ftr, "WIFI", labelc, mx + 8.0f, wty);
                     {"SDL3", s_sdl3},
                 };
                 float dm_rx = rx - 140.0f;
-                float col2_x = dm_rx + 150.0f;
+                float dm_x1 = SCREEN_W - 20.0f;
+                float card_w = (dm_x1 - dm_rx - 12.0f) / 2.0f;
+                float col2_x = dm_rx + card_w + 12.0f;
+                float ram_frac = 0.0f;
+                { int ru = 0, rt = 0; if (sscanf(dev_ram, "%d/%d", &ru, &rt) == 2 && rt > 0) ram_frac = (float)ru / (float)rt; }
+                float batt_frac = status_battery >= 0 ? status_battery / 100.0f : 0.0f;
                 for (int i = 0; i < 4; i++) {
                     float ry = ry0 + i * row_h;
-                    draw_text(ren, f_ftr, left_col[i].label, c_menu_beige, dm_rx, ry);
-                    draw_text(ren, f_ftr, left_col[i].val, c_menu_selbg, dm_rx, ry + 16.0f);
-                    draw_text(ren, f_ftr, right_col[i].label, c_menu_beige, col2_x, ry);
-                    draw_text(ren, f_ftr, right_col[i].val, c_menu_selbg, col2_x, ry + 16.0f);
+                    for (int c = 0; c < 2; c++) {
+                        float cx = c ? col2_x : dm_rx;
+                        const char *lb = c ? right_col[i].label : left_col[i].label;
+                        const char *vl = c ? right_col[i].val : left_col[i].val;
+                        draw_rounded_rect_filled(ren, cx, ry, card_w, 42.0f, 8.0f, g_theme.row_bg);
+                        draw_text(ren, f_ftr, lb, c_menu_beige, cx + 10.0f, ry + 4.0f);
+                        draw_text(ren, f_ftr, vl, c_menu_selbg, cx + 10.0f, ry + 21.0f);
+                        if (c == 0 && (i == 2 || i == 3))
+                            draw_bar_rounded(ren, cx + card_w - 62.0f, ry + 27.0f, 52.0f, 6.0f, i == 2 ? ram_frac : batt_frac, g_theme.bg, c_menu_selbg);
+                    }
                 }
-                float dm_rx2 = rx - 140.0f;
-                float g_x0 = dm_rx2;
-                float g_y0 = 250.0f;
-                float g_w  = (SCREEN_W - 20.0f) - dm_rx2;
-                float g_h  = 150.0f;
+                float tc_y = ry0 + 4 * row_h + 4.0f;
+                float tc_h = 400.0f - tc_y;
+                float g_x0 = dm_rx + 110.0f;
+                float g_y0 = tc_y + 34.0f;
+                float g_w  = dm_x1 - 10.0f - g_x0;
+                float g_h  = 396.0f - g_y0;
                 SDL_Color c_red = g_theme.alert;
                 int perf_now = g_cfg.perf_profile;
                 bool throttle_applicable = (perf_now == 0) && dev_cpu_max_freq > 0 && dev_cpu_cur_freq > 0;
@@ -8846,9 +8858,16 @@ draw_text(ren, f_ftr, "WIFI", labelc, mx + 8.0f, wty);
                     ? tr("THROTTLING ACTIVO", "THROTTLING ACTIVE")
                     : tr("Normal", "Normal");
                 SDL_Color throttle_c = !throttle_applicable ? c_menu_beige : (throttling ? c_red : c_menu_selbg);
-                draw_text(ren, f_ftr, tr("TEMPERATURA CPU", "CPU TEMPERATURE"), c_menu_beige, g_x0, g_y0 - 18.0f);
-                draw_text_right(ren, f_ftr, throttle_label, throttle_c, g_x0 + g_w, g_y0 - 18.0f);
-                draw_rect_filled(ren, g_x0, g_y0, g_w, g_h, (SDL_Color){26, 24, 18, 255});
+                draw_rounded_rect_filled(ren, dm_rx, tc_y, dm_x1 - dm_rx, tc_h, 8.0f, g_theme.row_bg);
+                draw_text(ren, f_ftr, tr("TEMPERATURA CPU", "CPU TEMPERATURE"), c_menu_beige, dm_rx + 10.0f, tc_y + 6.0f);
+                {
+                    int tw = 0, th = 0;
+                    TTF_GetStringSize(f_ftr, throttle_label, 0, &tw, &th);
+                    float cw = (float)tw + 20.0f;
+                    draw_rounded_rect_filled(ren, dm_x1 - 10.0f - cw, tc_y + 6.0f, cw, 20.0f, 10.0f, g_theme.bg);
+                    draw_text(ren, f_ftr, throttle_label, throttle_c, dm_x1 - 10.0f - cw + 10.0f, tc_y + 6.0f + (20.0f - (float)th) / 2.0f);
+                }
+                draw_rounded_rect_filled(ren, g_x0, g_y0, g_w, g_h, 6.0f, g_theme.bg);
                 {
                     int tmin = 30, tmax = 90;
                     SDL_SetRenderDrawColor(ren, c_menu_selbg.r, c_menu_selbg.g, c_menu_selbg.b, 255);
@@ -8868,7 +8887,7 @@ draw_text(ren, f_ftr, "WIFI", labelc, mx + 8.0f, wty);
                     if (g_devmode_temp_history_count > 0) {
                         char tbuf[16];
                         snprintf(tbuf, sizeof(tbuf), "%d C", g_devmode_temp_history[g_devmode_temp_history_count - 1]);
-                        draw_text(ren, f_ftr, tbuf, c_menu_selbg, g_x0 + 4.0f, g_y0 + 4.0f);
+                        draw_text(ren, f_title, tbuf, c_menu_selbg, dm_rx + 10.0f, tc_y + 34.0f);
                     }
                 }
             }
