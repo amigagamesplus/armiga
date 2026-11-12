@@ -88,7 +88,12 @@ jobs:
         run: |
           cd u-boot
           cp "${GITHUB_WORKSPACE}"/board/armiga/uboot/configs/*_defconfig configs/
-          for patch in "${GITHUB_WORKSPACE}"/board/armiga/uboot/patches/*.patch; do
+          PD="${GITHUB_WORKSPACE}/board/armiga/uboot/patches/${{ github.event.inputs.uboot_version }}"
+          if [ ! -d "$PD" ]; then
+            echo "No Armiga patches for U-Boot ${{ github.event.inputs.uboot_version }} in $PD"
+            exit 1
+          fi
+          for patch in "$PD"/*.patch; do
             echo "Applying $(basename "$patch")..."
             patch -p1 < "$patch"
           done
