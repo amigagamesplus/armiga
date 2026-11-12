@@ -26,7 +26,7 @@ on:
       tfa_version:
         description: 'ARM Trusted Firmware version / tag (e.g. v2.11.0)'
         required: false
-        default: 'v2.11.0'
+        default: 'v2.12.0'
       uboot_defconfig:
         description: 'U-Boot defconfig for the board'
         required: false
