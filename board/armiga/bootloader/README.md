@@ -7,7 +7,7 @@ This directory contains precompiled binaries used to boot the device:
 - `dtb-rg35xx-h.img` — Device Tree Blob for Anbernic RG35XX H (Allwinner H700). Users swap this manually for `dtb.img` if running on that hardware — see USER-GUIDE.md.
 - `dtb-rg35xx-h-rev6.img` — Device Tree Blob for Anbernic RG35XX H units with the "rev6" display panel revision. Only needed if the standard `dtb-rg35xx-h.img` produces a garbled/blank screen — see USER-GUIDE.md.
 - `dtb-rg40xx-h-v2.img` — Legacy Device Tree Blob for the RG40XX H "v2" (DDR3) variant. Not supported (support was discontinued); kept in the repo as-is and not updated when the kernel is rebuilt.
-- `u-boot.bin`  — U-Boot SPL + proper (`u-boot-sunxi-with-spl.bin`), written at raw offset 8K (sector 16) of the image by `board/armiga/post-image.sh`. Currently U-Boot 2026.01, precompiled by the upstream H700 distribution, DDR4 variant, with AXP717 charge-only boot support.
+- `u-boot.bin`  — U-Boot SPL + proper (`u-boot-sunxi-with-spl.bin`), written at raw offset 8K (sector 16) of the image by `board/armiga/post-image.sh`. Currently U-Boot 2027.01-rc2 with TF-A v2.14.0, built by `.github/workflows/build-uboot.yml` (LPDDR4 defconfig, with AXP717 charge-only boot support); see `board/armiga/uboot/README.md`.
 
 ## How the kernel reaches the image
 
@@ -42,25 +42,15 @@ For local kernel development/iteration, `board/armiga/linux/build_kernel.sh` per
 
 ## Updating u-boot.bin
 
-The upstream H700 distribution does not publish U-Boot binaries in its repository (only sources and patches); the compiled ones ship inside its images, under `/usr/share/bootloader/` of the `SYSTEM` squashfs.
+U-Boot is built from mainline U-Boot and TF-A by the `Build U-Boot (H700)` workflow (`.github/workflows/build-uboot.yml`, listed in Actions from `main`). Armiga patches live in `board/armiga/uboot/patches/<uboot_version>/`; a version without its directory fails on purpose. See `board/armiga/uboot/README.md`.
 
-1. Download a recent upstream H700 nightly (`<name>-H700.aarch64-<date>-DDR4.img.gz`), check that its changelog includes the change you want, and decompress it.
-2. Extract the binary:
-
-```bash
-   IMG=<name>-H700.aarch64-<date>-DDR4.img
-   L=$(sudo losetup -fP --show $IMG)
-   sudo mkdir -p /mnt/rx && sudo mount -o ro ${L}p1 /mnt/rx
-   unsquashfs -q -d /tmp/sq /mnt/rx/SYSTEM usr/share/bootloader
-   sudo umount /mnt/rx; sudo losetup -d $L
-   cp /tmp/sq/usr/share/bootloader/H700_DDR4_u-boot-sunxi-with-spl.bin board/armiga/bootloader/u-boot.bin
-```
-
-3. Choose the variant by the DRAM voltage of the target console, as the upstream `update.sh` does: `vdd-dram` at 1.2 V → `H700_DDR3_…`, at 1.1 V → `H700_DDR4_…`.
+1. Actions → `Build U-Boot (H700)` → Run workflow, with `uboot_version` (e.g. `v2027.01-rc2`), `tfa_version` (`v2.12.0` or newer: older TF-A does not support the AXP717), `uboot_defconfig` (`anbernic_rg35xx_h700_lpddr4_defconfig`) and `device_tree`.
+2. In the log check that every `Applying …` patch succeeds, then download the `u-boot-sunxi-with-spl-<version>` artifact to its own folder.
+3. Copy it into the repo:
 
 ```bash
-   for r in /sys/class/regulator/regulator.*/; do [ "$(cat $r/name)" = "vdd-dram" ] && echo "$r $(cat $r/microvolts)"; done
+   cp <folder>/u-boot-sunxi-with-spl.bin board/armiga/bootloader/u-boot.bin
 ```
 
-   A U-Boot built for the wrong RAM type will not boot.
+   The console uses LPDDR4; a U-Boot built for the wrong RAM type will not boot. The previous precompiled U-Boot from the upstream H700 distribution (2026.01) remains in git history as a rollback.
 4. `strings board/armiga/bootloader/u-boot.bin | grep -E "^U-Boot 20"` shows the version. A bad U-Boot leaves the device unbootable until the SD card is reflashed from a PC, so verify the first boot on hardware before publishing.
