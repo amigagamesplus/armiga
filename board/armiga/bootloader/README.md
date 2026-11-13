@@ -7,7 +7,7 @@ This directory contains precompiled binaries used to boot the device:
 - `dtb-rg35xx-h.img` — Device Tree Blob for Anbernic RG35XX H (Allwinner H700). Users swap this manually for `dtb.img` if running on that hardware — see USER-GUIDE.md.
 - `dtb-rg35xx-h-rev6.img` — Device Tree Blob for Anbernic RG35XX H units with the "rev6" display panel revision. Only needed if the standard `dtb-rg35xx-h.img` produces a garbled/blank screen — see USER-GUIDE.md.
 - `dtb-rg40xx-h-v2.img` — Legacy Device Tree Blob for the RG40XX H "v2" (DDR3) variant. Not supported (support was discontinued); kept in the repo as-is and not updated when the kernel is rebuilt.
-- `u-boot.bin`  — U-Boot SPL + proper (`u-boot-sunxi-with-spl.bin`), written at raw offset 8K (sector 16) of the image by `board/armiga/post-image.sh`. Currently U-Boot 2027.01-rc2 with TF-A v2.14.0, built by `.github/workflows/build-uboot.yml` (LPDDR4 defconfig, with AXP717 charge-only boot support); see `board/armiga/uboot/README.md`.
+- `u-boot.bin`  — U-Boot SPL + proper (`u-boot-sunxi-with-spl.bin`), written at raw offset 8K (sector 16) of the image by `board/armiga/post-image.sh`. Currently U-Boot 2027.01-rc2 with TF-A v2.15.0, built by `.github/workflows/build-uboot.yml` (LPDDR4 defconfig, with AXP717 charge-only boot support); see `board/armiga/uboot/README.md`.
 
 ## How the kernel reaches the image
 
