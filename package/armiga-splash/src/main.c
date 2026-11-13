@@ -57,8 +57,8 @@
 
 /* La barra sube como 1-exp(-t/TAU), con tope en PROGRESS_MAX: el arranque
  * no tiene un progreso medible y asi nunca llega a 100 % antes de tiempo. */
-#define PROGRESS_MAX   0.95
-#define PROGRESS_TAU   4.0
+#define PROGRESS_MAX   1.0
+#define PROGRESS_TAU   3.0
 #define FRAME_US       50000
 /* ------------------------------------------------------------------------- */
 
