@@ -1,18 +1,81 @@
 #!/bin/sh
-# S95powerbutton — Apagado limpio al pulsar el botón de encendido
+# S95powerbutton — Suspender (s2idle) al pulsar el botón de encendido y reponer los LED al despertar
 PIDFILE="/var/run/powerbutton.pid"
+LED_CONF="/media/amiga_data/led.conf"
+LED_DEV="/dev/ttyS2"
+LED_TMP="/tmp/led.payload"
+IGNORE_UNTIL=0
+RETRY_PID=""
+
+# añade un byte (escape octal) al buffer PL sin lanzar subprocesos
+add() { v=$(( $1 & 255 )); PL="$PL\\$((v / 64))$(( (v / 8) % 8 ))$((v % 8))"; }
+
+led_refresh() {
+    R_RIGHT=0; G_RIGHT=0; B_RIGHT=0; R_LEFT=0; G_LEFT=0; B_LEFT=0; BRIGHTNESS=128
+    if [ -f "$LED_CONF" ]; then
+        while IFS='=' read -r k v; do
+            case "$k" in
+                R_RIGHT) R_RIGHT=${v%%[!0-9]*} ;;
+                G_RIGHT) G_RIGHT=${v%%[!0-9]*} ;;
+                B_RIGHT) B_RIGHT=${v%%[!0-9]*} ;;
+                R_LEFT) R_LEFT=${v%%[!0-9]*} ;;
+                G_LEFT) G_LEFT=${v%%[!0-9]*} ;;
+                B_LEFT) B_LEFT=${v%%[!0-9]*} ;;
+                BRIGHTNESS) BRIGHTNESS=${v%%[!0-9]*} ;;
+            esac
+        done < "$LED_CONF"
+    fi
+    : "${R_RIGHT:=0}" "${G_RIGHT:=0}" "${B_RIGHT:=0}" "${R_LEFT:=0}" "${G_LEFT:=0}" "${B_LEFT:=0}" "${BRIGHTNESS:=128}"
+    stty -F "$LED_DEV" raw 115200 2>/dev/null
+    echo 1 > /sys/class/leds/rgb:kbd_backlight/brightness 2>/dev/null
+    sum=$(( 1 + (BRIGHTNESS & 255) + 8 * ((R_RIGHT & 255) + (G_RIGHT & 255) + (B_RIGHT & 255)) + 8 * ((R_LEFT & 255) + (G_LEFT & 255) + (B_LEFT & 255)) ))
+    PL=""
+    add 1
+    add "$BRIGHTNESS"
+    i=0
+    while [ "$i" -lt 8 ]; do add "$R_RIGHT"; add "$G_RIGHT"; add "$B_RIGHT"; i=$((i + 1)); done
+    i=0
+    while [ "$i" -lt 8 ]; do add "$R_LEFT"; add "$G_LEFT"; add "$B_LEFT"; i=$((i + 1)); done
+    add "$sum"
+    printf "$PL" > "$LED_TMP"
+    # una sola escritura al puerto: byte a byte el controlador descarta la trama
+    cat "$LED_TMP" > "$LED_DEV" 2>/dev/null
+    rm -f "$LED_TMP"
+}
+
+# el controlador de LED pierde la alimentación al suspender y tarda unos segundos en
+# arrancar: se reenvía el payload cada segundo hasta que lo acepte
+led_retry() {
+    n=0
+    while [ "$n" -lt 5 ]; do
+        sleep 1
+        led_refresh
+        n=$((n + 1))
+    done
+}
+
+suspend_now() {
+    [ -z "$RETRY_PID" ] || kill "$RETRY_PID" 2>/dev/null
+    sync
+    echo freeze > /sys/power/state
+    led_refresh
+    led_retry &
+    RETRY_PID=$!
+    IGNORE_UNTIL=$(( $(date +%s) + 2 ))
+}
+
 start() {
-    while read -r line; do
-        if echo "$line" | grep -q "code 116 (KEY_POWER), value 1"; then
-            killall retroarch.real 2>/dev/null || true
-            sleep 1
-            umount /media/amiga_data 2>/dev/null || true
-            echo 0 > /proc/sys/kernel/printk
-            poweroff
-        fi
-    done < <(evtest /dev/input/event0 2>/dev/null) &
+    evtest /dev/input/event0 2>/dev/null | while read -r line; do
+        case "$line" in
+            *"code 116 (KEY_POWER), value 1"*)
+                [ "$(date +%s)" -lt "$IGNORE_UNTIL" ] && continue
+                suspend_now
+                ;;
+        esac
+    done &
     echo $! > "$PIDFILE"
 }
+
 case "$1" in
     start) start ;;
     stop)
