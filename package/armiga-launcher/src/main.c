@@ -5325,7 +5325,8 @@ int main(void)
              * excluye ningun estado: a diferencia de brillo, ninguna
              * pantalla usa estas teclas para otra cosa. */
             if (ev.type == SDL_EVENT_KEY_DOWN &&
-                (ev.key.key == SDLK_VOLUMEUP || ev.key.key == SDLK_VOLUMEDOWN)) {
+                (ev.key.key == SDLK_VOLUMEUP || ev.key.key == SDLK_VOLUMEDOWN) &&
+                !(joy && SDL_GetJoystickButton(joy, BTN_SDL_MODE))) {
                 volume_pct += (ev.key.key == SDLK_VOLUMEUP) ? 5 : -5;
                 if (volume_pct < 0) volume_pct = 0;
                 if (volume_pct > 100) volume_pct = 100;
@@ -5339,15 +5340,16 @@ int main(void)
                 volume_popup_until = SDL_GetTicks() + 1500;
             }
 
-            /* Atajo global: MODE + DPAD UP/DOWN ajusta brillo desde
+            /* Atajo global: MODE + Volumen +/- ajusta brillo desde
              * cualquier pantalla, salvo dentro de STATE_BRIGHTNESS_CONFIG
              * (donde el D-pad ya tiene su propio uso LEFT/RIGHT). */
             if (state != STATE_BRIGHTNESS_CONFIG &&
-                ev.type == SDL_EVENT_JOYSTICK_HAT_MOTION &&
+                ev.type == SDL_EVENT_KEY_DOWN &&
+                (ev.key.key == SDLK_VOLUMEUP || ev.key.key == SDLK_VOLUMEDOWN) &&
                 joy && SDL_GetJoystickButton(joy, BTN_SDL_MODE)) {
                 int brightness_delta = 0;
-                if (ev.jhat.value == SDL_HAT_UP)   brightness_delta = +5;
-                if (ev.jhat.value == SDL_HAT_DOWN) brightness_delta = -5;
+                if (ev.key.key == SDLK_VOLUMEUP)   brightness_delta = +5;
+                if (ev.key.key == SDLK_VOLUMEDOWN) brightness_delta = -5;
                 if (brightness_delta != 0) {
                     brightness_pct += brightness_delta;
                     if (brightness_pct < 5)   brightness_pct = 5;
