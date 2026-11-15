@@ -9356,8 +9356,12 @@ draw_text(ren, f_ftr, "WIFI", labelc, mx + 8.0f, wty);
                 if (sh_has && now_ticks < s_shots_hud_until) {
                     char pos[24];
                     snprintf(pos, sizeof(pos), "%d / %d", s_shots_cur + 1, s_shots_n);
-                    draw_rounded_rect_filled(ren, (float)SCREEN_W - 104.0f, 10.0f, 94.0f, 26.0f, 13.0f, g_theme.row_bg);
-                    draw_text_right(ren, f_ftr, pos, g_theme.accent, (float)SCREEN_W - 20.0f, 15.0f);
+                    int pw = 0, ph = 0;
+                    TTF_GetStringSize(f_gcr, pos, 0, &pw, &ph);
+                    const float pill_h = 34.0f, pill_w = (float)pw + 28.0f;
+                    const float pill_x = (float)SCREEN_W - 10.0f - pill_w;
+                    draw_rounded_rect_filled(ren, pill_x, 10.0f, pill_w, pill_h, pill_h / 2.0f, g_theme.row_bg);
+                    draw_text(ren, f_gcr, pos, g_theme.accent, pill_x + 14.0f, 10.0f + (pill_h - (float)TTF_GetFontHeight(f_gcr)) / 2.0f);
                 }
                 if (sh_has && s_shots_confirm) {
                     const char *q = tr("¿Borrar esta captura?", "Delete this screenshot?");
