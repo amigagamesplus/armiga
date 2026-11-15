@@ -208,10 +208,26 @@ do_expand_if_needed() {
     echo "OK"
 }
 
+# Antes del primer montaje: si el flag de volumen sucio de exFAT esta puesto (apagado
+# sin desmontar, p. ej. reset), repararlo con fsck.exfat. El flag solo se puede
+# leer con la particion sin montar (montada se pone en cuanto algo escribe).
+repair_exfat_if_dirty() {
+    [ -b "$AMIGA_DATA_DEV" ] || return 0
+    [ "$(blkid -o value -s TYPE "$AMIGA_DATA_DEV" 2>/dev/null)" = "exfat" ] || return 0
+    command -v fsck.exfat >/dev/null 2>&1 || return 0
+    DIRTY_BYTE=$(dd if="$AMIGA_DATA_DEV" bs=1 skip=106 count=1 2>/dev/null | od -An -tx1 | tr -d ' ')
+    [ -n "$DIRTY_BYTE" ] || return 0
+    [ $(( 0x$DIRTY_BYTE & 2 )) -ne 0 ] || return 0
+    printf "repairing exFAT flag: "
+    fsck.exfat -p "$AMIGA_DATA_DEV" >/tmp/amiga_fsck.log 2>&1
+    echo "rc=$?"
+}
+
 case "$1" in
     start)
         printf "Mounting amiga_data partition: "
         mkdir -p "$AMIGA_DATA_MNT"
+        repair_exfat_if_dirty
         do_expand_if_needed
         if [ -b "$AMIGA_DATA_DEV" ]; then
             mount -t exfat -o noatime "$AMIGA_DATA_DEV" "$AMIGA_DATA_MNT" 2>/dev/null && echo -n "amiga_data "
