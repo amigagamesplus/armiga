@@ -10,8 +10,8 @@
 #
 # Formato dentro de system.img:
 #   0 ............ rootfs.squashfs
-#   PKG_OFFSET ... cabecera de 512 bytes: "ARMIGAPKG1\nSIZE=<n>\nSHA256=<hex>\n" + ceros
-#   +512 ......... tar (ustar) de SIZE bytes: KERNEL, dtb*.img, u-boot.bin
+#   PKG_OFFSET ... cabecera de 512 bytes: "ARMIGAPKG1\nSIZE=<n>\nKERNEL_SIZE=<n>\nSHA256=<hex>\n" + ceros
+#   +512 ......... tar (ustar) de SIZE bytes: KERNEL, dtb*.img (4), u-boot.bin
 #
 # Uso: mkbootpkg.sh IMAGES_DIR BOARD_DIR
 # =============================================================================
@@ -34,18 +34,13 @@ die () { echo "ERROR mkbootpkg: $*" >&2; exit 1; }
 
 rm -rf "${PKG_DIR}"
 mkdir -p "${PKG_DIR}"
-for f in KERNEL dtb.img; do
+# Todos los miembros son obligatorios: S01bootsync los extrae por nombre
+for f in KERNEL dtb.img dtb-rg35xx-h.img dtb-rg35xx-h-rev6.img dtb-rg40xx-h-v2.img; do
     [ -f "${IMAGES_DIR}/${f}" ] || die "falta ${IMAGES_DIR}/${f}"
     cp "${IMAGES_DIR}/${f}" "${PKG_DIR}/${f}"
 done
-for f in dtb-rg35xx-h.img dtb-rg35xx-h-rev6.img dtb-rg40xx-h-v2.img; do
-    if [ -f "${IMAGES_DIR}/${f}" ]; then
-        cp "${IMAGES_DIR}/${f}" "${PKG_DIR}/${f}"
-    fi
-done
-if [ -f "${BOARD_DIR}/bootloader/u-boot.bin" ]; then
-    cp "${BOARD_DIR}/bootloader/u-boot.bin" "${PKG_DIR}/u-boot.bin"
-fi
+[ -f "${BOARD_DIR}/bootloader/u-boot.bin" ] || die "falta ${BOARD_DIR}/bootloader/u-boot.bin"
+cp "${BOARD_DIR}/bootloader/u-boot.bin" "${PKG_DIR}/u-boot.bin"
 
 # Contenido determinista (orden, propietario y fecha fijos)
 rm -f "${PKG_TAR}"
@@ -55,12 +50,13 @@ tar --format=ustar --sort=name --owner=0 --group=0 --numeric-owner --mtime='@0' 
 
 SQ_SIZE=$(stat -c %s "${SQUASHFS}")
 PKG_SIZE=$(stat -c %s "${PKG_TAR}")
+KERNEL_SIZE=$(stat -c %s "${PKG_DIR}/KERNEL")
 PKG_SHA=$(sha256sum "${PKG_TAR}" | cut -d' ' -f1)
 [ "${SQ_SIZE}" -le "${PKG_OFFSET}" ] || die "rootfs.squashfs (${SQ_SIZE} B) no cabe antes del paquete (offset ${PKG_OFFSET})"
 TOTAL=$(( PKG_OFFSET + 512 + PKG_SIZE ))
 [ "${TOTAL}" -le "${SLOT_SIZE}" ] || die "el paquete no cabe en el slot (${TOTAL} > ${SLOT_SIZE})"
 
-printf 'ARMIGAPKG1\nSIZE=%s\nSHA256=%s\n' "${PKG_SIZE}" "${PKG_SHA}" > "${PKG_HDR}"
+printf 'ARMIGAPKG1\nSIZE=%s\nKERNEL_SIZE=%s\nSHA256=%s\n' "${PKG_SIZE}" "${KERNEL_SIZE}" "${PKG_SHA}" > "${PKG_HDR}"
 truncate -s 512 "${PKG_HDR}"
 
 rm -f "${SYSTEM_IMG}"
