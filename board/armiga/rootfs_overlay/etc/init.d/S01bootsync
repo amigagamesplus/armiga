@@ -27,7 +27,7 @@ PKG_OFFSET=134217728
 MIN_BATT=30
 UB_LEN=0
 
-say() { echo "bootsync: $*" >> "$LOG"; echo "Armiga: $*" > /dev/tty0 2>/dev/null; }
+say() { echo "bootsync: $*" >> "$LOG"; }
 fsize() { ls -l "$1" 2>/dev/null | awk '{print $5}'; }
 drop_caches() { sync; echo 3 > /proc/sys/vm/drop_caches 2>/dev/null; return 0; }
 differs() { ! cmp -s "$1" "$2" 2>/dev/null; }
