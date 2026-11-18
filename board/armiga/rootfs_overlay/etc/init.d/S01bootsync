@@ -1,0 +1,251 @@
+#!/bin/sh
+# =============================================================================
+# S01bootsync — Alinea p1 (KERNEL, DTB) y el U-Boot con el paquete de arranque
+# del slot activo (ver board/armiga/mkbootpkg.sh).
+#
+# La OTA solo copia el rootfs al slot inactivo, pero el paquete de arranque
+# viaja detras del squashfs en la misma particion. En el primer arranque del
+# slot nuevo este script lo lee, lo verifica (sha256) y, si p1 o el U-Boot
+# difieren, los actualiza y reinicia UNA vez, antes de que S02bootcheck cuente
+# el intento y antes de que S15modules cargue modulos de otro kernel.
+#
+# Seguridad: ficheros temporales verificados y renombrados; el U-Boot al final,
+# con copia de seguridad y comprobacion; un solo intento por paquete
+# (armiga_pkg_try); marca de paquete aplicado en p1 (armiga_pkg_sha).
+# =============================================================================
+SLOT_DEV="${SLOT_DEV:-$(grep -o 'root=/dev/mmcblk0p[0-9]*' /proc/cmdline 2>/dev/null | cut -d= -f2)}"
+BOOT_DEV="${BOOT_DEV:-/dev/mmcblk0p1}"
+DISK_DEV="${DISK_DEV:-/dev/mmcblk0}"
+BOOT_MNT="${BOOT_MNT:-/tmp/bootsync_boot}"
+WORK="${WORK:-/tmp/bootsync}"
+LOG="${LOG:-/tmp/bootsync.log}"
+PANEL_FILE="${PANEL_FILE:-/proc/device-tree/spi/panel@0/compatible}"
+PWR_DIR="${PWR_DIR:-/sys/class/power_supply}"
+P1_START_FILE="${P1_START_FILE:-/sys/class/block/mmcblk0p1/start}"
+REBOOT_CMD="${REBOOT_CMD:-reboot -f}"
+PKG_OFFSET=134217728
+MIN_BATT=30
+UB_LEN=0
+
+say() { echo "bootsync: $*" >> "$LOG"; }
+fsize() { ls -l "$1" 2>/dev/null | awk '{print $5}'; }
+drop_caches() { sync; echo 3 > /proc/sys/vm/drop_caches 2>/dev/null; return 0; }
+differs() { ! cmp -s "$1" "$2" 2>/dev/null; }
+
+# /tmp es un tmpfs de 16 MB: el paquete (30 MB) se lee en streaming desde el slot
+pkg_stream() {
+    dd if="$SLOT_DEV" bs=4M iflag=skip_bytes,count_bytes skip=$(( PKG_OFFSET + 512 )) count="$PKG_SIZE" 2>/dev/null
+}
+kernel_stream() { pkg_stream | tar -xOf - KERNEL 2>/dev/null; }
+kernel_differs() { ! kernel_stream | cmp -s - "$BOOT_MNT/KERNEL" 2>/dev/null; }
+
+write_kernel() {
+    # copia a KERNEL.new, comprueba tamano y contenido y renombra
+    kernel_stream > "$BOOT_MNT/KERNEL.new" || { rm -f "$BOOT_MNT/KERNEL.new"; return 1; }
+    drop_caches
+    if [ "$(fsize "$BOOT_MNT/KERNEL.new")" != "$KERNEL_SIZE" ] || ! kernel_stream | cmp -s - "$BOOT_MNT/KERNEL.new"; then
+        rm -f "$BOOT_MNT/KERNEL.new"
+        return 1
+    fi
+    mv -f "$BOOT_MNT/KERNEL.new" "$BOOT_MNT/KERNEL" || return 1
+    sync
+}
+
+cleanup() {
+    [ -n "$NOMOUNT" ] || umount "$BOOT_MNT" 2>/dev/null
+    rm -rf "$WORK"
+}
+finish() { cleanup; exit "${1:-0}"; }
+finish_reboot() {
+    sync
+    cleanup
+    say "reiniciando para aplicar el arranque nuevo"
+    sleep 2
+    $REBOOT_CMD
+    exit 0
+}
+
+write_file() {
+    # $1 = origen, $2 = nombre en p1: copia a .new, verifica y renombra
+    cp "$1" "$BOOT_MNT/$2.new" || return 1
+    drop_caches
+    if ! cmp -s "$1" "$BOOT_MNT/$2.new"; then
+        rm -f "$BOOT_MNT/$2.new"
+        return 1
+    fi
+    mv -f "$BOOT_MNT/$2.new" "$BOOT_MNT/$2" || return 1
+    sync
+}
+
+uboot_differs() {
+    UB_LEN=$(fsize "$WORK/u-boot.bin")
+    [ -n "$UB_LEN" ] || return 1
+    ! dd if="$DISK_DEV" bs=4K iflag=skip_bytes,count_bytes skip=8192 count="$UB_LEN" 2>/dev/null | cmp -s - "$WORK/u-boot.bin"
+}
+
+battery_ok() {
+    usb=$(cat "$PWR_DIR/axp20x-usb/online" 2>/dev/null)
+    [ "$usb" = "1" ] && return 0
+    cap=$(cat "$PWR_DIR/battery/capacity" 2>/dev/null)
+    [ -n "$cap" ] && [ "$cap" -ge "$MIN_BATT" ] 2>/dev/null
+}
+
+write_uboot() {
+    UB="$WORK/u-boot.bin"
+    [ "$(dd if="$UB" bs=1 skip=4 count=8 2>/dev/null)" = "eGON.BT0" ] || return 1
+    [ "$UB_LEN" -gt 0 ] && [ "$UB_LEN" -le 716800 ] || return 1
+    P1S=$(cat "$P1_START_FILE" 2>/dev/null)
+    [ -n "$P1S" ] || return 1
+    [ $(( 8192 + UB_LEN )) -lt $(( P1S * 512 )) ] || return 1
+    dd if="$DISK_DEV" bs=1K skip=8 count=700 of="$WORK/uboot.bak" 2>/dev/null || return 1
+    n=0
+    while [ "$n" -lt 2 ]; do
+        dd if="$UB" of="$DISK_DEV" bs=1K seek=8 conv=fsync,notrunc 2>/dev/null
+        drop_caches
+        if dd if="$DISK_DEV" bs=4K iflag=skip_bytes,count_bytes skip=8192 count="$UB_LEN" 2>/dev/null | cmp -s - "$UB"; then
+            return 0
+        fi
+        n=$((n + 1))
+    done
+    # no se pudo verificar: se restaura el U-Boot anterior
+    dd if="$WORK/uboot.bak" of="$DISK_DEV" bs=1K seek=8 conv=fsync,notrunc 2>/dev/null
+    return 1
+}
+
+do_start() {
+    [ -n "$SLOT_DEV" ] && [ -e "$SLOT_DEV" ] || exit 0
+
+    HDR=$(dd if="$SLOT_DEV" bs=512 count=1 iflag=skip_bytes skip="$PKG_OFFSET" 2>/dev/null | tr -d '\0')
+    [ "$(echo "$HDR" | sed -n 1p)" = "ARMIGAPKG1" ] || exit 0
+    PKG_SIZE=$(echo "$HDR" | sed -n 's/^SIZE=//p')
+    KERNEL_SIZE=$(echo "$HDR" | sed -n 's/^KERNEL_SIZE=//p')
+    PKG_SHA=$(echo "$HDR" | sed -n 's/^SHA256=//p')
+    case "$PKG_SIZE" in ''|*[!0-9]*) exit 0 ;; esac
+    case "$KERNEL_SIZE" in ''|*[!0-9]*) exit 0 ;; esac
+    [ "$KERNEL_SIZE" -ge 1048576 ] || exit 0
+    [ "${#PKG_SHA}" -eq 64 ] || exit 0
+
+    if [ -z "$NOMOUNT" ]; then
+        mkdir -p "$BOOT_MNT"
+        mount -t vfat -o rw "$BOOT_DEV" "$BOOT_MNT" 2>/dev/null
+        mountpoint -q "$BOOT_MNT" || exit 0
+    fi
+    rm -f "$BOOT_MNT"/*.new 2>/dev/null
+
+    DONE_SHA=$(cat "$BOOT_MNT/armiga_pkg_sha" 2>/dev/null)
+    [ "$DONE_SHA" != "$PKG_SHA" ] || finish 0
+    TRY_SHA=$(cat "$BOOT_MNT/armiga_pkg_try" 2>/dev/null)
+    if [ "$TRY_SHA" = "$PKG_SHA" ]; then
+        say "intento previo incompleto, no se reintenta"
+        finish 0
+    fi
+
+    # Verificacion de integridad antes de tocar nada (streaming, sin RAM)
+    rm -rf "$WORK"
+    mkdir -p "$WORK"
+    GOT=$(pkg_stream | sha256sum 2>/dev/null | cut -d' ' -f1)
+    if [ "$GOT" != "$PKG_SHA" ]; then
+        say "paquete de arranque corrupto, sin cambios"
+        finish 0
+    fi
+    # Los miembros pequenos (DTB y U-Boot, ~1 MB) van a RAM; el kernel se lee en streaming
+    pkg_stream | tar -C "$WORK" -xf - dtb.img dtb-rg35xx-h.img dtb-rg35xx-h-rev6.img dtb-rg40xx-h-v2.img u-boot.bin 2>/dev/null
+    for f in dtb.img dtb-rg35xx-h.img dtb-rg35xx-h-rev6.img dtb-rg40xx-h-v2.img u-boot.bin; do
+        if [ ! -f "$WORK/$f" ]; then
+            say "paquete de arranque incompleto ($f), sin cambios"
+            finish 0
+        fi
+    done
+
+    # DTB de esta consola: el que corresponde al panel que esta usando ahora
+    PANEL=""
+    if [ -r "$PANEL_FILE" ]; then PANEL=$(tr '\0' '\n' < "$PANEL_FILE" | head -1); fi
+    case "$PANEL" in
+        anbernic,rg40xx-panel)           DTB_SRC="dtb.img" ;;
+        anbernic,rg35xx-plus-panel)      DTB_SRC="dtb-rg35xx-h.img" ;;
+        anbernic,rg35xx-plus-rev6-panel) DTB_SRC="dtb-rg35xx-h-rev6.img" ;;
+        anbernic,rg40xx-v2-panel)        DTB_SRC="dtb-rg40xx-h-v2.img" ;;
+        *)                               DTB_SRC="" ;;
+    esac
+
+    CHANGES=""
+    if kernel_differs; then CHANGES="$CHANGES KERNEL"; fi
+    for f in dtb-rg35xx-h.img dtb-rg35xx-h-rev6.img dtb-rg40xx-h-v2.img; do
+        if [ -f "$WORK/$f" ] && differs "$WORK/$f" "$BOOT_MNT/$f"; then CHANGES="$CHANGES $f"; fi
+    done
+    if [ -n "$DTB_SRC" ] && [ -f "$WORK/$DTB_SRC" ] && differs "$WORK/$DTB_SRC" "$BOOT_MNT/dtb.img"; then
+        CHANGES="$CHANGES dtb.img"
+    fi
+    UB_PENDING=0
+    if [ -f "$WORK/u-boot.bin" ] && uboot_differs; then UB_PENDING=1; fi
+
+    if [ -z "$CHANGES" ] && [ "$UB_PENDING" -eq 0 ]; then
+        echo "$PKG_SHA" > "$BOOT_MNT/armiga_pkg_sha"
+        sync
+        say "arranque ya alineado con el paquete"
+        finish 0
+    fi
+
+    # Un solo intento por paquete
+    echo "$PKG_SHA" > "$BOOT_MNT/armiga_pkg_try"
+    sync
+    say "actualizando arranque:$CHANGES$([ "$UB_PENDING" -eq 1 ] && echo ' u-boot')"
+
+    case "$CHANGES" in
+        *KERNEL*)
+            FREE_KB=$(df -k "$BOOT_MNT" 2>/dev/null | awk 'NR==2{print $4}')
+            if [ -z "$FREE_KB" ] || [ "$FREE_KB" -lt $(( KERNEL_SIZE / 1024 + 2048 )) ]; then
+                say "sin espacio en boot para el kernel nuevo"
+                finish 0
+            fi
+            ;;
+    esac
+
+    FAIL=0
+    CHANGED=0
+    for f in $CHANGES; do
+        case "$f" in
+            KERNEL)  write_kernel; WROTE=$? ;;
+            dtb.img) write_file "$WORK/$DTB_SRC" dtb.img; WROTE=$? ;;
+            *)       write_file "$WORK/$f" "$f"; WROTE=$? ;;
+        esac
+        if [ "$WROTE" -eq 0 ]; then
+            CHANGED=1
+        else
+            say "fallo escribiendo $f"
+            FAIL=1
+            break
+        fi
+    done
+
+    UB_SKIPPED=0
+    if [ "$FAIL" -eq 0 ] && [ "$UB_PENDING" -eq 1 ]; then
+        if battery_ok; then
+            if write_uboot; then
+                CHANGED=1
+            else
+                say "ERROR al escribir el U-Boot (se ha restaurado el anterior)"
+                FAIL=1
+            fi
+        else
+            say "bateria baja: el U-Boot se actualizara en otro arranque"
+            UB_SKIPPED=1
+        fi
+    fi
+
+    if [ "$FAIL" -eq 0 ]; then
+        if [ "$UB_SKIPPED" -eq 0 ]; then echo "$PKG_SHA" > "$BOOT_MNT/armiga_pkg_sha"; fi
+        rm -f "$BOOT_MNT/armiga_pkg_try"
+    fi
+    sync
+
+    if [ "$CHANGED" -eq 1 ]; then finish_reboot; fi
+    finish 0
+}
+
+case "$1" in
+    start) do_start ;;
+    stop|restart) ;;
+    *) echo "Usage: $0 {start|stop|restart}"; exit 1 ;;
+esac
+exit 0
