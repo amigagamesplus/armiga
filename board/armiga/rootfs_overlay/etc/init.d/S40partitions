@@ -47,10 +47,13 @@ do_expand_if_needed() {
             # montando en modo lectura para no arriesgar nada.
             mkdir -p "$AMIGA_DATA_MNT"
             FS_SIZE_BYTES=0
+            FS_USED_KB=0
             if mount -t exfat -o ro "$AMIGA_DATA_DEV" "$AMIGA_DATA_MNT" 2>/dev/null; then
                 FS_SIZE_KB=$(df -k "$AMIGA_DATA_MNT" 2>/dev/null | awk 'NR==2{print $2}')
                 FS_SIZE_KB=${FS_SIZE_KB:-0}
                 FS_SIZE_BYTES=$(( FS_SIZE_KB * 1024 ))
+                FS_USED_KB=$(df -k "$AMIGA_DATA_MNT" 2>/dev/null | awk 'NR==2{print $3}')
+                FS_USED_KB=${FS_USED_KB:-0}
                 umount "$AMIGA_DATA_MNT" 2>/dev/null
             fi
 
@@ -59,8 +62,16 @@ do_expand_if_needed() {
             # expandir todavia (caso SD recien flasheada por genimage).
             IS_REAL_USER_DATA=0
             if [ "$PART_SIZE" -gt 0 ] 2>/dev/null; then
-                HALF_PART=$(( PART_SIZE / 2 ))
-                if [ "$FS_SIZE_BYTES" -ge "$HALF_PART" ] 2>/dev/null; then
+                # Referencia: el mayor entre la particion y el espacio util
+                # del disco (disco - inicio de p4). Tras flashear, la particion
+                # mide lo mismo que el placeholder (256M) y no sirve sola.
+                # Con 4 MiB o mas usados se considera siempre dato real.
+                P4_START=$(cat /sys/block/mmcblk0/mmcblk0p4/start 2>/dev/null || echo 0)
+                USABLE=$(( DISK_SIZE - P4_START * 512 ))
+                REF_SIZE=$PART_SIZE
+                [ "$USABLE" -gt "$REF_SIZE" ] 2>/dev/null && REF_SIZE=$USABLE
+                HALF_PART=$(( REF_SIZE / 2 ))
+                if [ "$FS_SIZE_BYTES" -ge "$HALF_PART" ] 2>/dev/null || [ "$FS_USED_KB" -ge 4096 ] 2>/dev/null; then
                     IS_REAL_USER_DATA=1
                 fi
             fi
@@ -138,7 +149,7 @@ do_expand_if_needed() {
     RA_CFG_VERSION_FILE="$AMIGA_DATA_MNT/retroarch/.armiga_cfg_version"
     TEMPLATE_VER=$(grep "^# ARMIGA_CFG_VERSION=" /etc/retroarch/retroarch.cfg.template | cut -d= -f2)
     TEMPLATE_VER=${TEMPLATE_VER:-0}
-    if [ ! -f "$AMIGA_DATA_MNT/retroarch/retroarch.cfg" ]; then
+    if [ ! -s "$AMIGA_DATA_MNT/retroarch/retroarch.cfg" ] || ! grep -q '^system_directory = "/media/amiga_data/kickstarts"' "$AMIGA_DATA_MNT/retroarch/retroarch.cfg"; then
         cp /etc/retroarch/retroarch.cfg.template "$AMIGA_DATA_MNT/retroarch/retroarch.cfg"
         echo "$TEMPLATE_VER" > "$RA_CFG_VERSION_FILE"
     elif [ ! -f "$RA_CFG_VERSION_FILE" ]; then
@@ -197,10 +208,26 @@ do_expand_if_needed() {
     echo "OK"
 }
 
+# Antes del primer montaje: si el flag de volumen sucio de exFAT esta puesto (apagado
+# sin desmontar, p. ej. reset), repararlo con fsck.exfat. El flag solo se puede
+# leer con la particion sin montar (montada se pone en cuanto algo escribe).
+repair_exfat_if_dirty() {
+    [ -b "$AMIGA_DATA_DEV" ] || return 0
+    [ "$(blkid -o value -s TYPE "$AMIGA_DATA_DEV" 2>/dev/null)" = "exfat" ] || return 0
+    command -v fsck.exfat >/dev/null 2>&1 || return 0
+    DIRTY_BYTE=$(dd if="$AMIGA_DATA_DEV" bs=1 skip=106 count=1 2>/dev/null | od -An -tx1 | tr -d ' ')
+    [ -n "$DIRTY_BYTE" ] || return 0
+    [ $(( 0x$DIRTY_BYTE & 2 )) -ne 0 ] || return 0
+    printf "repairing exFAT flag: "
+    fsck.exfat -p "$AMIGA_DATA_DEV" >/tmp/amiga_fsck.log 2>&1
+    echo "rc=$?"
+}
+
 case "$1" in
     start)
         printf "Mounting amiga_data partition: "
         mkdir -p "$AMIGA_DATA_MNT"
+        repair_exfat_if_dirty
         do_expand_if_needed
         if [ -b "$AMIGA_DATA_DEV" ]; then
             mount -t exfat -o noatime "$AMIGA_DATA_DEV" "$AMIGA_DATA_MNT" 2>/dev/null && echo -n "amiga_data "
@@ -213,7 +240,7 @@ case "$1" in
             RA_CFG_VERSION_FILE="$AMIGA_DATA_MNT/retroarch/.armiga_cfg_version"
             TEMPLATE_VER=$(grep "^# ARMIGA_CFG_VERSION=" /etc/retroarch/retroarch.cfg.template | cut -d= -f2)
             TEMPLATE_VER=${TEMPLATE_VER:-0}
-            if [ ! -f "$AMIGA_DATA_MNT/retroarch/retroarch.cfg" ]; then
+            if [ ! -s "$AMIGA_DATA_MNT/retroarch/retroarch.cfg" ] || ! grep -q '^system_directory = "/media/amiga_data/kickstarts"' "$AMIGA_DATA_MNT/retroarch/retroarch.cfg"; then
                 cp /etc/retroarch/retroarch.cfg.template "$AMIGA_DATA_MNT/retroarch/retroarch.cfg"
                 echo "$TEMPLATE_VER" > "$RA_CFG_VERSION_FILE"
             elif [ ! -f "$RA_CFG_VERSION_FILE" ]; then

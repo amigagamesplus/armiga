@@ -76,6 +76,14 @@ if [ -n "$MMC_ERRORS" ]; then
 else
     echo "   [OK] Sin errores del controlador mmc."
 fi
+DIRTY_COUNT="$(dmesg 2>/dev/null | grep -c 'not properly unmounted')"
+if [ "${DIRTY_COUNT:-0}" -gt 0 ] 2>/dev/null; then
+    echo "   [AVISO] amiga_data estaba marcada como sucia al arrancar ($DIRTY_COUNT avisos de exFAT): el apagado anterior no fue limpio."
+    echo "           Apaga siempre desde el menu del launcher. Para limpiar el aviso, repara la SD con fsck.exfat desde un PC."
+    WARN=$((WARN+1))
+else
+    echo "   [OK] amiga_data se desmonto limpia en el apagado anterior."
+fi
 
 echo ""
 echo ">> [5/5] Ficheros de configuracion criticos"

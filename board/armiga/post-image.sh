@@ -34,6 +34,10 @@ if [ -f "$BOARD_DIR/bootloader/dtb-rg40xx-h-v2.img" ]; then
     cp "$BOARD_DIR/bootloader/dtb-rg40xx-h-v2.img" "$IMAGES_DIR/dtb-rg40xx-h-v2.img"
 fi
 
+# --- Paquete de arranque dentro del slot (KERNEL, DTB y U-Boot detras del squashfs) ---
+echo ">>> Generando system.img (rootfs + paquete de arranque)..."
+bash "$BOARD_DIR/mkbootpkg.sh" "$IMAGES_DIR" "$BOARD_DIR"
+
 # --- Crear extlinux.conf -----------------------------------------------------
 echo ">>> Generando extlinux.conf..."
 cat > "$IMAGES_DIR/extlinux.conf" << 'EOF'

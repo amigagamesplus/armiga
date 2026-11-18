@@ -1,4 +1,9 @@
-<img src="docs/assets/logo-armiga.png" alt="armiga" width="550">
+<p align="center">
+<picture>
+  <source media="(prefers-color-scheme: light)" srcset="docs/assets/logo-armiga-light.png">
+  <img src="docs/assets/logo-armiga.png" alt="armiga" width="400">
+</picture>
+</p>
 
 <p align="left">
   <a href="https://github.com/amigagamesplus/armiga/releases"><img alt="release" src="https://img.shields.io/github/v/release/amigagamesplus/armiga?color=B7DD5B&labelColor=0F1F18&cacheSeconds=3600"></a>
@@ -10,9 +15,13 @@
 ARMIGA is a minimal Linux distribution based on **Buildroot** for the **Anbernic RG40XX H** and **RG40XX V**, with experimental support for the **RG35XX H**, developed by retro-gaming enthusiasts. Our goal is to craft a highly focused operating system dedicated to Commodore Amiga emulation via **RetroArch** and the **PUAE core**, creating exactly the retro experience we want while having fun developing it.
 
 <p align="center">
-  <img src="docs/assets/screenshot-main-menu.png" width="270">
-  <img src="docs/assets/screenshot-amiga-catalog.png" width="270">
-  <img src="docs/assets/screenshot-time-zone.png" width="270">
+  <img src="docs/assets/screenshot-main-menu.png" width="49%">
+  <img src="docs/assets/screenshot-screenshots.png" width="49%">
+</p>
+
+<p align="center">
+  <img src="docs/assets/screenshot-running-script.png" width="49%">
+  <img src="docs/assets/screenshot-diagnostics.png" width="49%">
 </p>
 
 ## Hardware
@@ -31,7 +40,7 @@ ARMIGA is a minimal Linux distribution based on **Buildroot** for the **Anbernic
 
 ### Working components
 
-- ✅ Boot (U-Boot 2026.01 + kernel 7.4.0-rc1-armiga + DTB); with the console off, plugging in USB-C only charges the battery (AXP717 charge-only boot, the system does not start)
+- ✅ Boot (U-Boot 2027.01-rc2 + kernel 7.4.0-rc3-armiga + DTB); with the console off, plugging in USB-C only charges the battery (AXP717 charge-only boot, the system does not start)
 - ✅ **A/B** partition scheme with automatic rollback (see below)
 - ✅ Rootfs on **SquashFS + zstd** (system/system_b, 300MB per slot, ro)
 - ✅ RTL8821CS WiFi (`wpa_supplicant` + `udhcpc`, config generated in `/tmp` — `/etc` is ro)
@@ -40,28 +49,34 @@ ARMIGA is a minimal Linux distribution based on **Buildroot** for the **Anbernic
 - ✅ GPU governor forced to `performance` (fixed 648MHz — `simple_ondemand` didn't scale well under real load)
 - ✅ ZRAM swap (512MB, LZ4, `swappiness=100`)
 - ✅ `amiga_data` partition (exFAT, auto-expands to 100% of the SD card on first boot)
-- ✅ Graphics stack: SDL3 3.4.20 (kmsdrm) + Mesa 26.3.0-rc3 (GBM + Panfrost, stripped `.so` in overlay)
+- ✅ Graphics stack: SDL3 3.4.20 (kmsdrm) + Mesa 26.3.1 (GBM + Panfrost, stripped `.so` in overlay)
 - ✅ Custom C/SDL3 launcher (`armiga-launcher`), bilingual **Spanish/English** interface (toggle `L1`, persistent)
 - ✅ Own gamepad driver (`armiga-joypad`, out-of-tree kernel module): analog sticks read through the analog multiplexer, D-pad as hat, debounced buttons, rumble
 - ✅ RetroArch 1.22.2-nightly (2242d04) + PUAE 2021 core (`puae2021_libretro.so`, 2.6.1 008d035)
-- ✅ OTA update system (GitHub Releases → download → SHA256 verification → flash inactive slot, all async without blocking the UI)
+- ✅ OTA update system (GitHub Releases → download → SHA256 verification → flash inactive slot; the boot package that rides with the rootfs then aligns kernel, DTBs and U-Boot on first boot, all async without blocking the UI)
 - ✅ Automatic A/B rollback on boot failure (attempt counter + slot reversion)
-- ✅ Settings menu: wireless network, backup (create/restore/delete), analog stick RGB LEDs, timezone, screensaver, brightness, performance profiles (maximum/balanced/power saving), SSH, factory reset
-- ✅ Redesigned "Workbench" interface (beige/gold palette on black, monochrome Tabler Icons iconography)
+- ✅ Settings menu: wireless network, backup (create/restore/delete), analog stick RGB LEDs, timezone, screensaver, screen calibration (brightness and gamma), performance profiles (maximum/balanced/power saving), SSH, factory reset
+- ✅ Redesigned interface (rounded cards and capsules, monochrome Tabler Icons iconography, selectable color themes)
 - ✅ Developer mode (terminal, btop, CPU temperature graph + throttling detection) accessible with `SELECT+START+L1` combo
 - ✅ ARexx scripts: kickstart checker (MD5 verification, color-coded pass/fail), disk/partition integrity check with verdict (OK/WARNING/CRITICAL); script output view supports line wrapping (no truncation) and continuous D-pad/stick hold-to-scroll
 - ✅ Global brightness shortcut (`MODE+DPAD`), USB-C charging indicator, real-time telemetry dashboard (CPU temp/load, RAM), reactive RGB LEDs (screen dimming, low battery — blinks red at 25% LED intensity when battery reaches 15%), UI navigation click sound (toggleable)
-- ✅ Last played game indicator on the main menu (reads RetroArch's history playlist): shows the title above the footer, `[X]` resumes it directly without going through the RetroArch menu
-- ✅ **Amiga Catalog** (native list of your WHDLoad `.lha` games): games are identified by CRC32 against a bundled index (`games.idx`), not by file name, so renaming a file doesn't matter; box art / screenshot downloaded on demand over WiFi and cached in `amiga_data`; per-game play time; jump by letter with D-pad left/right
+- ✅ Last played game indicator on the main menu (reads RetroArch's history playlist): `[X]` resumes it directly without going through the RetroArch menu
+- ✅ **Amiga Catalog** (native list of your WHDLoad `.lha` games): games are identified by CRC32 against a bundled index (`games.idx`), not by file name, so renaming a file doesn't matter; box art / screenshot downloaded on demand over WiFi and cached in `amiga_data`; per-game play time; jump by letter with D-pad left/right; release year, developer, genre and publisher metadata
 - ✅ Optional Samba share of `amiga_data` (`\\armiga`) — see `USER-GUIDE.md`
+- ✅ **Screenshots gallery** for RetroArch captures (taken in game with `MODE+L1`): browse, full screen view and delete
+- ✅ **System Diagnostics** screen (hardware, emulation engine versions, connectivity) with a diagnostic report
+- ✅ 12 selectable color themes in Settings; the launcher logo and interface follow the selected theme
+- ✅ Optional haptic feedback (vibration when going back and on power off) and click sound, toggled with `MODE+A`
+- ✅ Boot splash with progress bar; change the image by replacing `splash.png`
+- ✅ **Screen Calibration** (Settings): brightness plus a panel gamma adjustment (RG40XX H only), with a built-in test chart
 
 ### Partitions (MBR, never GPT) — A/B scheme
 
 | # | Label       | FS       | Size            | Content                                            | Mount                           |
 | --- | ----------- | -------- | --------------- | -------------------------------------------------- | -------------------------------- |
 | 1 | boot        | FAT32    | 64 MB           | Kernel, dtb.img, extlinux.conf (armiga-a/b labels) | `/boot` (on demand)              |
-| 2 | system      | squashfs | 300 MB          | Rootfs — slot A                                    | `/` (ro) if `DEFAULT=armiga-a`   |
-| 3 | system\_b   | squashfs | 300 MB          | Rootfs — slot B (identical copy on every build)    | `/` (ro) if `DEFAULT=armiga-b`   |
+| 2 | system      | squashfs | 300 MB          | Rootfs — slot A, followed by the boot package (kernel, DTBs, U-Boot)                                    | `/` (ro) if `DEFAULT=armiga-a`   |
+| 3 | system\_b   | squashfs | 300 MB          | Rootfs — slot B (same squashfs as slot A; receives the boot package with the first update)    | `/` (ro) if `DEFAULT=armiga-b`   |
 | 4 | amiga\_data | exFAT    | rest of the disk | Kickstarts, ROMs, configs, saves                   | `/media/amiga_data`              |
 
 `amiga_data` **must always** be the last physical partition, so that auto-expansion to 100% of the disk works on SD cards of any size.
@@ -75,8 +90,8 @@ On boot, `S02bootcheck` compares the active slot (read from `/proc/cmdline`) aga
 ```
 armiga-launcher / RetroArch (PUAE)
     └── SDL3 3.4.20 (backend: kmsdrm)
-        ├── libgbm.so.1.0.0 (Mesa 26.3.0-rc3)
-        │   └── dri_gbm.so → libgallium-26.3.0-rc3.so (Panfrost)
+        ├── libgbm.so.1.0.0 (Mesa 26.3.1)
+        │   └── dri_gbm.so → libgallium-26.3.1.so (Panfrost)
         ├── libEGL.so.1.0.0
         ├── libGLESv2.so.2.0.0
         └── libdrm
@@ -94,16 +109,18 @@ armiga/
 │   ├── build-mesa.yml                 # Mesa CI (cross-compile GBM+Panfrost, committed .so files, manual)
 │   ├── build-puae.yml                 # PUAE2021 core CI (manual, branch input)
 │   ├── build-retroarch.yml            # Stable RetroArch CI (manual)
-│   └── build-retroarch-nightly.yml    # Nightly RetroArch CI (manual)
+│   ├── build-retroarch-nightly.yml    # Nightly RetroArch CI (manual)
+│   └── build-uboot.yml                # U-Boot CI — TF-A + mainline U-Boot for the H700 (manual, run from main)
 ├── board/armiga/
-│   ├── bootloader/            # Precompiled kernel, DTB and U-Boot (committed)
+│   ├── bootloader/            # Prebuilt kernel, DTB and U-Boot (committed; U-Boot built by build-uboot.yml)
+│   ├── uboot/                 # U-Boot CI inputs: defconfig and Armiga patches per U-Boot version
 │   ├── linux/             # Kernel config, patches/, dts/ (custom DTS), build_kernel.sh; the joypad driver lives in its own repo (amigagamesplus/armiga-joypad, cloned by build-kernel.yml)
 │   ├── rootfs_overlay/
 │   │   ├── usr/lib/           # Mesa .so files (stripped)
 │   │   ├── usr/bin/           # armiga-launcher-wrapper, retroarch (wrapper)
-│   │   ├── usr/share/armiga/  # games.idx (Amiga game index, generated by tools/build-games-idx.py)
+│   │   ├── usr/share/armiga/  # games.idx (Amiga game index, generated by tools/build-games-idx.py), metadata.tsv (year, developer, genre, publisher)
 │   │   ├── etc/retroarch/     # retroarch.cfg.template, armiga.cfg, autoconfig/
-│   │   ├── etc/init.d/        # Boot scripts (S02bootcheck, S06gpu, S07zram, S40partitions, S41wifi, S43update, ...)
+│   │   ├── etc/init.d/        # Boot scripts (S01bootsync, S02bootcheck, S06gpu, S07zram, S40partitions, S41wifi, S43update, ...)
 │   │   └── media/amiga_data/  # Static mountpoint (needed: rootfs is ro)
 │   ├── post-build.sh          # Generates /etc/armiga-release
 │   ├── post-image.sh          # Generates extlinux.conf, amiga_data.img, invokes genimage
@@ -121,10 +138,10 @@ armiga/
 │   └── sdl3_ttf/
 ├── tools/                     # build-games-idx.py (games.idx generator), retroarch-sync.sh
 ├── docs/assets/               # README images
+├── release-notes/             # One file per release (vX.Y.Z.md)
 ├── Config.in
 ├── external.mk
 ├── external.desc
-├── flash.sh
 ├── USER-GUIDE.md
 ├── RETROARCH-CONFIG.md
 └── SECURITY.md
@@ -145,9 +162,9 @@ Estimated time: 30-40 min (~1h+ if `configs/armiga_defconfig` is modified, which
 ### Local build
 
 ```
-wget https://buildroot.org/downloads/buildroot-2026.08.tar.xz
-tar xf buildroot-2026.08.tar.xz
-make BR2_EXTERNAL=$PWD -C buildroot-2026.08 O=$PWD/output armiga_defconfig
+wget https://buildroot.org/downloads/buildroot-2026.08.1.tar.xz
+tar xf buildroot-2026.08.1.tar.xz
+make BR2_EXTERNAL=$PWD -C buildroot-2026.08.1 O=$PWD/output armiga_defconfig
 make -C output -j$(nproc)
 ```
 
