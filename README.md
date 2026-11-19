@@ -129,7 +129,6 @@ armiga/
 ├── package/
 │   ├── armiga-launcher/       # Custom launcher (C + SDL3)
 │   ├── armiga-splash/
-│   ├── btop/
 │   ├── fastfetch/
 │   ├── kmsdrm-test/
 │   ├── sdl-joystick-info/
